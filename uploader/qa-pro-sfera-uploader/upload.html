@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Загрузка в Сферу ФТ</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="mark" aria-hidden="true">QA</div>
+    <div><h1>Загрузка в Сферу ФТ</h1><p class="sub" id="source">Загружаю…</p></div>
+    <span class="pill" id="login"><i></i>Проверяю вход…</span>
+  </header>
+
+  <div id="login-warn" class="banner warn" hidden></div>
+
+  <section class="card" id="manual" hidden>
+    <h2><span class="n">00</span>Тест-кейсы из файла</h2>
+    <p class="hint">Откройте JSON, выгруженный из QA pro («Скачать JSON для загрузчика»), или массив тест-кейсов в формате Сферы.</p>
+    <div class="row"><label class="btn" style="display:inline-flex;align-items:center">Открыть файл JSON<input type="file" id="file" accept=".json,application/json" hidden></label><span class="hint" id="file-name"></span></div>
+    <details><summary>Вставить JSON текстом</summary>
+      <div class="field" style="margin-top:8px"><label class="lbl" for="paste">JSON</label><textarea id="paste" rows="6" spellcheck="false"></textarea>
+        <div class="row"><button class="btn" type="button" id="paste-apply">Разобрать</button></div></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">01</span>Куда загрузить</h2>
+    <div class="field">
+      <label class="lbl" for="sect-url">Ссылка на раздел Сферы ФТ</label>
+      <input type="url" id="sect-url" class="mono" spellcheck="false" placeholder="https://sfera-t1.ru/…/project/PPAN?section=123">
+      <div class="row"><button class="btn" type="button" id="from-tab">Взять из открытой вкладки Сферы</button><span class="hint" id="tabs-note"></span></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label class="lbl" for="proj">Проект</label><input type="text" id="proj" class="mono" spellcheck="false" placeholder="PPAN"></div>
+      <div class="field"><label class="lbl" for="sect">Раздел</label><select id="sect"><option value="">— укажите ссылку или проект —</option></select></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">02</span>Тест-кейсы <span class="hint" id="count"></span></h2>
+    <p class="hint">Смоук-кейсы получат метку <b>SMOKE</b>, регрессионные — отметку «Регрессионный». Метка AI_gen не ставится.</p>
+    <div class="tbl"><table>
+      <thead><tr><th><input type="checkbox" id="all" checked aria-label="Выбрать все"></th><th>Название</th><th>Приоритет</th><th>Метки</th><th>Результат</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="hint">Тест-кейсов пока нет.</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <div class="foot">
+    <button class="primary" type="button" id="go" disabled>Загрузить</button>
+    <span class="hint" id="go-note"></span>
+  </div>
+  <div id="summary" hidden></div>
+</div>
+<script src="upload.js"></script>
+</body>
+</html>

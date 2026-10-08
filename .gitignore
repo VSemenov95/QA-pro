@@ -1,0 +1,19 @@
+# сборка (генерируется build.py)
+app.js
+tc-agent.html
+qa-pro.html
+# результаты тестов и медиа
+t/out_*.txt
+t/shot*
+t/*.png
+t/*.mp4
+t/big/
+t/__pycache__/
+__pycache__/
+node_modules/
+*.zip
+*.mcpb
+*.wav
+*.f32
+*.onnx
+*.log

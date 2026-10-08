@@ -1,0 +1,97 @@
+{
+  "manifest_version": "0.2",
+  "name": "qa-pro-bridge",
+  "display_name": "QA pro — мост к загрузчику Сферы ФТ",
+  "version": "1.2.0",
+  "description": "Связывает QA pro в приложении Claude с загрузчиком в Сферу ФТ и распознаёт речь из видео на этом компьютере.",
+  "long_description": "QA pro в приложении Claude не видит расширений браузера. Мост передаёт тест-кейсы загрузчику в Chrome: загрузчик открывает своё окно, вы выбираете раздел Сферы ФТ и подтверждаете загрузку, а отметки «в ТМС» возвращаются в QA pro. Ещё мост распознаёт речь из видео для базы знаний (Whisper на этом компьютере): звук никуда не отправляется, при первом запуске скачиваются распознаватель (≈36 МБ из npm) и модель (≈250 МБ с Hugging Face). Мост работает только на этом компьютере (127.0.0.1), принимает подключения только от расширения браузера, в Сферу сам ничего не отправляет и токенов не видит.",
+  "author": {
+    "name": "QA pro"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "QA_PRO_BRIDGE_PORT": "${user_config.port}",
+        "QA_PRO_BRIDGE_HF": "${user_config.hf_mirror}",
+        "QA_PRO_BRIDGE_NPM": "${user_config.npm_registry}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Состояние моста и загрузчика"
+    },
+    {
+      "name": "sfera_upload",
+      "description": "Передать тест-кейсы загрузчику в Chrome"
+    },
+    {
+      "name": "sfera_job",
+      "description": "Состояние задания на загрузку"
+    },
+    {
+      "name": "sfera_cancel",
+      "description": "Отменить задание"
+    },
+    {
+      "name": "asr_prepare",
+      "description": "Подготовить распознавание речи"
+    },
+    {
+      "name": "asr_status",
+      "description": "Состояние распознавания речи"
+    },
+    {
+      "name": "asr_transcribe",
+      "description": "Распознать фрагмент речи"
+    }
+  ],
+  "user_config": {
+    "port": {
+      "type": "number",
+      "title": "Порт",
+      "description": "Локальный порт для связи с загрузчиком. Меняйте, только если 47321 занят, и укажите тот же порт в настройках загрузчика.",
+      "default": 47321,
+      "min": 1024,
+      "max": 65535,
+      "required": false
+    },
+    "hf_mirror": {
+      "type": "string",
+      "title": "Зеркало Hugging Face",
+      "description": "Если huggingface.co недоступен из сети компании — адрес зеркала (например, внутреннего прокси). Пусто — huggingface.co.",
+      "default": "",
+      "required": false
+    },
+    "npm_registry": {
+      "type": "string",
+      "title": "Реестр npm",
+      "description": "Откуда скачать распознаватель речи. Пусто — registry.npmjs.org; можно указать внутренний реестр (Nexus, Artifactory).",
+      "default": "",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "keywords": [
+    "qa",
+    "sfera",
+    "test cases"
+  ],
+  "license": "MIT"
+}

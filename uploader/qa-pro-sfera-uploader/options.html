@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Настройки загрузчика</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div class="wrap" style="max-width:680px">
+  <header class="top">
+    <div class="mark" aria-hidden="true">QA</div>
+    <div><h1>Настройки загрузчика</h1><p class="sub">QA pro → Сфера ФТ</p></div>
+  </header>
+  <section class="card">
+    <div class="field">
+      <label class="lbl" for="base">Адрес Сферы ФТ</label>
+      <input type="url" id="base" class="mono" spellcheck="false" placeholder="https://sfera-t1.ru">
+      <p class="hint">Загрузчик работает от вашего имени: берёт вход из этой Сферы, открытой в браузере. Для адреса, отличного от sfera-t1.ru, браузер попросит разрешение.</p>
+    </div>
+    <div class="field">
+      <label class="lbl" for="origins">Где открыт QA pro — если на своём веб-сервере</label>
+      <textarea id="origins" rows="3" spellcheck="false" placeholder="https://qa-pro.company.ru"></textarea>
+      <p class="hint">По одному адресу в строке. QA pro на claude.ai, с локального компьютера (file://) и с localhost загрузчик видит и так. Для файлов с диска включите в настройках расширения «Разрешить доступ к URL файлов».</p>
+    </div>
+    <div class="row"><button class="primary" type="button" id="save">Сохранить</button><span class="hint" id="note"></span></div>
+  </section>
+  <section class="card">
+    <h2>Задания из приложения Claude для компьютера</h2>
+    <p class="hint">В приложении Claude нет расширений браузера. Связь идёт через локальный мост <span class="mono">qa-pro-bridge</span> — расширение приложения Claude: QA pro передаёт ему кейсы, а загрузчик забирает их и открывает своё окно здесь. Мост скачивается в QA pro: шестерёнка → ТМС.</p>
+    <div class="banner" id="bridge-state">Проверяю мост…</div>
+    <label class="check"><input type="checkbox" id="bridge-on"> <span><b>Связь с приложением Claude через мост</b></span></label>
+    <div class="grid2">
+      <div class="field"><label class="lbl" for="bridge-port">Порт моста</label><input type="text" id="bridge-port" class="mono" inputmode="numeric" spellcheck="false"></div>
+      <div class="field"><span class="lbl">&nbsp;</span><div class="row"><button class="btn" type="button" id="bridge-check">Проверить мост</button></div></div>
+    </div>
+    <details>
+      <summary>Запасной путь без моста</summary>
+      <p class="hint" style="margin-top:8px">Задание из приложения может принять QA pro, открытый во вкладке этого браузера. Включите, чтобы загрузчик сам держал такую вкладку: откроет её закреплённой при запуске браузера и не даст выгрузить из памяти.</p>
+      <label class="check" style="margin-top:8px"><input type="checkbox" id="keep"> <span><b>Держать QA pro открытым</b></span></label>
+      <div class="field" style="margin-top:8px">
+        <label class="lbl" for="qa-url">Ссылка на QA pro</label>
+        <input type="url" id="qa-url" class="mono" spellcheck="false">
+      </div>
+    </details>
+    <div class="row"><span class="hint" id="keep-note"></span></div>
+  </section>
+  <section class="card">
+    <h2>Если QA pro пишет «загрузчик не найден»</h2>
+    <ol class="hint steps">
+      <li>Обновите страницу QA pro (Ctrl+F5) или нажмите «Подключить к открытым вкладкам».</li>
+      <li>QA pro должен быть открыт в этом браузере, а не в приложении Claude для компьютера: там расширений нет.</li>
+      <li>На странице расширения в <span class="mono">chrome://extensions</span> → «Сведения» → «Доступ к сайтам» не должно стоять «По нажатию».</li>
+      <li>Если не помогло — включите режим ниже: тогда загрузчик увидит QA pro на любом адресе.</li>
+    </ol>
+    <label class="check"><input type="checkbox" id="any"> <span><b>Работать на любых сайтах (https)</b><br><span class="hint">Браузер попросит разрешение. На сайтах загрузчик сам ничего не делает: он только отвечает странице QA pro и открывает своё окно, где загрузку подтверждаете вы.</span></span></label>
+    <div class="row"><button class="btn" type="button" id="inject">Подключить к открытым вкладкам</button><span class="hint" id="inject-note"></span></div>
+    <div class="field">
+      <span class="lbl">Последние обращения QA pro к загрузчику</span>
+      <div id="pings" class="hint"></div>
+    </div>
+  </section>
+</div>
+<script src="options.js"></script>
+</body>
+</html>
