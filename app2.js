@@ -378,7 +378,7 @@ function templateBlock(type) {
 ${fence}json
 ${JSON.stringify(plainDeep(info.structure))}
 ${fence}
-Пиши значения обычным текстом, без HTML-разметки (<p>, <br>, <ul> и т. п.), даже если в образце она была: разметку под ТМС добавит выгрузка. Не пиши буквальные экранированные переносы строк (обратная косая черта и n) ни в одном поле. Предусловия и постусловия — отдельные элементы массива строк, без переносов внутри элемента; списки в других полях — строками «- …». Исключение — данные для отправки или проверки: тело запроса и ответа, сообщение Kafka, SQL-запрос в предусловиях и шагах. Каждое такое значение оформляй блоком кода внутри того же значения: сначала строка с пояснением, затем строка из трёх обратных кавычек (после них можно указать язык: json, sql, xml), само значение и закрывающая строка из трёх обратных кавычек. Переносы внутри блока допустимы и в предусловиях. HTML-теги (<pre> и др.) для этого не пиши, даже если правила команды описывают такую разметку: нужную разметку добавит выгрузка.${more.length ? `\nЕщё образцы того же шаблона:\n${more.map((e) => fence + 'json\n' + JSON.stringify(e) + '\n' + fence).join('\n')}` : ''}`;
+Пиши значения обычным текстом, без HTML-разметки (<p>, <br>, <ul> и т. п.), даже если в образце она была: разметку под ТМС добавит выгрузка. Не пиши буквальные экранированные переносы строк (обратная косая черта и n) ни в одном поле. Предусловия и постусловия — отдельные элементы массива строк, без переносов внутри элемента; списки в других полях — строками «- …». Исключение — тело запроса и тело ответа API, сообщение Kafka и SQL-запрос: в предусловиях, шагах и ожидаемых результатах каждое такое значение оформляй блоком кода (даже если в образце оно записано в одну строку, например «Тело ответа: {…}»), внутри того же значения: сначала строка с пояснением, затем строка из трёх обратных кавычек (после них можно указать язык: json, sql, xml), само значение и закрывающая строка из трёх обратных кавычек. Переносы внутри блока допустимы и в предусловиях. HTML-теги (<pre> и др.) для этого не пиши, даже если правила команды описывают такую разметку: нужную разметку добавит выгрузка.${more.length ? `\nЕщё образцы того же шаблона:\n${more.map((e) => fence + 'json\n' + JSON.stringify(e) + '\n' + fence).join('\n')}` : ''}`;
 }
 function promptGenerate(run, b, mode = {}) {
   const info = tplInfo(b.type);
@@ -2317,7 +2317,7 @@ const TMS_KINDS = {
   testrail: { name: 'TestRail', hint: 'Адрес вида https://company.testrail.io. Логин — email, токен — API-ключ из «My Settings». Раздел — ID секции (section_id).' },
   custom: { name: 'Свой API', hint: 'POST на указанный адрес: по одному кейсу или все кейсы одним запросом. Тело — JSON кейса из QA pro.' },
 };
-function tmsCase(c) {
+function tmsCase(c, rich = false) {
   const tc = c.testCase || {};
   const keys = Object.keys(tc);
   const str = (v) => (v == null ? '' : typeof v === 'string' ? noReqRefs(deHtml(v)) : typeof v === 'object' ? JSON.stringify(noReqDeep(plainDeep(v)), null, 2) : String(v));
@@ -2337,7 +2337,7 @@ function tmsCase(c) {
   const dk = k(/^(description|описание|scenario|сценарий|objective|цель)$/i);
   if (dk) desc.push(noReqRefs(str(tc[dk]), true));
   const rk = k(/^(request|запрос)$/i);
-  if (rk) desc.push('Запрос:\n' + str(tc[rk]));
+  if (rk) desc.push('Запрос:\n' + (rich && typeof tc[rk] === 'object' ? `${fence}json\n${str(tc[rk])}\n${fence}` : str(tc[rk])));   // для Сферы тело запроса — блоком кода
   const tdk = k(/^(testData|test_data|тестовые_?данные|data)$/i);
   if (tdk && tdk !== stepsKey) desc.push('Тестовые данные:\n' + str(tc[tdk]));
   const ek = k(/^(expectedResult|expected_result|ожидаемый_?результат|result)$/i);
@@ -2416,7 +2416,7 @@ function hp(s) {
   return out.length ? out.join('\n') : '<p></p>';
 }
 function sferaCase(c) {
-  const t = tmsCase(c);
+  const t = tmsCase(c, true);
   return {
     ref: c.uid,
     qaId: c.dispId,
