@@ -313,22 +313,54 @@ function reqLine(r) {
 /* HTML-разметка в тексте кейса (<p>, <br>, списки) — обычным текстом: шаблоны из ТМС часто хранят поля в HTML,
    а кейс QA pro — простой текст; разметку под ТМС добавляет выгрузка (в Сферу — свои <p>). */
 const HTML_RX = /<\/?(p|br|div|span|ul|ol|li|b|i|u|s|strong|em|code|pre|h[1-6]|table|tr|td|th|tbody|thead|a|font|blockquote)\b[^>]*>/i;
+/* Блок кода в тексте кейса — тело запроса или ответа, сообщение Kafka, SQL: три обратные кавычки (после них можно указать язык).
+   В кейсе он остаётся обычным текстом, а при выгрузке в Сферу и в JSON Сферы становится <pre>. */
+const FENCE_RX = /```[^\n`]*\n[\s\S]*?```/g;
+function splitFences(s) {   // текст → куски: обычный текст и блоки кода (raw — вместе с кавычками, text — только код)
+  s = String(s ?? '');
+  const out = []; let last = 0, m;
+  const rx = new RegExp(FENCE_RX.source, 'g');
+  while ((m = rx.exec(s))) {
+    if (m.index > last) out.push({ code: false, text: s.slice(last, m.index) });
+    out.push({ code: true, raw: m[0], text: m[0].replace(/^```[^\n`]*\n/, '').replace(/\n?```$/, '') });
+    last = rx.lastIndex;
+  }
+  if (last < s.length) out.push({ code: false, text: s.slice(last) });
+  return out;
+}
+const unfence = (s) => (typeof s === 'string' && s.includes('```') ? splitFences(s).map((p) => p.text.replace(/^\n+|\n+$/g, '')).filter(Boolean).join('\n') : s);   // без кавычек: для XLSX
 function deHtml(v) {
   let t = String(v ?? '');
   if (!HTML_RX.test(t) && !/&(nbsp|lt|gt|amp|quot|#39);/.test(t)) return t;
-  const strip = (s) => s.replace(/<br\s*\/?>/gi, '\n').replace(/<li\b[^>]*>/gi, '\n- ').replace(/<\/(p|div|h[1-6]|tr|blockquote|pre)>/gi, '\n')
+  const kept = [];   // блоки кода не трогаем: в них бывает XML и другие угловые скобки
+  const keep = (code) => `\n\u0000${kept.push(code) - 1}\u0000\n`;
+  const un = (s) => s.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  const strip = (s) => s.replace(FENCE_RX, keep)
+    .replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (m, code) => keep('```\n' + un(code.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?(code|span)\b[^>]*>/gi, '')).trim() + '\n```'))   // <pre> из ТМС → блок кода
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<li\b[^>]*>/gi, '\n- ').replace(/<\/(p|div|h[1-6]|tr|blockquote|pre)>/gi, '\n')
     .replace(/<\/?(p|div|span|ul|ol|li|b|i|u|s|strong|em|code|pre|h[1-6]|table|tr|td|th|tbody|thead|a|font|blockquote)\b[^>]*>/gi, '');
-  t = strip(t).replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  t = un(strip(t));
   if (HTML_RX.test(t)) t = strip(t); // теги, которые были записаны экранированными (&lt;p&gt;)
-  return t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  t = t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return t.replace(/\u0000(\d+)\u0000/g, (m, i) => kept[i]);
 }
 /* Предусловия и постусловия: каждый пункт — отдельная строка без HTML и без буквальных «\n» (модель иногда пишет их как есть) */
 const PRE_KEY_RX = /precond|предусл|postcond|постусл/i;
-const cleanText = (s) => deHtml(s).replace(/\\r\\n|\\n|\\r/g, '\n');
+const cleanText = (s) => splitFences(deHtml(s)).map((p) => (p.code ? p.raw : p.text.replace(/\\r\\n|\\n|\\r/g, '\n'))).join('');
 const cleanLine = (s) => s.replace(/^\s*-\s+/, '').trim();
+function preItems(s) {   // текст → пункты, по строке на пункт; блок кода входит в пункт перед ним
+  const out = [];
+  for (const p of splitFences(cleanText(s))) {
+    if (!p.code) out.push(...p.text.split('\n').map(cleanLine).filter(Boolean));
+    else if (out.length) out[out.length - 1] += '\n' + p.raw;
+    else out.push(p.raw);
+  }
+  return out;
+}
+const mergeCode = (items) => items.reduce((a, x) => { if (typeof x === 'string' && x.startsWith('```') && typeof a[a.length - 1] === 'string') a[a.length - 1] += '\n' + x; else a.push(x); return a; }, []);
 function cleanPre(v) {
-  if (typeof v === 'string') return cleanText(v).split('\n').map(cleanLine).filter(Boolean).join('\n');
-  if (Array.isArray(v)) return v.flatMap((x) => (typeof x === 'string' ? cleanText(x).split('\n').map(cleanLine).filter(Boolean) : [cleanCase(x)]));
+  if (typeof v === 'string') return preItems(v).join('\n');
+  if (Array.isArray(v)) return mergeCode(v.flatMap((x) => (typeof x === 'string' ? preItems(x) : [cleanCase(x)])));
   return v;
 }
 /* Текст кейса без HTML и экранирования; ключи предусловий и постусловий приводятся к списку строк */
@@ -346,7 +378,7 @@ function templateBlock(type) {
 ${fence}json
 ${JSON.stringify(plainDeep(info.structure))}
 ${fence}
-Пиши значения обычным текстом, без HTML-разметки (<p>, <br>, <ul> и т. п.), даже если в образце она была: разметку под ТМС добавит выгрузка. Не пиши буквальные экранированные переносы строк (обратная косая черта и n) ни в одном поле. Предусловия и постусловия — отдельные элементы массива строк, без переносов внутри элемента; списки в других полях — строками «- …».${more.length ? `\nЕщё образцы того же шаблона:\n${more.map((e) => fence + 'json\n' + JSON.stringify(e) + '\n' + fence).join('\n')}` : ''}`;
+Пиши значения обычным текстом, без HTML-разметки (<p>, <br>, <ul> и т. п.), даже если в образце она была: разметку под ТМС добавит выгрузка. Не пиши буквальные экранированные переносы строк (обратная косая черта и n) ни в одном поле. Предусловия и постусловия — отдельные элементы массива строк, без переносов внутри элемента; списки в других полях — строками «- …». Исключение — данные для отправки или проверки: тело запроса и ответа, сообщение Kafka, SQL-запрос в предусловиях и шагах. Каждое такое значение оформляй блоком кода внутри того же значения: сначала строка с пояснением, затем строка из трёх обратных кавычек (после них можно указать язык: json, sql, xml), само значение и закрывающая строка из трёх обратных кавычек. Переносы внутри блока допустимы и в предусловиях. HTML-теги (<pre> и др.) для этого не пиши, даже если правила команды описывают такую разметку: нужную разметку добавит выгрузка.${more.length ? `\nЕщё образцы того же шаблона:\n${more.map((e) => fence + 'json\n' + JSON.stringify(e) + '\n' + fence).join('\n')}` : ''}`;
 }
 function promptGenerate(run, b, mode = {}) {
   const info = tplInfo(b.type);
@@ -2289,7 +2321,7 @@ function tmsCase(c) {
   const tc = c.testCase || {};
   const keys = Object.keys(tc);
   const str = (v) => (v == null ? '' : typeof v === 'string' ? noReqRefs(deHtml(v)) : typeof v === 'object' ? JSON.stringify(noReqDeep(plainDeep(v)), null, 2) : String(v));
-  const lines = (v) => (Array.isArray(v) ? v.map(str) : v ? str(v).split('\n') : []).map((x) => x.trim()).filter(Boolean);
+  const lines = (v) => (Array.isArray(v) ? v.map(str) : v ? preItems(str(v)) : []).map((x) => x.trim()).filter(Boolean);
   const k = (re) => keys.find((x) => re.test(x));
   const stepsKey = k(/^(steps|testSteps|шаги)$/i) || keys.find((x) => Array.isArray(tc[x]) && tc[x].some((s) => s && typeof s === 'object'));
   const steps = arrOf(tc[stepsKey]).map((s) => {
@@ -2370,7 +2402,19 @@ async function sferaPing() {
   if (S.sferaExt.ok) relayReceiverStart();
   return S.sferaExt;
 }
-const hp = (s) => `<p>${esc(s).replace(/\n/g, '<br>')}</p>`;
+const uuid4 = () => (typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3) | 8).toString(16); }));
+// Блок кода → <pre> редактора Сферы (как в самой Сфере): пояснение, пустой абзац, <pre data-id style> с переводом строки после тега, пустой абзац.
+// Высоту редактор пересчитывает сам; здесь — по числу строк (в образце из Сферы: 1 строка кода = 47,99px).
+const sferaPre = (code) => `<pre data-id="${uuid4()}" style="height: ${(code.split('\n').length + 1) * 24}px">\n${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+function hp(s) {
+  const out = [];
+  for (const p of splitFences(s)) {
+    if (p.code) { out.push('<p></p>', sferaPre(p.text), '<p></p>'); continue; }
+    const t = p.text.replace(/^\n+|\n+$/g, '');
+    if (t) out.push(`<p>${esc(t).replace(/\n/g, '<br>')}</p>`);
+  }
+  return out.length ? out.join('\n') : '<p></p>';
+}
 function sferaCase(c) {
   const t = tmsCase(c);
   return {

@@ -22,7 +22,7 @@ function rv(v, depth = 0) {
   if (v === null || v === undefined || v === '') return '<span class="muted">—</span>';
   if (typeof v === 'boolean') return v ? 'да' : 'нет';
   if (typeof v === 'number') return `<span class="num">${v}</span>`;
-  if (typeof v === 'string') return esc(v).replace(/\n/g, '<br>');
+  if (typeof v === 'string') return v.includes('```') ? splitFences(v).map((p) => (p.code ? `<pre class="inl-code">${esc(p.text)}</pre>` : esc(p.text.replace(/^\n+|\n+$/g, '')).replace(/\n/g, '<br>'))).join('') : esc(v).replace(/\n/g, '<br>');
   if (Array.isArray(v)) {
     if (!v.length) return '<span class="muted">—</span>';
     const objs = v.every((x) => x && typeof x === 'object' && !Array.isArray(x));
@@ -1019,7 +1019,7 @@ async function downloadOutput(o) {
   if (o.kind === 'xlsx') {
     try {
       await lib('xlsx');
-      const X = window.XLSX, ws = X.utils.aoa_to_sheet([o.columns, ...o.rows]), wb = X.utils.book_new();
+      const X = window.XLSX, ws = X.utils.aoa_to_sheet([o.columns, ...o.rows.map((r) => r.map(unfence))]), wb = X.utils.book_new();
       X.utils.book_append_sheet(wb, ws, 'Test cases');
       return downloadFile(`${o.filename}.xlsx`, new Blob([X.write(wb, { type: 'array', bookType: 'xlsx' })]));
     } catch { return toast('Не удалось сформировать Excel-файл.', 'err'); }
@@ -2644,6 +2644,6 @@ async function voiceFinish(chunks, mime) {
   } catch (e) { voiceSay('Распознавание не удалось: ' + (e?.message || 'мост не ответил'), 'err'); }
   finally { voiceBusy = false; if (ac) ac.close().catch(() => {}); }
 }
-if (window.__qaTest) window.__qa = { S, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { S, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();
