@@ -329,6 +329,68 @@ function splitFences(s) {   // текст → куски: обычный тек�
   return out;
 }
 const unfence = (s) => (typeof s === 'string' && s.includes('```') ? splitFences(s).map((p) => p.text.replace(/^\n+|\n+$/g, '')).filter(Boolean).join('\n') : s);   // без кавычек: для XLSX
+/* Что считаем блоком кода: сообщения Kafka, SQL, тела запроса и ответа API. Берём явные блоки (три обратные кавычки)
+   и JSON/SQL, записанные прямо в строке — в том числе в старых кейсах. pretty — разбить длинный JSON по строкам (для экрана). */
+function jsonEnd(s, i) {   // конец (не включая) сбалансированного {…} или […], начинающегося с i; -1 — не нашли
+  let depth = 0, str = false;
+  for (let k = i; k < s.length; k++) {
+    const ch = s[k];
+    if (str) { if (ch === '\\') k++; else if (ch === '"') str = false; continue; }
+    if (ch === '"') str = true;
+    else if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') { if (--depth === 0) return (s[i] === '{') === (ch === '}') ? k + 1 : -1; }
+  }
+  return -1;
+}
+function jsonCode(raw, pretty) {   // красивый вид JSON; null — это не JSON-данные
+  if (raw.length < 8) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== 'object') return null;
+    return pretty && raw.length > 50 ? JSON.stringify(v, null, 2) : raw;
+  } catch { return /^\{\s*"[^"]+"\s*:/.test(raw) ? raw : null; }   // с опечаткой в JSON всё равно показываем кодом
+}
+const SQL_START = /\b(?:SELECT\b[^;\n]*?\bFROM\b|INSERT\s+INTO\b|UPDATE\s+[\w."`\[\]]+\s+SET\b|DELETE\s+FROM\b|MERGE\s+INTO\b)/gi;
+const SQL_MORE = /^\s*(?:FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|AND|OR|GROUP|ORDER|HAVING|LIMIT|VALUES|SET|ON|UNION)\b/i;
+function sqlParts(text) {   // SQL-запрос в строке: до «;», до конца строки или до « — »; следующие строки с WHERE/JOIN… — продолжение
+  const out = []; let last = 0, m;
+  const rx = new RegExp(SQL_START.source, 'gi');
+  while ((m = rx.exec(text))) {
+    let e = m.index;
+    for (;;) {
+      let nl = text.indexOf('\n', e); if (nl < 0) nl = text.length;
+      let line = text.slice(e, nl);
+      const semi = line.indexOf(';'), dash = line.search(/\s[—–]\s/);
+      const cut = [semi >= 0 ? semi + 1 : -1, dash].filter((x) => x >= 0).sort((a, b) => a - b)[0];
+      if (cut !== undefined) { e += cut; break; }
+      e = nl;
+      if (!SQL_MORE.test(text.slice(nl + 1, text.indexOf('\n', nl + 1) < 0 ? text.length : text.indexOf('\n', nl + 1)))) break;
+      e = nl + 1;
+    }
+    const sql = text.slice(m.index, e).trim();
+    if (sql.length < 12) continue;
+    if (m.index > last) out.push({ code: false, text: text.slice(last, m.index) });
+    out.push({ code: true, text: sql });
+    last = rx.lastIndex = e;
+  }
+  if (last < text.length) out.push({ code: false, text: text.slice(last) });
+  return out;
+}
+function jsonParts(text, pretty) {
+  const out = []; let last = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch !== '{' && !(ch === '[' && /^\[\s*[{"]/.test(text.slice(i, i + 6)))) continue;
+    const e = jsonEnd(text, i), code = e > 0 ? jsonCode(text.slice(i, e), pretty) : null;
+    if (code == null) continue;
+    if (i > last) out.push({ code: false, text: text.slice(last, i) });
+    out.push({ code: true, text: code });
+    i = e - 1; last = e;
+  }
+  if (last < text.length) out.push({ code: false, text: text.slice(last) });
+  return out;
+}
+const codeParts = (s, pretty = false) => splitFences(s).flatMap((p) => (p.code ? [p] : jsonParts(p.text, pretty))).flatMap((p) => (p.code ? [p] : sqlParts(p.text)));
 function deHtml(v) {
   let t = String(v ?? '');
   if (!HTML_RX.test(t) && !/&(nbsp|lt|gt|amp|quot|#39);/.test(t)) return t;
@@ -2317,7 +2379,7 @@ const TMS_KINDS = {
   testrail: { name: 'TestRail', hint: 'Адрес вида https://company.testrail.io. Логин — email, токен — API-ключ из «My Settings». Раздел — ID секции (section_id).' },
   custom: { name: 'Свой API', hint: 'POST на указанный адрес: по одному кейсу или все кейсы одним запросом. Тело — JSON кейса из QA pro.' },
 };
-function tmsCase(c, rich = false) {
+function tmsCase(c) {
   const tc = c.testCase || {};
   const keys = Object.keys(tc);
   const str = (v) => (v == null ? '' : typeof v === 'string' ? noReqRefs(deHtml(v)) : typeof v === 'object' ? JSON.stringify(noReqDeep(plainDeep(v)), null, 2) : String(v));
@@ -2337,7 +2399,7 @@ function tmsCase(c, rich = false) {
   const dk = k(/^(description|описание|scenario|сценарий|objective|цель)$/i);
   if (dk) desc.push(noReqRefs(str(tc[dk]), true));
   const rk = k(/^(request|запрос)$/i);
-  if (rk) desc.push('Запрос:\n' + (rich && typeof tc[rk] === 'object' ? `${fence}json\n${str(tc[rk])}\n${fence}` : str(tc[rk])));   // для Сферы тело запроса — блоком кода
+  if (rk) desc.push('Запрос:\n' + str(tc[rk]));
   const tdk = k(/^(testData|test_data|тестовые_?данные|data)$/i);
   if (tdk && tdk !== stepsKey) desc.push('Тестовые данные:\n' + str(tc[tdk]));
   const ek = k(/^(expectedResult|expected_result|ожидаемый_?результат|result)$/i);
@@ -2408,15 +2470,15 @@ const uuid4 = () => (typeof crypto?.randomUUID === 'function' ? crypto.randomUUI
 const sferaPre = (code) => `<pre data-id="${uuid4()}" style="height: ${(code.split('\n').length + 1) * 24}px">\n${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
 function hp(s) {
   const out = [];
-  for (const p of splitFences(s)) {
+  for (const p of codeParts(s)) {   // явные блоки и JSON/SQL в строке (тела запроса и ответа API, Kafka, SQL)
     if (p.code) { out.push('<p></p>', sferaPre(p.text), '<p></p>'); continue; }
-    const t = p.text.replace(/^\n+|\n+$/g, '');
+    const t = p.text.trim();
     if (t) out.push(`<p>${esc(t).replace(/\n/g, '<br>')}</p>`);
   }
   return out.length ? out.join('\n') : '<p></p>';
 }
 function sferaCase(c) {
-  const t = tmsCase(c, true);
+  const t = tmsCase(c);
   return {
     ref: c.uid,
     qaId: c.dispId,

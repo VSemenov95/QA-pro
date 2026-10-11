@@ -18,11 +18,16 @@ function pickTitle(tc) {
 function pickTitleText(tc) { return pickTitle(tc).text; }
 const prioOf = (tc) => tc?.priority ?? tc?.Priority ?? tc?.['приоритет'] ?? tc?.['Приоритет'] ?? null;
 const prioClass = (p) => 'p-' + normPrio(p);
+/* Показ текста кейса: сообщения Kafka, SQL, тела запроса и ответа API — блоком кода, без кавычек. Меняется только вид на экране. */
+function richText(s) {
+  if (!/[{\[`]|SELECT|INSERT|UPDATE|DELETE|MERGE/i.test(s)) return esc(s).replace(/\n/g, '<br>');
+  return codeParts(s, true).map((p) => (p.code ? `<pre class="inl-code">${esc(p.text)}</pre>` : esc(p.text.replace(/^\n+|\n+$/g, '')).replace(/\n/g, '<br>'))).filter(Boolean).join('');
+}
 function rv(v, depth = 0) {
   if (v === null || v === undefined || v === '') return '<span class="muted">—</span>';
   if (typeof v === 'boolean') return v ? 'да' : 'нет';
   if (typeof v === 'number') return `<span class="num">${v}</span>`;
-  if (typeof v === 'string') return v.includes('```') ? splitFences(v).map((p) => (p.code ? `<pre class="inl-code">${esc(p.text)}</pre>` : esc(p.text.replace(/^\n+|\n+$/g, '')).replace(/\n/g, '<br>'))).join('') : esc(v).replace(/\n/g, '<br>');
+  if (typeof v === 'string') return richText(v);
   if (Array.isArray(v)) {
     if (!v.length) return '<span class="muted">—</span>';
     const objs = v.every((x) => x && typeof x === 'object' && !Array.isArray(x));
