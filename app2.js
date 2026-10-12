@@ -253,6 +253,7 @@ const SCOPE_RX_IFACE = /\b(GET|POST|PUT|PATCH|DELETE)\s+\/|\/api\b|\bAPI\b|за�
 const outOfScope = (t) => { const x = String(t || ''); return SCOPE_RX_EXPL.test(x) || SCOPE_RX_DBW.test(x) || (SCOPE_RX_DB.test(x) && !SCOPE_RX_IFACE.test(x)); };
 /* в тексте кейса нет отсылок к требованиям QA pro: связь с требованиями хранится отдельно (requirementIds) */
 const REQ_REF_RULE = /*@md:rules/req-refs.md*/'';
+const TITLE_TAG_RULE = /*@md:rules/title-tags.md*/'';
 const DESC_KEY_RX = /description|описан|objective|цел[ья]|scenario|сценари|summary|назначени|comment|коммент/i;
 function noReqRefs(v, desc = false) {
   let t = String(v ?? '');
@@ -447,7 +448,7 @@ function promptGenerate(run, b, mode = {}) {
   const focus = b.items.map((it) => `${it.title} ${it.checks.join(' ')} ${it.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', b.type, 25, focus);
   const rules = rulesText();
-  return renderPrompt("promptGenerate", { "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
+  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
 ${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}
 Требования:
@@ -457,7 +458,7 @@ ${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n
 function promptRefine(run, c, comment) {
   const info = tplInfo(c.type);
   const reqs = c.requirementIds.map((id) => reqLine(run.reqById?.[id])).filter(Boolean).join('\n');
-  return renderPrompt("promptRefine", { "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
+  return renderPrompt("promptRefine", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
 }
 function promptImpact(run, qs) {
   const cases = run.cases.map((c) => `${c.dispId} [${c.type}] ${c.requirementIds.join(',')}: ${pickTitleText(c.testCase)}`).join('\n');
@@ -466,7 +467,7 @@ function promptImpact(run, qs) {
 }
 function promptReviseBatch(run, type, ups) {
   const info = tplInfo(type);
-  return renderPrompt("promptReviseBatch", { "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
+  return renderPrompt("promptReviseBatch", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
 Инструкция: ${u.instruction}
 Требования:
 ${u.c.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}
@@ -485,7 +486,7 @@ function promptActualize(run, type, batch) {
   const info = tplInfo(type);
   const rules = rulesText();
   const focus = batch.map((x) => `${x.title} ${x.instruction || ''} ${x.reqIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
-  return renderPrompt("promptActualize", { "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
+  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
 Статус: ${sc.status === 'changed' ? '"changed" — исправить' : sc.status === 'obsolete' ? '"obsolete" — устарел' : '"same" — без изменений по сути'}${sc.status === 'changed' && sc.instruction ? `\nЧто исправить: ${sc.instruction}` : ''}
 Требования:
 ${sc.reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'не сопоставлены'}`).join('\n\n') });
@@ -947,8 +948,26 @@ function makeBatches(items, done, dchk = null) {
   }
   return batches;
 }
-function orderLikeTemplate(tc, info) {
+/* Метка вида теста в начале названия: [BE] — API, [Kafka] — сообщения Kafka (вместо [BE]), [FE] — UI, [E2E] — сквозные.
+   Метку ставит модель по правилу; здесь она проверяется и при необходимости дописывается. Названия без ключа из TITLE_KEYS не трогаем. */
+const KNOWN_TAG_RX = /^\s*(?:\[(?:BE|FE|UI|API|E2E|Kafka|Кафка|Back-?end|Front-?end)\]\s*)+/i;
+function titleTagFor(type, title) {
+  if (type !== 'api') return TITLE_TAG[type] || '';
+  const given = title.match(KNOWN_TAG_RX)?.[0] || '';
+  if (given) return /\[(?:kafka|кафка)\]/i.test(given) ? KAFKA_TAG : TITLE_TAG.api;
+  return !/^\s*(?:GET|POST|PUT|PATCH|DELETE)\s/i.test(title) && /kafka|кафка/i.test(title) ? KAFKA_TAG : TITLE_TAG.api;
+}
+function tagTitle(tc, type) {
+  const { key, text } = pickTitle(tc);
+  if (!TITLE_TAG[type] || !key || !TITLE_KEYS.includes(key)) return tc;
+  const rest = text.replace(KNOWN_TAG_RX, '').trim();
+  if (rest) tc[key] = `${titleTagFor(type, text)} ${rest}`;
+  return tc;
+}
+const titleTagOk = (c) => { const tc = { ...(c.testCase || {}) }, was = pickTitle(tc).text; return pickTitle(tagTitle(tc, c.type)).text === was; };
+function orderLikeTemplate(tc, info, type) {
   tc = noReqDeep(cleanCase(tc)); // без <p>, HTML и буквальных «\n» и без отсылок к требованиям QA pro
+  if (type) tagTitle(tc, type);
   if (!info.ok) return tc;
   const ordered = {};
   for (const k of info.fields) if (k in tc) ordered[k] = tc[k];
@@ -969,7 +988,7 @@ function acceptCases(run, b, res) {
     if (!reqIds.length) reqIds = (b.items.find((i) => i.id === planItem)?.requirementIds || []).slice();
     const dispId = nextDispId(run, b.type);
     if (info.ok && info.idField) tc[info.idField] = dispId;
-    tc = orderLikeTemplate(tc, info);
+    tc = orderLikeTemplate(tc, info, b.type);
     const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: normSuites(c.suites), testCase: tc, dispId };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
@@ -1365,7 +1384,7 @@ async function stepActualize(run) {
         if (!dispId) dispId = sc.srcId ? `${sc.srcId}-${sc.index}` : nextDispId(run, b.type);
         takenSrc.add(dispId);
         if (info.ok && info.idField) tc[info.idField] = dispId;
-        tc = orderLikeTemplate(tc, info);
+        tc = orderLikeTemplate(tc, info, b.type);
         run.cases.push({
           uid: rid('c'), type: b.type, planItem: 'SRC', requirementIds: sc.reqIds.slice(), suites: normSuites(r.suites), testCase: tc, dispId,
           status: sc.status, note: sc.reason, changes: sc.status === 'changed' ? arrStr(r.changes).slice(0, 8) : [], srcIdx: sc.index, sourceId: sc.srcId || null,
@@ -1572,7 +1591,7 @@ async function refineCaseCore(run, c, comment, signal) {
   const info = tplInfo(c.type);
   if (info.ok && info.idField) tc[info.idField] = c.dispId;
   const ui = caseUI(c.uid);
-  ui.prev = c.testCase; c.testCase = orderLikeTemplate(tc, info);
+  ui.prev = c.testCase; c.testCase = orderLikeTemplate(tc, info, c.type);
   touchCase(c, 'Доработано: ' + String(comment).split('\n')[0].slice(0, 160));
 }
 async function refineCase(c, comment) {
@@ -1649,7 +1668,7 @@ async function reviseCases(run, updates) {
         if (info.ok && info.idField) tc[info.idField] = u.c.dispId;
         const ui = caseUI(u.c.uid);
         ui.prev = u.c.testCase; ui.note = 'Исправлено по ответам на вопросы: ' + u.instruction;
-        u.c.testCase = orderLikeTemplate(tc, info);
+        u.c.testCase = orderLikeTemplate(tc, info, b.type);
         touchCase(u.c, 'По ответу аналитика: ' + u.instruction.slice(0, 160));
         if (r.suites !== undefined) u.c.suites = normSuites(r.suites);
         n++;
@@ -2099,6 +2118,7 @@ function startReview(full = false, tab = 'review') {
       const info = tplInfo(c.type);
       const miss = info.ok ? info.fields.filter((k) => !(k in (c.testCase || {}))) : [];
       if (miss.length) addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'minor', category: 'Шаблон', message: `Нет полей шаблона: ${miss.join(', ')}.`, suggestion: 'Заполнить недостающие поля по образцу шаблона.', source: 'auto' });
+      if (!titleTagOk(c)) { const tag = titleTagFor(c.type, pickTitleText(c.testCase)); addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'minor', category: 'Название', message: `В названии нет метки вида теста ${tag}.`, suggestion: `Начать название с ${tag}.`, source: 'auto' }); }
     }
     const auto = run.findings.length;
     if (auto) slog(run, 'review', `Автоматические проверки: ${auto} ${plural(auto, 'замечание', 'замечания', 'замечаний')}`, 'warn');

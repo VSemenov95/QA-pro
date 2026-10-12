@@ -3,6 +3,7 @@
 
 /* ================= constants ================= */
 const TYPES = ['api', 'ui', 'e2e'];
+const TITLE_TAG = { api: '[BE]', ui: '[FE]', e2e: '[E2E]' }, KAFKA_TAG = '[Kafka]';   // метка вида теста в начале названия кейса
 const TL = { api: 'API', ui: 'UI', e2e: 'E2E' };
 const TYPE_DESC = { api: 'Эндпоинты, коды ответов', ui: 'Экраны, формы, сообщения', e2e: 'Сквозные сценарии' };
 const DEPTHS = [

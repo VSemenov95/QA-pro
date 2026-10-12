@@ -16,7 +16,7 @@ idPrefix: UI-
 ```json
 {
   "id": "UI-001",
-  "title": "Восстановление пароля: ошибка при email без символа @",
+  "title": "[FE] Восстановление пароля: ошибка при email без символа @",
   "priority": "Medium",
   "preconditions": [
     "Открыта страница /login",
