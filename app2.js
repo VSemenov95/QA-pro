@@ -3401,7 +3401,7 @@ function productSync(run) {
       c.cl = Math.max(Number(p.counters?.cl) || 0, Number(run.counters?.cl) || 0, idxMax(checklist));
       return { counters: c, stats: { cases: cases.length, checklist: checklist.length, lastRunAt: Math.max(Number(p.stats?.lastRunAt) || 0, run.createdAt || 0) } };
     });
-    if (S.productId === pid) renderProduct();
+    if (S.productId === pid) { S.pc.at = 0; renderProduct(); }
   }).catch(() => {});
   return idxChain;
 }
@@ -3409,7 +3409,7 @@ function dropFromIndex(pid, runId) {
   idxChain = idxChain.then(async () => {
     const cases = await writeIdx(pid, 'cases', (cur) => cur.filter((x) => x.r !== runId));
     const checklist = await writeIdx(pid, 'checklist', (cur) => cur.filter((x) => x.r !== runId));
-    if (S.productId === pid) S.prodIndex = { pid, cases, checklist };
+    if (S.productId === pid) { S.prodIndex = { pid, cases, checklist }; S.pc.at = 0; }
     await updateProduct(pid, { stats: { ...(productById(pid)?.stats || {}), cases: cases.length, checklist: checklist.length } });
   }).catch(() => {});
   return idxChain;
@@ -3434,7 +3434,7 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.history = []; S.legacy = []; S.historyState = 'idle';
   S.know = { busy: false, log: [], error: '', ctl: null };
   S.prodIndex = { pid, cases: [], checklist: [] };
-  S.pc = { type: 'all', q: '', docs: {}, busy: false, error: '' }; S.secEdit = null; S.casesScope = 'run';
+  S.pc = freshPc(); S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
   S.mat.open = null;
@@ -3795,32 +3795,45 @@ async function renameSection(doc, name) {
   if (!S.caps.db) { upsertLocalProduct(S.productId, { ...productById(S.productId), caseSections: next }); return; }
   await updateProduct(S.productId, { caseSections: next });
 }
-/* кейсы продукта: документ каждого кейса берётся из сохранённого запуска (требования и кейсы), результат кладётся в кэш */
-async function loadRunCaseDocs(pid, runId) {
-  const base = runBase(pid), meta = (await S.caps.db.doc(`${base}/${runId}`).get()).data();
-  if (!meta) return {};
-  const reqById = Object.fromEntries(arrOf(meta.requirements).map((r) => [r.id, r])), out = {};
-  for (let i = 0; i < (meta.partsCount || 0); i++) {
-    const p = (await S.caps.db.doc(`${base}/${runId}/parts/p${i}`).get()).data();
-    for (const c of arrOf(p?.cases)) out[c.dispId] = docOfCase({ reqById }, c);
+/* Кейсы продукта берутся из сохранённых запусков, а не из индекса: в индексе нет черновиков, а при большом объёме он обрезается с начала.
+   Запуск читается заново только если изменилась его отметка (updatedAt, стадия, число частей). */
+const prodCaseItem = (run, c, doc) => ({ r: run.id, i: String(c.dispId), t: c.type, n: String(pickTitleText(c.testCase || {})).replace(/\s+/g, ' ').trim().slice(0, 200), doc, draft: run.stage === 'draft', obs: c.status === 'obsolete' });
+const liveRunItems = (run) => arrOf(run.cases).map((c) => prodCaseItem(run, c, docOfCase(run, c)));
+async function readRunItems(pid, m) {
+  const base = runBase(pid), reqById = Object.fromEntries(arrOf(m.requirements).map((r) => [r.id, r])), items = [];
+  for (let i = 0; i < (m.partsCount || 0); i++) {
+    const p = (await S.caps.db.doc(`${base}/${m.id}/parts/p${i}`).get()).data();
+    for (const c of arrOf(p?.cases)) items.push(prodCaseItem({ id: m.id, stage: m.stage }, c, docOfCase({ reqById }, c)));
   }
+  return items;
+}
+function prodItems() {   // кейсы продукта по порядку запусков; открытый запуск берётся из памяти
+  const pc = S.pc, out = [];
+  for (const id of pc.order) out.push(...(S.run?.id === id ? liveRunItems(S.run) : pc.runs[id]?.items || []));
+  if (S.run && S.run.productId === S.productId && !pc.order.includes(S.run.id)) out.push(...liveRunItems(S.run));
+  if (!out.length && pc.error && !pc.order.length) return S.prodIndex.cases.map((x) => ({ ...x, doc: '', draft: false, obs: false }));   // запуски не прочитались — хотя бы индекс
   return out;
 }
-async function ensureProdCaseDocs() {
+async function ensureProdCases(force = false) {
   const pid = S.productId, pc = S.pc;
-  if (!pid || !S.caps.db || pc.busy) return;
-  const need = [...new Set(S.prodIndex.cases.map((x) => x.r))].filter((id) => !pc.docs[id] && S.run?.id !== id);
-  if (!need.length) return;
+  if (!pid || !S.caps.db || pc.busy || (!force && pc.at && Date.now() - pc.at < 8000)) return;
   pc.busy = true; pc.error = '';
-  const rerender = () => { if (S.productId === pid && S.tab === 'cases' && prodScope()) renderProdCases(); };
   try {
+    const metas = (await S.caps.db.collection(runBase(pid)).get()).docs.map((d) => d.data()).filter((m) => m?.kind === 'run' && m.id).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.id).localeCompare(String(b.id)));
+    if (S.productId !== pid) return;
+    const stamp = (m) => `${m.updatedAt || 0}:${m.stage || ''}:${m.partsCount || 0}`, need = metas.filter((m) => pc.runs[m.id]?.at !== stamp(m));
     let next = 0;
     await Promise.all(Array.from({ length: Math.min(3, need.length) }, async () => {
-      while (next < need.length && S.productId === pid) { const id = need[next++]; pc.docs[id] = await loadRunCaseDocs(pid, id).catch(() => ({})); }
+      while (next < need.length && S.productId === pid) {
+        const m = need[next++];
+        try { pc.runs[m.id] = { at: stamp(m), items: await readRunItems(pid, m) }; } catch { pc.error = 'Часть запусков не удалось прочитать.'; pc.runs[m.id] = { at: '', items: [] }; }
+      }
     }));
-  } catch { pc.error = 'Не удалось прочитать часть запусков.'; }
-  pc.busy = false;
-  rerender();
+    pc.order = metas.map((m) => m.id);
+    for (const id of Object.keys(pc.runs)) if (!pc.order.includes(id)) delete pc.runs[id];
+  } catch { pc.error = 'Не удалось прочитать запуски продукта.'; }
+  finally { pc.busy = false; if (S.productId === pid) { pc.loaded = true; pc.at = Date.now(); } }
+  if (S.productId === pid) afterProdCases();
 }
 /* ================= экспорт и импорт продукта ================= */
 const slugName = (s) => String(s || 'product').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'product';
@@ -3904,7 +3917,7 @@ async function importProduct(file) {
     }
     S.prodIO = null;
     await switchProduct(id);
-    if (S.prodIndex.cases.length) { S.tab = 'cases'; S.casesScope = 'product'; renderAll(); }   // загруженные кейсы сразу видны на вкладке «Тест-кейсы»
+    if (arrOf(d.runs).some((r) => arrOf(r?.parts).some((p) => arrOf(p?.cases).length))) { S.tab = 'cases'; S.casesScope = 'product'; renderAll(); }   // загруженные кейсы (в том числе черновики) сразу видны на вкладке «Тест-кейсы»
     toast(`Продукт «${name}» загружен: документов ${docs.length}, запусков ${nr}`);
   } catch (e) {
     S.prodIO = null; renderProduct();

@@ -145,6 +145,7 @@ async function pool(items, n, fn, signal) {
 /* ================= state ================= */
 const saved = lsGet('tca.settings', {});
 const inClaude = !!(window.claude && typeof window.claude.use === 'function');
+const freshPc = () => ({ type: 'all', q: '', runs: {}, order: [], busy: false, loaded: false, at: 0, error: '' });
 const S = {
   docs: [],
   settings: {
@@ -197,7 +198,7 @@ const S = {
   reqOpen: new Set(),
   filter: { type: 'all', suite: 'all', q: '' },
   casesScope: 'run',     // вкладка «Тест-кейсы»: 'run' — кейсы открытого запуска, 'product' — все кейсы продукта
-  pc: { type: 'all', q: '', docs: {}, busy: false, error: '' },   // кейсы продукта: фильтры и документы по запускам
+  pc: freshPc(),         // кейсы продукта: фильтры и прочитанные запуски
   secEdit: null,         // переименование раздела: { key, doc, value }
   localSections: lsGet('qapro.sections', {}),   // названия разделов без продукта
   clFilter: { type: 'all', suite: 'all' },

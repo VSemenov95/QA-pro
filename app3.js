@@ -618,7 +618,7 @@ function renderTabs() {
   validTab();
   $('#tabs').hidden = S.settings.mode === 'help';
   const r = S.run;
-  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
+  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
 function renderTab() {
@@ -793,6 +793,7 @@ function questionsTab() {
 /* ---------- cases ---------- */
 function casesTab() {
   const r = S.run;
+  if (S.run) ensureProdCases();
   if (prodScope()) return scopeSwitch() + prodCasesTab();
   const addBtns = (r) => `<span class="add-case"><span class="small muted">Добавить вручную:</span>${(r.settings.types || TYPES).map((t) => `<button class="btn sm" type="button" data-act="add-case" data-t="${t}">+ ${TL[t]}</button>`).join('')}</span>`;
   if (!r || !r.cases.length) {
@@ -815,12 +816,20 @@ function casesTab() {
 }
 /* ---------- разделы: тест-кейсы по документам ---------- */
 // кейсы продукта показываются, когда запуск не открыт (например, сразу после загрузки продукта) или выбрана область «Весь продукт»
-const prodScope = () => S.prodIndex.cases.length > 0 && (!S.run || S.casesScope === 'product');
-function scopeSwitch() {
-  if (!S.run || !S.prodIndex.cases.length) return '';
+const prodScope = () => !!S.productId && !!S.caps.db && (S.run ? S.casesScope === 'product' && prodItems().length > 0 : !(S.pc.loaded && !prodItems().length));
+function scopeSwitchHTML() {
+  if (!S.run || !S.pc.loaded || !prodItems().length) return '';
   const on = prodScope() ? 'product' : 'run';
   const b = (id, name, n) => `<button class="fchip" type="button" data-act="cases-scope" data-s="${id}" aria-pressed="${on === id}">${name}<span class="n">${n}</span></button>`;
-  return `<div class="toolbar scope-sw" role="group" aria-label="Какие кейсы показывать">${b('run', 'Этот запуск', S.run.cases.length)}${b('product', 'Весь продукт', S.prodIndex.cases.length)}</div>`;
+  return `<div class="toolbar scope-sw" role="group" aria-label="Какие кейсы показывать">${b('run', 'Этот запуск', S.run.cases.length)}${b('product', 'Весь продукт', prodItems().length)}</div>`;
+}
+const scopeSwitch = () => `<div id="scope-sw">${scopeSwitchHTML()}</div>`;
+const renderScopeSwitch = () => { const el = $('#scope-sw'); if (el) el.innerHTML = scopeSwitchHTML(); };
+function afterProdCases() {   // запуски продукта прочитаны: обновить число на вкладке, переключатель и список
+  renderTabs();
+  if (S.tab !== 'cases') return;
+  if (!S.run && S.pc.loaded && !prodItems().length) return renderTab();   // кейсов нет — обычная пустая вкладка
+  if (prodScope()) { if (isTyping($('#tab-body')) || S.secEdit) renderProdCases(); else renderTab(); } else renderScopeSwitch();   // вкладку целиком — чтобы обновились числа у фильтров
 }
 function sectionsHTML(items) {   // items: [{ doc, html }] — разделы по документу, внутри — карточки кейсов
   const groups = new Map();
@@ -836,26 +845,22 @@ function sectionsHTML(items) {   // items: [{ doc, html }] — разделы п
   }).join('');
 }
 function prodCasesTab() {
-  const n = (t) => S.prodIndex.cases.filter((x) => t === 'all' || x.t === t).length;
+  const all = prodItems(), n = (t) => all.filter((x) => t === 'all' || x.t === t).length;
   const chips = ['all', ...TYPES].filter((t) => t === 'all' || n(t)).map((t) => `<button class="fchip" type="button" data-act="pc-type" data-t="${t}" aria-pressed="${S.pc.type === t}">${t === 'all' ? 'Все' : TL[t]}<span class="n">${n(t)}</span></button>`).join('');
-  return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}», добавленные в проект, — по документам, из которых они написаны. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
+  return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}» из всех его запусков, включая черновики, — по документам, из которых они написаны. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
     <div class="toolbar">${chips}<input type="text" id="pc-q" placeholder="Поиск по кейсам" value="${esc(S.pc.q)}" aria-label="Поиск по кейсам продукта"></div>
     <div class="sections" id="pcase-list"></div>`;
 }
-function prodCaseDoc(x) {
-  if (S.run?.id === x.r) return docOfCase(S.run, S.run.cases.find((c) => c.dispId === x.i) || {});
-  return S.pc.docs[x.r]?.[x.i] || '';
-}
 const prodCaseRow = (x) => `<article class="case"><div class="case-h pc-row" role="button" tabindex="0" data-act="pc-open" data-r="${esc(x.r)}" data-i="${esc(x.i)}" title="Открыть кейс">
-  <span class="case-id t-${x.t}">${esc(x.i)}</span><div style="min-width:0"><div class="case-t">${esc(x.n)}</div></div><span class="muted" style="transform:rotate(-90deg);display:grid">${ICON.chev}</span></div></article>`;
+  <span class="case-id t-${x.t}">${esc(x.i)}</span><div style="min-width:0"><div class="case-t${x.obs ? ' obs' : ''}">${esc(x.n)}</div>${x.draft || x.obs ? `<div class="case-sub">${x.draft ? '<span class="chip">Черновик</span>' : ''}${x.obs ? '<span class="chip">Устарел</span>' : ''}</div>` : ''}</div><span class="muted" style="transform:rotate(-90deg);display:grid">${ICON.chev}</span></div></article>`;
 function renderProdCases() {
   const el = $('#pcase-list');
   if (!el) return;
-  ensureProdCaseDocs();
-  if (S.prodIndex.cases.some((x) => S.run?.id !== x.r && !S.pc.docs[x.r])) { el.innerHTML = `<p class="hint">${esc(S.pc.error || 'Загружаю тест-кейсы продукта…')}</p>`; return; }
+  ensureProdCases();
+  if (!S.pc.loaded) { el.innerHTML = '<p class="hint">Загружаю тест-кейсы продукта…</p>'; return; }
   const q = S.pc.q.trim().toLowerCase();
-  const list = S.prodIndex.cases.filter((x) => (S.pc.type === 'all' || x.t === S.pc.type) && (!q || x.i.toLowerCase().includes(q) || x.n.toLowerCase().includes(q)));
-  el.innerHTML = list.length ? sectionsHTML(list.map((x) => ({ doc: prodCaseDoc(x), html: prodCaseRow(x) }))) : emptyHTML('Ничего не найдено', 'Измените фильтр или запрос.');
+  const list = prodItems().filter((x) => (S.pc.type === 'all' || x.t === S.pc.type) && (!q || x.i.toLowerCase().includes(q) || x.n.toLowerCase().includes(q)));
+  el.innerHTML = (S.pc.error ? `<p class="hint">${esc(S.pc.error)}</p>` : '') + (list.length ? sectionsHTML(list.map((x) => ({ doc: x.doc, html: prodCaseRow(x) }))) : emptyHTML('Ничего не найдено', 'Измените фильтр или запрос.'));
   if (S.secEdit) { const inp = $('#sec-in'); if (inp && document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } }
 }
 function filteredCases() {
