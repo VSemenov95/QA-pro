@@ -2,7 +2,6 @@
 
 Приложение Claude — отдельный браузер без расширений с UA Electron; вызовы mcp уходят в настоящий Node-процесс моста.
 """
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -202,3 +201,53 @@ def test_page_remembers_the_default_bridge_name(desk):
 def test_uploader_options_show_connected_bridge(desk):
     o = desk.h.ext.ext_page('options.html')
     o.wait_for_function("() => /Мост подключён: задания из QA pro в приложении Claude откроют окно загрузчика здесь\\./.test(document.querySelector('#bridge-state').textContent)", timeout=15000)
+
+
+# ---------- связь загрузчика с мостом ----------
+def outbox(h):
+    return h.ext.sw_eval("() => chrome.storage.local.get('bridgeOutbox').then((r) => (r.bridgeOutbox || []).length)")
+
+
+def test_messages_for_the_bridge_wait_until_it_confirms_them(desk):
+    """Результат не теряется: пока связи с мостом нет, он лежит в хранилище загрузчика; мост подтвердил — ушёл."""
+    h = desk.h
+    h.ext.settings(desktopBridge=False)
+    h.ext.reconnect_bridge()
+    wait_until(desk.app.page, lambda: not h.bridge.tool('ping')['extension']['connected'], what='загрузчик отключился')
+    h.ext.sw_eval("() => bridgeSend({ t: 'cancelled', id: 'mj-ждёт' })")
+    assert outbox(h) == 1
+    h.ext.settings(desktopBridge=True)
+    h.ext.reconnect_bridge()
+    wait_until(desk.app.page, lambda: outbox(h) == 0, what='мост подтвердил сообщение')
+
+
+def test_uploader_checks_the_bridge_again_every_30_seconds(ext):
+    assert ext.sw_eval("() => chrome.alarms.get('qa-pro-bridge')")['periodInMinutes'] == 0.5
+
+
+def test_uploader_looks_for_the_bridge_quietly(ext):
+    """Сначала обычный запрос /health: если моста нет, WebSocket не открывается (иначе браузер пишет ошибку каждые 30 секунд)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    hits = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            hits.append((self.path, self.headers.get('Upgrade')))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"name":"other"}')
+    srv = HTTPServer(('127.0.0.1', 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        ext.settings(bridgePort=srv.server_address[1])
+        ext.reconnect_bridge()
+        state = ext.bridge_state()
+        assert state['connected'] is False and state['error'] == 'Мост не найден'
+        assert hits and all(path == '/health' and up is None for path, up in hits)
+    finally:
+        srv.shutdown()
+        srv.server_close()

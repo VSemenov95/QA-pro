@@ -24,14 +24,6 @@ def done(app):
     return app
 
 
-@pytest.fixture
-def steps3(app):
-    app.model.on('promptGenerate', three_steps_cases)
-    app.add_sample()
-    app.generate()
-    return app
-
-
 def describe_format(app, text=FORMAT):
     app.open_settings('export')
     app.page.fill('#cfg-export', text)
@@ -118,45 +110,6 @@ def test_describe_format_button_opens_export_settings(done):
     assert done.visible('#set-ov') and done.page.is_visible('#cfg-export')
 
 
-# ---------- файл по описанию формата ----------
-def test_format_description_goes_to_the_model_once(done):
-    describe_format(done)
-    build(done)
-    prompts = done.model.prompts_of('promptExportSpec')
-    assert len(prompts) == 1 and FORMAT in prompts[0] and 'API-001' in prompts[0]
-
-
-def test_csv_export_when_fields_can_be_mapped_has_no_other_model_calls(done):
-    done.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(done)
-    build(done)
-    assert len(done.model.calls_of('promptExportSpec')) == 1 and len(done.model.calls_of('promptExportItems')) == 0
-    assert 'Файл собирается по шаблону полей, без модели.' in done.text('.exp-card')
-
-
-def test_csv_file_content(done):
-    done.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(done)
-    build(done)
-    d = download(done)
-    assert d['filename'] == 'testit-import.csv'
-    lines = d['text'].split('\r\n')
-    assert lines[0] == '﻿ID;Название;Предусловия;Шаг;Ожидаемый результат;Приоритет;Теги'
-    assert lines[1] == 'API-001;[BE] Кейс для P-02: проверка восстановления пароля;Пользователь зарегистрирован;1. Открыть /login;Открыта страница;Высокий;smoke, regression'
-    assert len(lines) == 5 and lines[2].startswith('API-002;') and lines[2].endswith(';regression')
-    assert 'ID;Название;Предусловия;Шаг;Ожидаемый результат;Приоритет;Теги' in done.text('.json-pre')   # предпросмотр показывает тот же файл
-
-
-def test_csv_step_per_row_leaves_case_cells_empty_after_first_row(steps3):
-    steps3.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(steps3)
-    build(steps3)
-    lines = download(steps3)['text'].split('\r\n')[1:5]
-    assert lines[0] == 'API-001;[BE] Три шаг;Пользователь зарегистрирован;1. Действие 1;Результат 1;Высокий;smoke, regression'.replace('Три шаг', 'Три шага')
-    assert lines[1:3] == [';;;2. Действие 2;Результат 2;;', ';;;3. Действие 3;Результат 3;;']
-    assert lines[3].startswith('API-002;')
-
-
 def test_csv_cell_with_delimiter_and_quotes_is_quoted(done):
     done.model.on('promptExportSpec', {**CSV_SPEC, 'cols': [{'header': 'ID', 'value': '{{id}}'}, {'header': 'Название', 'value': '{{title}}'}], 'rowMode': 'case'})
     done.tab('cases')
@@ -167,122 +120,6 @@ def test_csv_cell_with_delimiter_and_quotes_is_quoted(done):
     describe_format(done)
     build(done)
     assert download(done)['text'].split('\r\n')[1] == 'API-001;"[BE] Название; с ""кавычками"""'
-
-
-def test_changed_case_makes_the_file_stale_and_rebuild_needs_no_new_format(done):
-    done.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(done)
-    build(done)
-    done.tab('cases')
-    done.page.click('#case-list article:has(.case-id:text-is("API-001")) .case-h')
-    done.page.click('#case-list [data-act=form-case]')
-    done.page.fill('.case-form input[data-fp="title"]', '[BE] Новое название')
-    done.page.click('[data-act=ff-save]')
-    done.tab('export')
-    assert 'Кейсы изменились после сборки — пересоберите файл.' in done.text('.banner.warn')
-    done.page.click('[data-act=run-export]')
-    done.page.wait_for_function("() => !document.querySelector('.banner.warn')")
-    assert 'API-001;[BE] Новое название;' in download(done)['text']
-    assert len(done.model.calls_of('promptExportSpec')) == 1
-
-
-def test_rebuild_from_scratch_asks_for_format_again(done):
-    done.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(done)
-    build(done)
-    done.page.click('[data-act=rebuild-export]')
-    done.page.wait_for_function("() => window.__qa.S.exp && window.__qa.S.exp.status === 'done'")
-    assert len(done.model.calls_of('promptExportSpec')) == 2
-
-
-def test_other_format_description_builds_another_file(done):
-    done.model.on('promptExportSpec', CSV_SPEC)
-    describe_format(done)
-    build(done)
-    done.open_settings('export')
-    done.page.fill('#cfg-export', 'То же, но через запятую')
-    done.close_settings()
-    done.model.on('promptExportSpec', {**CSV_SPEC, 'filename': 'comma', 'delimiter': ','})
-    done.tab('export')
-    done.page.click('[data-act=run-export]')
-    done.page.wait_for_function("() => window.__qa.S.exp.spec && window.__qa.S.exp.spec.filename === 'comma'")
-    assert download(done)['filename'] == 'comma.csv'
-
-
-AI_SPEC = {'fileType': 'csv', 'filename': 'ai', 'mode': 'ai', 'columns': ['ID', 'Название'], 'delimiter': ',', 'itemRules': 'ID и название'}
-
-
-def case_ids(prompt):
-    return re.findall(r'"id": "([A-Z0-9-]+)",\n\s+"type"', prompt)
-
-
-def rows_for(call, skip=()):
-    ids = case_ids(call.prompt)
-    return {'items': [{'caseId': i, 'rows': [[i, 'Название ' + i]]} for i in ids if i not in skip]}
-
-
-def test_ai_mode_asks_model_per_batch_of_cases(done):
-    done.model.on('promptExportSpec', AI_SPEC).on('promptExportItems', rows_for)
-    describe_format(done)
-    build(done)
-    assert len(done.model.calls_of('promptExportItems')) == 1
-    assert download(done)['text'].split('\r\n') == ['\ufeffID,Название', 'API-001,Название API-001', 'API-002,Название API-002', 'UI-001,Название UI-001', 'E2E-001,Название E2E-001']
-
-
-def test_ai_mode_batches_of_eight(app, tmp_path):
-    from tests.support import seed
-    cases = [seed.case(f'u{i}', 'api', f'API-{i:03d}', f'[BE] POST /x — проверка {i}', ['R-001']) for i in range(1, 20)]
-    run = seed.run('run_x', 'Док', cases, [seed.req('R-001', 'Док')], stage='draft')
-    app.import_product(seed.write(tmp_path, seed.product_export(runs=[run])))
-    app.page.wait_for_selector('#pcase-list .sec', timeout=15000)
-    app.call("a.openHistory('run_x', { tab: 'export' })")
-    app.model.on('promptExportSpec', AI_SPEC).on('promptExportItems', rows_for)
-    describe_format(app)
-    build(app)
-    assert sorted(len(case_ids(c.prompt)) for c in app.model.calls_of('promptExportItems')) == [3, 8, 8]
-
-
-def test_cases_the_model_skipped_are_reported_and_repeated_alone(done):
-    done.model.on('promptExportSpec', AI_SPEC).on('promptExportItems', lambda c: rows_for(c, skip=('API-002',)))
-    describe_format(done)
-    build(done)
-    assert 'Не удалось преобразовать: API-002.' in done.text('.banner.warn')
-    assert 'API-002' not in download(done)['text']
-    done.model.on('promptExportItems', rows_for)
-    done.page.click('[data-act=run-export]')
-    done.page.wait_for_function("() => window.__qa.S.exp.status === 'done' && !window.__qa.S.exp.error")
-    assert case_ids(done.model.calls_of('promptExportItems')[-1].prompt) == ['API-002']
-    assert 'API-002,Название API-002' in download(done)['text']
-
-
-def test_csv_without_columns_is_an_error(done):
-    done.model.on('promptExportSpec', {'fileType': 'csv', 'mode': 'ai', 'filename': 'x'})
-    describe_format(done)
-    done.page.click('[data-act=run-export]')
-    done.page.wait_for_selector('.banner.err')
-    assert 'Модель не определила колонки файла' in done.text('.banner.err')
-
-
-def test_json_by_description_uses_sets_and_item_template(done):
-    done.model.on('promptExportSpec', {'fileType': 'json', 'filename': 'cases', 'mode': 'map',
-                                       'wrapper': {'project': 'Пример', 'created': '%%GENERATED_AT%%', 'smoke': '%%SMOKE%%', 'count': 'x'},
-                                       'item': {'id': '{{id}}', 'name': '{{title}}', 'steps': {'$each': 'steps', 'item': '{{action}} → {{expected}}'}}})
-    describe_format(done, 'JSON: проект и набор смоук')
-    build(done)
-    d = download(done)
-    out = json.loads(d['text'])
-    assert d['filename'] == 'cases.json' and out['project'] == 'Пример' and out['created'].startswith(created_day(done))
-    assert [c['id'] for c in out['smoke']] == ['API-001', 'UI-001', 'E2E-001']
-    assert out['smoke'][0] == {'id': 'API-001', 'name': '[BE] Кейс для P-02: проверка восстановления пароля', 'steps': ['Открыть /login → Открыта страница']}
-
-
-def test_markdown_by_description(done):
-    done.model.on('promptExportSpec', {'fileType': 'md', 'filename': 'cases', 'mode': 'map', 'wrapper': '# Кейсы\n\n%%ALL%%', 'separator': '\n\n', 'itemText': '## {{id}} {{title}}\n{{#steps}}- {{action}}\n{{/steps}}'})
-    describe_format(done, 'Markdown со списком шагов')
-    build(done)
-    d = download(done)
-    assert d['filename'] == 'cases.md' and d['text'].startswith('# Кейсы\n\n## API-001 [BE] Кейс для P-02')
-    assert '- Открыть /login\n' in d['text'] and d['text'].count('## ') == 4
 
 
 def test_xml_is_saved_as_txt(done):

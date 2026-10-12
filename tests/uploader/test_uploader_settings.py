@@ -218,3 +218,19 @@ def test_page_that_filters_postmessage_still_gets_answers(env):
     qa.open_settings('tms')
     qa.page.click('[data-tmb=test]')
     qa.page.wait_for_function("() => /Загрузчик найден/.test(document.querySelector('#tms-body .case-note')?.innerText || '')", timeout=15000)
+
+
+def test_own_qa_pro_address_is_connected_without_the_any_site_mode(new_env):
+    """«Где открыт QA pro — если на своём веб-сервере»: адрес из настроек подключается к странице, даже уже открытой."""
+    env = new_env(hosts=['https://*/*'])
+    with open(os.path.join(ROOT, 'qa-pro.html'), 'rb') as f:
+        html = f.read()
+    env.ctx.route('https://qa-pro.example/**', lambda r: r.fulfill(status=200, content_type='text/html; charset=utf-8', body=html))
+    qa = AppHost(env.ctx, kind='standalone', url=FOREIGN).open()
+    qa.open_settings('tms')
+    qa.page.click('[data-tmb=test]')
+    qa.page.wait_for_function("() => /не видит/.test(document.querySelector('#tms-body .case-note')?.innerText || '')", timeout=15000)
+    n = env.ext.sw_eval("() => saveSettings({ qaProOrigins: ['https://qa-pro.example'] }).then((s) => syncQaProScripts(s.qaProOrigins)).then(() => injectOpenTabs())")
+    qa.page.click('[data-tmb=test]')
+    qa.page.wait_for_function("() => /Загрузчик найден/.test(document.querySelector('#tms-body .case-note')?.innerText || '')", timeout=15000)
+    assert n >= 1

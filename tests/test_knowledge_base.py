@@ -269,6 +269,7 @@ def test_imported_product_keeps_sections(limits, tmp_path):
     limits.page.wait_for_function('() => window.__qa.S.products.length === 2 && window.__qa.S.kb.loaded && window.__qa.S.kb.index.blocks.length === 2')
     limits.mode('help')
     assert sorted(titles(limits)) == TWO
+    assert 'не разобран' not in limits.text('#doc-list')   # документы копии считаются разобранными: отметки о разборе перенесены
     open_section(limits, 'Восстановление пароля')
     assert 'Расхождения между документами · 1' in limits.text('.kb-conf')
 
@@ -543,3 +544,13 @@ def test_sections_fit_a_phone_screen(make_app):
     app.page.click('[data-act=help-view][data-v=qa]')
     app.page.click('[data-act=help-view][data-v=blocks]')
     assert len(titles(app)) == 8 and app.state('document.documentElement.scrollWidth <= window.innerWidth')
+
+
+def test_article_fits_a_phone_screen(make_app, tmp_path):
+    app = make_app(viewport=(390, 860))
+    model_kb.install(app.model)
+    app.mode('help')
+    parse_sample(app)
+    add_docs(app, tmp_path, (EXTRA, model_kb.limits_doc(3)), (CALL, model_kb.call_doc(5)))
+    open_section(app, 'Восстановление пароля')
+    assert app.count('.kb-conf') == 1 and app.state('document.documentElement.scrollWidth <= window.innerWidth')

@@ -238,3 +238,8 @@ class TmsRoute:
         else:
             res = {'id': f'CUS-{self.n}'}
         route.fulfill(status=200, content_type='application/json', body=json.dumps(res), headers=cors)
+
+
+# ---------- буфер обмена ----------
+# Тестовый адрес — не защищённый контекст, настоящего navigator.clipboard там нет: подставляем свой и запоминаем текст.
+CLIPBOARD_JS = "Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true });"

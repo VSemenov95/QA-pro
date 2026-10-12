@@ -1,5 +1,4 @@
 """База знаний в генерации: сводки разделов по теме идут в анализ, чек-лист, план, кейсы и ревью; инструменты агента; лимиты на объём."""
-import re
 from types import SimpleNamespace
 
 import pytest
@@ -71,9 +70,8 @@ def test_generation_requests_carry_matching_sections(scenario, kind):
     assert all(SECTION in kb_part(p) for p in prompts)
 
 
-@pytest.mark.parametrize('kind', ['promptReviewCases'])
-def test_review_requests_carry_matching_sections(scenario, kind):
-    prompts = scenario.rev[kind]
+def test_review_requests_carry_matching_sections(scenario):
+    prompts = scenario.rev['promptReviewCases']
     assert prompts and all(SECTION in kb_part(p) for p in prompts)
 
 

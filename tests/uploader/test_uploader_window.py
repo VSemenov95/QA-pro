@@ -1,7 +1,6 @@
 """Окно загрузчика, открытое вручную (значок расширения): файл или вставленный JSON, выбор раздела, выбор кейсов, ошибки."""
 import json
 
-import pytest
 
 from tests.support.extension import wait_window_ready
 

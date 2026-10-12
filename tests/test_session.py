@@ -1,9 +1,11 @@
 """История запусков, восстановление сессии после закрытия страницы, «следящая» вкладка, блокировка выбора продукта и остановка генерации."""
+import time
+
 import pytest
 
 from tests.support import files, seed
 from tests.support.db import MemoryDB
-from tests.support.model_generation import HOLD_JS, AI_CONN, Hold, connect_ai, second_page, standalone, wait_until
+from tests.support.model_generation import HOLD_JS, Hold, connect_ai, second_page, standalone, wait_until
 
 
 @pytest.fixture
@@ -85,20 +87,18 @@ def test_history_list_updates_after_a_new_run(app):
     assert app.count('.hrow') == 1
 
 
-def test_second_run_is_second_row_newest_first(app):
+def test_second_run_is_listed_first(app, tmp_path):
     app.generate()
     finish_saving(app)
+    first = app.state('S.run.id')
     app.page.click('#btn-newses')
-    app.add_sample() if app.state('S.docs.length') == 0 else None
-    app.page.click('[data-doc-act]') if False else None
-    first = app.state('S.run.id') if app.state('S.run') else None
-    app.state('[...S.runDocs].length')
-    app.call("S.docs.forEach((d) => S.runDocs.add(d.id))")
+    app.upload(files.spec_file(tmp_path))
     app.generate()
     wait_until(app, lambda: run_meta(app).get('status') == 'done' and run_meta(app).get('hb') == 0)
     app.tab('history')
     app.page.wait_for_function("() => document.querySelectorAll('.hrow').length === 2")
-    assert 'открыт' in app.text('.hrow:first-child')
+    assert app.state('S.run.id') != first
+    assert 'открыт' in app.text('.hrow:first-child') and 'открыт' not in app.text('.hrow:last-child')
 
 
 def reopen_from_history(app):
@@ -166,6 +166,18 @@ def test_deleted_open_run_becomes_read_only(app):
     app.page.click('[data-act=del-hist]')
     app.page.click('[data-act=del-hist]')
     wait_until(app, lambda: app.state('S.run.fromHistory') == 'readonly')
+
+
+def test_deleted_open_run_is_not_restored_after_reload(app):
+    app.generate()
+    finish_saving(app)
+    app.tab('history')
+    app.page.wait_for_selector('.hrow')
+    app.page.click('[data-act=del-hist]')
+    app.page.click('[data-act=del-hist]')
+    wait_until(app, lambda: session(app).get('runId') is None)
+    app.reload()
+    assert app.state('S.run') is None and 'Сессия восстановлена' not in ' '.join(app.toast_texts())
 
 
 def test_deleted_run_disappears_from_product_cases(app):
@@ -426,6 +438,48 @@ def test_follower_gets_the_result_when_generation_ends(held):
     p2.page.wait_for_function("() => window.__qa.S.follow === null && window.__qa.S.run.status === 'done'", timeout=30000)
     assert p2.state('S.run.cases.length') == 4 and not p2.page.is_disabled('#btn-run') and not p2.page.is_disabled('#prod-select')
     assert 'Генерация в другой вкладке завершена' in ' '.join(p2.toast_texts())
+
+
+def vanished_tab(app, age_ms):
+    """Вкладка с генерацией пропала без прощания (сбой браузера): в базе остался пульс заданной давности."""
+    h = start_held(app, 'promptGenerate')
+    wait_until(app, lambda: run_meta(app).get('hb') and session(app).get('runningBy'))
+    base = run_path(app)
+    app.page.close()
+    now = int(time.time() * 1000)
+    app.db.op('update', base, {'hb': now - age_ms, 'hbTab': 'tab-gone'})
+    app.db.op('update', 'data/users/u_test/session', {'runningBy': 'tab-gone', 'heartbeat': now - age_ms})
+    return second_page(app), h
+
+
+def test_tab_that_vanished_long_ago_is_not_followed(held):
+    p2, _ = vanished_tab(held, 200000)
+    p2.page.wait_for_function("() => window.__qa.S.run && window.__qa.S.run.status === 'interrupted'")
+    assert p2.state('S.follow') is None and p2.state('S.run.fromHistory') is True
+
+
+def test_tab_with_fresh_pulse_is_still_followed(held):
+    p2, _ = vanished_tab(held, 5000)
+    p2.page.wait_for_function("() => window.__qa.S.follow !== null")
+    assert p2.state('S.run.fromHistory') == 'follow' and p2.page.is_disabled('#btn-run')
+
+
+def test_closing_page_during_generation_asks_confirmation(held):
+    start_held(held, 'promptGenerate')
+    with held.page.expect_event('dialog') as ev:
+        held.page.close(run_before_unload=True)   # страница не закрывается сама: ждёт ответа на вопрос браузера
+    assert ev.value.type == 'beforeunload'
+    ev.value.dismiss()
+    assert held.state('S.running') is True
+
+
+def test_closing_idle_page_asks_nothing(app):
+    app.generate()
+    dialogs = []
+    app.page.on('dialog', lambda d: dialogs.append(d.type))
+    with app.page.expect_event('close'):
+        app.page.close(run_before_unload=True)
+    assert dialogs == []
 
 
 # ---------- блокировка выбора продукта ----------

@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tests.support.model import ModelError
-from tests.support.model_generation import three_steps_cases, wait_until
+from tests.support.model_generation import CLIPBOARD_JS, generate_by_template, three_steps_cases, wait_until
 
 
 @pytest.fixture
@@ -194,6 +194,50 @@ def test_form_json_field_error_blocks_saving(results):
     assert case_state(results, 'API-001', 'c.testCase.title').startswith('[BE]')
 
 
+@pytest.fixture
+def full(app):
+    """Кейсы ровно по образцу шаблона: у API-кейса есть вложенный объект request."""
+    app.model.on('promptGenerate', generate_by_template)
+    app.add_sample()
+    app.generate()
+    app.tab('cases')
+    return app
+
+
+def test_form_edits_nested_object_as_json(full):
+    form_of(full)
+    req = full.state("S.run.cases.find((c) => c.dispId === 'API-001').testCase.request")
+    req['endpoint'] = '/api/v2/password-reset'
+    full.page.fill('.case-form textarea[data-fp="request"]', json.dumps(req, ensure_ascii=False))
+    full.page.click('[data-act=ff-save]')
+    assert case_state(full, 'API-001', 'c.testCase.request.endpoint') == '/api/v2/password-reset'
+    assert case_state(full, 'API-001', 'c.testCase.request.headers') == {'Content-Type': 'application/json'}
+
+
+def test_form_json_error_names_the_field_and_blocks_saving(full):
+    form_of(full)
+    full.page.fill('.case-form input[data-fp="title"]', '[BE] Не сохранится')
+    full.page.fill('.case-form textarea[data-fp="request"]', '{"method": ')
+    full.page.click('[data-act=ff-save]')
+    assert full.text('#case-list .case-note.err').startswith('Поле «Запрос»: ошибка JSON')
+    assert case_state(full, 'API-001', 'c.testCase.title').startswith('[BE] Кейс для')
+
+
+def test_form_list_of_strings_is_edited_one_per_line(full):
+    form_of(full)
+    full.page.fill('.case-form textarea[data-fp="tags"]', 'password-reset\nnegative\n\n')
+    full.page.fill('.case-form textarea[data-fp="preconditions"]', 'Первое условие\nВторое условие')
+    full.page.click('[data-act=ff-save]')
+    assert case_state(full, 'API-001', '[c.testCase.tags, c.testCase.preconditions]') == [['password-reset', 'negative'], ['Первое условие', 'Второе условие']]
+
+
+def test_form_keeps_field_order_of_template(full):
+    form_of(full)
+    full.page.fill('.case-form input[data-fp="title"]', '[BE] Новый заголовок')
+    full.page.click('[data-act=ff-save]')
+    assert case_state(full, 'API-001', 'Object.keys(c.testCase)') == ['id', 'title', 'priority', 'preconditions', 'request', 'steps', 'expectedResult', 'tags']
+
+
 def test_json_edit_requires_an_object(results):
     open_case(results, 'API-001')
     results.page.click('#case-list article:has(.case-id:text-is("API-001")) [data-act=edit-case]')
@@ -320,16 +364,37 @@ def test_short_remark_is_not_generalized(results):
 
 
 # ---------- копирование ----------
-def clipboard(app):
-    return app.js("() => navigator.clipboard.readText()")
+@pytest.fixture
+def copying(make_app):
+    app = make_app(init=CLIPBOARD_JS)
+    app.add_sample()
+    app.generate()
+    return app
 
 
-def test_copy_case_json(results):
-    results.ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin='http://app.test')
-    open_case(results, 'UI-001')
-    results.page.click('#case-list [data-act=copy-case]')
-    results.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some((e) => e.textContent.includes('Скопировано'))")
-    assert json.loads(clipboard(results)) == results.state("S.run.cases.find((c) => c.dispId === 'UI-001').testCase")
+def copied(app):
+    app.page.wait_for_function("() => window.__copied !== undefined")
+    return app.js('window.__copied')
+
+
+def test_copy_case_json(copying):
+    copying.tab('cases')
+    open_case(copying, 'UI-001')
+    copying.page.click('#case-list [data-act=copy-case]')
+    assert json.loads(copied(copying)) == copying.state("S.run.cases.find((c) => c.dispId === 'UI-001').testCase")
+    assert 'Скопировано в буфер обмена' in ' '.join(copying.toast_texts())
+
+
+def test_copy_checklist_gives_markdown(copying):
+    copying.tab('checklist')
+    copying.page.click('[data-act=cl-copy]')
+    assert copied(copying).startswith('# Чек-лист\n\n## Форма восстановления\n\n- [ ] CL-001 ')
+
+
+def test_copy_export_gives_the_file_text(copying):
+    copying.tab('export')
+    copying.page.click('[data-act=copy-out]')
+    assert json.loads(copied(copying))['testCases']['api'][0]['id'] == 'API-001'
 
 
 # ---------- чек-лист ----------
@@ -382,13 +447,6 @@ def test_checklist_json_download(checklist):
     assert out['sources'] == ['Пример — ТЗ восстановление пароля.md']
     assert [g['title'] for g in out['groups']] == ['Форма восстановления', 'API сброса']
     assert out['groups'][1]['items'][0] == {'id': 'CL-003', 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']}
-
-
-def test_checklist_copy_gives_markdown(checklist):
-    checklist.ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin='http://app.test')
-    checklist.page.click('[data-act=cl-copy]')
-    checklist.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some((e) => e.textContent.includes('Скопировано'))")
-    assert clipboard(checklist).startswith('# Чек-лист\n\n## Форма восстановления\n\n- [ ] CL-001 ')
 
 
 def new_item(app, text, group='0'):

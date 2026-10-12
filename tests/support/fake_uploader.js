@@ -1,7 +1,7 @@
 // «Загрузчик» внутри страницы: отвечает на пинг и на вызовы моста так, как это делает расширение (bridge.js).
 // Распознавание речи возвращает window.__voiceText. Нужен, чтобы проверять страницу без настоящих расширения и моста.
 window.__voiceText = ''; window.__asrCalls = []; window.__asrTools = []; window.__asrState = { state: 'ready', model: 'small' };
-window.__asrFail = ''; window.__extVersion = '1.5.0'; window.__bridgeVersion = '1.2.0'; window.__bridgeUp = true;
+window.__asrHold = false; window.__asrHeld = []; window.__asrReleaseAll = () => { for (const f of window.__asrHeld.splice(0)) f(); }; window.__asrTexts = []; window.__asrFail = ''; window.__extVersion = '1.5.0'; window.__bridgeVersion = '1.2.0'; window.__bridgeUp = true;
 window.addEventListener('message', (e) => {
   const d = e.data; if (!d || d.source !== 'qa-pro' || e.source !== window) return;
   const reply = (o) => window.postMessage(Object.assign({ source: 'qa-pro-sfera-uploader', id: d.id }, o), '*');
@@ -11,7 +11,8 @@ window.addEventListener('message', (e) => {
     window.__asrTools.push(t);
     if (t === 'asr_status') result = window.__asrState;
     else if (t === 'asr_prepare') result = { state: 'ready', model: a.model };
-    else if (t === 'asr_transcribe') { window.__asrCalls.push({ bytes: (a.audio || '').length, language: a.language }); result = { text: window.__voiceText }; }
+    else if (t === 'asr_transcribe') { window.__asrCalls.push({ bytes: (a.audio || '').length, language: a.language }); result = { text: window.__asrTexts.length ? window.__asrTexts.shift() : window.__voiceText }; }
+    if (t === 'asr_transcribe' && window.__asrHold) { window.__asrHeld.push(() => reply({ type: 'SFERA_RPC_RESULT', ok: true, result })); return; }
     if (t === 'asr_transcribe' && window.__asrFail) { reply({ type: 'SFERA_RPC_RESULT', ok: false, error: window.__asrFail, code: 'bridge' }); return; }
     reply({ type: 'SFERA_RPC_RESULT', ok: true, result });
   }

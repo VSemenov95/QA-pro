@@ -250,6 +250,18 @@ def test_unanswered_question_goes_to_open_questions(qa):
     assert re.search(r'## Открытые вопросы\n- Что происходит при 4-м запросе через UI\?\n- Как работает оплата картой\? \(из базы знаний, \d\d\.\d\d\.\d{4}\)$', passport)
 
 
+def test_open_question_can_start_the_passport(app):
+    """В продукте ещё нет знаний: вопрос без ответа всё равно можно записать — паспорт начнётся с раздела «Открытые вопросы»."""
+    model_kb.install(app.model)
+    app.mode('help')
+    app.page.click('[data-act=help-view][data-v=qa]')
+    ask(app, Q_PAY, 1)
+    assert last(app)['status'] == 'st-not_found' and app.model.calls_of('promptHelp') == []   # по теме вопроса в документах ничего нет
+    app.page.click('#help-list .hq:last-child [data-act=help-open-add]')
+    app.page.wait_for_function("() => /Открытые вопросы продукта · 1/.test(document.querySelector('#help-open').textContent)")
+    assert re.fullmatch(r'## Открытые вопросы\n- Как работает оплата картой\? \(из базы знаний, \d\d\.\d\d\.\d{4}\)', app.state('S.products.find((p) => p.id === S.productId).passport.text'))
+
+
 def test_answered_question_cannot_be_added_to_open_questions(qa):
     ask(qa, SUGGEST_LIMITS, 1)
     assert qa.count('[data-act=help-open-add]') == 0
@@ -335,3 +347,10 @@ def test_help_fits_a_phone_screen(make_app):
     app.page.click('[data-act=help-view][data-v=qa]')
     ask(app, Q_ROLES, 1)
     assert app.state('document.documentElement.scrollWidth <= window.innerWidth')
+
+
+@pytest.mark.parametrize('mode,numbers', [('generate', ['01', '02', '03', '04']), ('update', ['01', '02', '03', '04', '05']), ('help', ['01'])])
+def test_left_panels_are_numbered_from_one_in_each_mode(app, mode, numbers):
+    """В «Базе знаний» остаётся одна панель — документы продукта; в остальных режимах нумерация идёт без пропусков."""
+    app.mode(mode)
+    assert app.page.evaluate("() => [...document.querySelectorAll('.rail .step-n')].filter((e) => e.offsetParent).map((e) => e.textContent)") == numbers

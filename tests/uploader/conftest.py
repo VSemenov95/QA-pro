@@ -102,8 +102,8 @@ class Relay:
 class HostEnv(Relay):
     """Приложение Claude с настоящим мостом: страница → host:… → мост → загрузчик в Chrome (подключён к мосту по WebSocket) → Сфера (мок)."""
 
-    def __init__(self, browser, tmp, pre_init=None):
-        self.bridge = bridge_mod.Bridge(os.path.join(str(tmp), 'bridge')).start()
+    def __init__(self, browser, tmp, pre_init=None, bridge_env=None):
+        self.bridge = bridge_mod.Bridge(os.path.join(str(tmp), 'bridge'), env=bridge_env).start()
         self.mcp = bridge_mod.McpHost(self.bridge)
         super().__init__(browser, tmp, mcp=self.mcp, pre_init=pre_init)
         self.ext.settings(bridgePort=self.bridge.port, desktopBridge=True)

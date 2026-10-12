@@ -49,10 +49,6 @@ def select_text(app):
     return app.page.eval_on_selector('#prod-select', 'e => e.selectedOptions[0].textContent')
 
 
-def new_product(app, name, desc='', **kw):
-    return app.create_product(name, desc)
-
-
 # ---------- выбор и создание ----------
 def test_new_user_gets_a_product_with_the_sample(app):
     assert select_text(app) == 'Мой продукт' and app.count('#prod-select option') == 2
@@ -496,3 +492,33 @@ def test_numbering_continues_after_a_moved_run(make_app, legacy_db):
     app.generate()
     ids = app.state('S.run.cases.map((c) => c.dispId)')
     assert ids and all(int(i.split('-')[1]) > {'API': 7, 'UI': 5, 'E2E': 0}[i.split('-')[0]] for i in ids)
+
+
+# ---------- автономная версия и телефон ----------
+def test_standalone_products_are_kept_in_the_browser(make_app, tmp_path):
+    app = make_app(kind='standalone')
+    assert 'В автономной версии продукты хранятся в этом браузере.' in app.text('#prod-info')
+    app.state('S.settings.kbAuto = false')
+    app.create_product('Биллинг', 'Счета и оплаты')
+    app.upload(files.write(tmp_path / 'счета.md', '# Счета\n- Счёт — документ на оплату\n'))
+    app.page.fill('#qa-ctx', 'Биллинг: роль Бухгалтер')
+    app.page.wait_for_function('() => !window.__qa.S.ctxDirty')
+    app.page.wait_for_function('() => window.__qa.S.products.find((p) => p.name === "Биллинг").docs.length === 1')
+    app.reload()
+    assert select_text(app) == 'Биллинг' and app.page.input_value('#qa-ctx') == 'Биллинг: роль Бухгалтер'
+    app.page.wait_for_function("() => window.__qa.S.docs.length === 1 && window.__qa.S.docs[0].status === 'ready'")
+    app.mode('help')
+    assert names_in_list(app) == ['счета.md']
+    first = app.state("S.products.find((p) => p.name === 'Мой продукт').id")
+    app.page.select_option('#prod-select', first)
+    app.page.wait_for_function('() => window.__qa.S.docs.length === 1 && window.__qa.S.docs[0].sample')
+
+
+def test_product_panel_fits_a_phone_screen(make_app):
+    app = make_app(viewport=(390, 860))
+    first_run(app)
+    assert app.state('document.documentElement.scrollWidth <= window.innerWidth')
+
+
+def test_document_counter_shows_count_and_size(app):
+    assert app.text('#docs-total') == '1 документ · 2,5 тыс. знаков'

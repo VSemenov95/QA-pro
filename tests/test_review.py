@@ -425,6 +425,53 @@ def test_lesson_scope_decides_which_prompts_get_it(app, scope, in_gen, in_rev):
         assert '## Правила из замечаний команды — соблюдай обязательно' in gen
 
 
+def test_new_review_rule_makes_repeat_review_check_everything(reviewed):
+    reviewed.open_settings('review')
+    add_lesson(reviewed, 'Не придирайся к тексту сообщений', 'review')
+    reviewed.page.wait_for_function("() => window.__qa.S.lessons.length === 1")
+    reviewed.close_settings()
+    before = len(reviewed.model.calls)
+    reviewed.tab('review')
+    reviewed.page.click('[data-act=start-review]')
+    reviewed.wait_idle()
+    assert sorted(c.kind for c in reviewed.model.calls[before:]) == ['promptReviewCases'] * 3 + ['promptReviewChecklist']
+
+
+def test_generation_rule_does_not_reset_review_cache(reviewed):
+    reviewed.open_settings('review')
+    add_lesson(reviewed, 'Пиши шаги короче', 'generation')
+    reviewed.page.wait_for_function("() => window.__qa.S.lessons.length === 1")
+    reviewed.close_settings()
+    before = len(reviewed.model.calls)
+    reviewed.tab('review')
+    reviewed.page.click('[data-act=start-review]')
+    reviewed.wait_idle()
+    assert len(reviewed.model.calls) == before
+
+
+def test_failed_generalization_does_not_break_refine(generated):
+    generated.model.on('promptLesson', ModelError('rate_limited'))
+    generated.tab('cases')
+    generated.page.click('#case-list article:has(.case-id:text-is("API-001")) .case-h')
+    generated.page.click('#case-list [data-act=refine-case]')
+    generated.page.fill('textarea[data-field=comment]', 'Укажи код ответа в ожидаемом результате')
+    generated.page.click('[data-act=do-refine]')
+    generated.page.wait_for_selector('.case-note:has-text("Кейс доработан.")')
+    assert len(generated.model.calls_of('promptLesson')) == 1 and generated.db.children('lessons') == {}
+
+
+def test_prompt_gets_only_the_last_sixty_rules(make_app):
+    from tests.support.db import MemoryDB
+    db = MemoryDB()
+    for i in range(70):
+        db.op('set', f'lessons/l{i:02d}', {'text': f'Правило номер {i:02d}', 'scope': 'generation', 'source': 'manual', 'createdAt': 1000 + i, 'by': 'u_test'})
+    app = make_app(db=db)
+    app.page.wait_for_function("() => window.__qa.S.lessons.length === 70")
+    app.generate()
+    p = app.model.prompts_of('promptGenerate')[0]
+    assert 'Правило номер 69' in p and 'Правило номер 10' in p and 'Правило номер 09' not in p
+
+
 # ---------- правила для агента ----------
 def test_agent_rules_reach_planning_and_cases(app):
     app.page.fill('#cfg-rules', 'Больше негативных проверок')

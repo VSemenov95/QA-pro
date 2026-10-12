@@ -1,4 +1,6 @@
 """Генерация: анализ требований, чек-лист, план, кейсы, черновик; выбор результата и видов тестов; ответы на вопросы."""
+import re
+
 import pytest
 
 from tests.support import files
@@ -102,6 +104,14 @@ def test_only_checklist_skips_plan_and_cases(app):
     assert 'promptChecklist' in kinds and not kinds & {'promptPlan', 'promptGenerate', 'promptCoverageAudit'}
     assert app.state('S.run.cases.length') == 0 and app.state('S.run.checklist.groups.length') == 2
     assert app.state('S.tab') == 'agent'   # кейсов нет — в черновик переходить некуда
+
+
+def test_checklist_only_run_counts_coverage_by_checklist(app):
+    set_outputs(app, cases=False)
+    app.generate()
+    app.tab('agent')
+    stat = app.text('#tab-body .stat:has(span:text-is("Покрытие"))')
+    assert '50%' in stat and 'требований в чек-листе' in stat   # R-001 и R-002 есть в пунктах, R-003 и R-004 — нет
 
 
 def test_nothing_selected_blocks_the_run(app):
@@ -445,7 +455,7 @@ def test_completeness_pass_failure_keeps_first_answer(app):
 
 
 def audit_gap(call):
-    ids = [r for r in __import__('re').findall(r'### (R-\d+) ', call.prompt)]
+    ids = re.findall(r'### (R-\d+) ', call.prompt)
     if 'R-001' not in ids:
         return {'gaps': []}
     return {'gaps': [{'requirementId': 'R-001', 'type': 'ui', 'checks': ['Ссылка ведёт на /password-reset', 'Проверить запись в таблице users напрямую в БД']}, {'requirementId': 'R-777', 'type': 'ui', 'checks': ['Чужое требование']}]}
@@ -545,6 +555,35 @@ def test_audit_drops_out_of_scope_checks(app):
     assert not any('напрямую в БД' in t for t in app.state("S.run.cases.map((c) => c.testCase.title)"))
 
 
+# ---------- как проверки плана делятся на запросы ----------
+def plan_of(*items):
+    return {'items': [{'type': t, 'title': f'Группа {i + 1}', 'requirementIds': ['R-001', 'R-002', 'R-003', 'R-004'][i % 4:i % 4 + 1], 'checks': [f'{t}-{i + 1}.{k + 1}' for k in range(n)]} for i, (t, n) in enumerate(items)]}
+
+
+def batch_sizes(app, plan):
+    """Запросы на написание кейсов по проверкам плана: [(групп плана в запросе, проверок в запросе)]. Дополнительные группы покрытия не считаются."""
+    app.model.on('promptPlan', plan).on('promptGenerate', lambda call: cases_for(call.prompt))
+    app.generate()
+    out = []
+    for c in app.model.calls_of('promptGenerate'):
+        mine = [(p, ch) for p, ch in checks_of(c.prompt) if re.fullmatch(r'(api|ui|e2e)-\d+\.\d+', ch)]
+        if mine:
+            out.append((len({p for p, _ in mine}), len(mine)))
+    return sorted(out)
+
+
+@pytest.mark.parametrize('plan,expected', [
+    ([('ui', 10)], [(1, 2), (1, 8)]),                 # у UI и API в запросе до 8 проверок
+    ([('api', 9)], [(1, 1), (1, 8)]),
+    ([('e2e', 5)], [(1, 1), (1, 4)]),                 # у E2E — до 4
+    ([('ui', 1), ('ui', 1), ('ui', 1), ('ui', 1)], [(1, 1), (3, 3)]),   # и не больше трёх групп плана в одном запросе
+    ([('ui', 5), ('ui', 4)], [(1, 4), (1, 5)]),       # две группы вместе не помещаются в 8 проверок
+    ([('ui', 3), ('ui', 4)], [(2, 7)]),
+])
+def test_plan_checks_are_split_into_requests_by_type_limits(app, plan, expected):
+    assert batch_sizes(app, plan_of(*plan)) == expected
+
+
 # ---------- обрезанный ответ при генерации ----------
 def run_with_limit(app, limit, **kw):
     from tests.support.model_generation import truncating_generate
@@ -607,7 +646,6 @@ def test_resume_writes_only_missing_checks(app):
     app.page.click('[data-act=resume-run]')
     app.wait_idle()
     new = app.model.calls_of('promptGenerate')[before:]
-    from tests.support.model_generation import checks_of
     assert [[c for _, c in checks_of(x.prompt)] for x in new] == [['429 на четвёртый запрос']]
     assert app.state('S.run.status') == 'done' and app.state('S.run.cases.filter((c) => c.testCase.title.includes("429")).length') == 1
     titles = app.state("S.run.cases.map((c) => c.testCase.title)")

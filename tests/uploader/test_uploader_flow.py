@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.support.extension import case_marks, manifest, prepare_cases, wait_window_ready
+from tests.support.extension import case_marks, manifest, wait_window_ready
 from tests.support.model import case_body
 
 CASE_INFO = """() => S.run.cases.filter((c) => c.status !== 'obsolete').map((c) => {

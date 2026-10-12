@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.support.model_generation import TmsRoute, connect_ai, standalone, wait_until
+from tests.support.model_generation import TmsRoute, connect_ai, standalone
 
 TESTIT = {'kind': 'testit', 'baseUrl': 'http://tms.test', 'token': 'tok', 'project': 'proj-uuid'}
 QASE = {'kind': 'qase', 'baseUrl': 'http://tms.test', 'token': 'qtok', 'project': 'DEMO'}

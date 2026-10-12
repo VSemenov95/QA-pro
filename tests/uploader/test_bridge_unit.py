@@ -584,7 +584,8 @@ def test_transcribe_after_failed_prepare_reports_the_reason(make_bridge):
 
 
 def test_ping_tells_speech_state(bridge):
-    assert bridge.tool('ping')['asr']['state'] == 'idle'
+    asr = bridge.tool('ping')['asr']
+    assert asr['state'] == 'idle' and asr['transcribed'] == {'chunks': 0, 'seconds': 0}
 
 
 @pytest.mark.skip(reason='распознавание речи по-настоящему: нужны распознаватель из npm (≈36 МБ), модель Whisper (≈80 МБ, Hugging Face) и звуковые файлы — в окружении и репозитории их нет (старый t/bridge_asr.js брал их из /tmp)')

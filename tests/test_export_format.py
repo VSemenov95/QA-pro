@@ -20,7 +20,7 @@ def two_steps(call):
     """Кейсы с двумя шагами: в строке на шаг видно, какие поля заполняются только в первой строке."""
     out = []
     for pid in re.findall(r'### ([A-Z]+-\d+)\.', call.prompt):
-        out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'], 'testCase': {
+        out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if not out else ['regression'], 'testCase': {
             'title': f'Проверка {pid}', 'id': '', 'priority': 'High', 'preconditions': ['Пользователь зарегистрирован'], 'expectedResult': 'ok', 'tags': ['t'],
             'steps': [{'step': 1, 'action': 'Открыть /login', 'expected': 'Открыта страница'}, {'step': 2, 'action': 'Нажать «Забыли пароль?»', 'expected': 'Открыт экран'}]}})
     return {'cases': out}
@@ -118,7 +118,7 @@ def test_revert_returns_the_team_version(app):
 
 def test_unsaved_format_survives_reload(app):
     set_format(app, FMT)
-    app.page.wait_for_function("() => !!localStorage.getItem('qapro.cfgDraft')")
+    app.page.wait_for_function("() => (localStorage.getItem('qapro.cfgDraft') || '').includes('export')")   # черновик записывается через 0,4 с после правки
     app.reload()
     assert gear_dirty(app) and app.state('S.cfg.exportFormat') == FMT
 
@@ -209,7 +209,6 @@ def test_edited_case_marks_the_file_stale_and_rebuild_needs_no_model(run):
     assert 'Кейсы изменились после сборки — пересоберите файл.' in run.text('#tab-body')
     assert 'Формат собирается по шаблону — без запросов к модели.' in run.text('.exp-card')
     run.page.click('[data-act=run-export]')
-    run.page.wait_for_function("() => window.__qa.S.exp.status === 'done' && window.__qa.S.exp.key === window.__qa.S.exp.key")
     run.page.wait_for_function("() => !/Кейсы изменились/.test(document.querySelector('#tab-body').textContent)")
     assert len(run.model.calls) == before   # ни одного нового запроса к модели
 
@@ -241,7 +240,7 @@ def test_json_format_is_assembled_from_wrapper_and_item_template(run):
     build(run)
     data = json.loads(output(run))
     assert [x['key'] for x in data['api']] == ['API-001', 'API-002']
-    assert [x['key'] for x in data['smoke']] == ['API-001', 'UI-001', 'E2E-001']   # в смоуке только кейсы с отметкой «Смоук»
+    assert [x['key'] for x in data['smoke']] == ['API-001', 'UI-001', 'E2E-001']   # в смоуке только кейсы с отметкой «Смоук» (API-002 — только регресс)
     assert data['api'][0]['steps'] == ['Открыть /login', 'Нажать «Забыли пароль?»'] and re.fullmatch(r'\d{4}-\d\d-\d\dT.*', data['generatedAt'])
 
 
@@ -256,7 +255,7 @@ def test_text_format_is_assembled_from_item_template(run):
 
 # ---------- формат, где текст кейсов переписывает модель ----------
 def ai_items(call):
-    ids = re.findall(r'"id": "([A-Z0-9-]+)"', call.prompt)
+    ids = list(dict.fromkeys(re.findall(r'"id": "([A-Z0-9-]+)"', call.prompt)))
     return {'items': [{'caseId': i, 'rows': [[f'Кейс {i}', 'шаги…']]} for i in ids]}
 
 
@@ -270,20 +269,13 @@ def ai_run(run):
 def test_ai_mode_converts_cases_in_batches(ai_run):
     build(ai_run)
     assert calls(ai_run, 'promptExportSpec') == 1 and calls(ai_run, 'promptExportItems') == 1   # четыре кейса — одна пачка (до 8)
-    assert output(ai_run).split('\n') == ['Название;Шаги', 'Кейс API-001;шаги…', 'Кейс API-002;шаги…', 'Кейс UI-001;шаги…', 'Кейс E2E-001;шаги…'] or output(ai_run).startswith('Название;Шаги')
+    assert output(ai_run).split('\n') == ['Название;Шаги', 'Кейс API-001;шаги…', 'Кейс API-002;шаги…', 'Кейс UI-001;шаги…', 'Кейс E2E-001;шаги…']
 
 
 def test_ai_request_lists_columns_and_rules(ai_run):
     build(ai_run)
     p = ai_run.model.prompts_of('promptExportItems')[0]
     assert 'Колонки: Название | Шаги' in p and 'Название — как есть, шаги одной ячейкой' in p and 'в каждой строке ровно 2 значений' in p
-
-
-def test_ai_mode_hint_counts_requests(ai_run):
-    build(ai_run)
-    ai_run.model.on('promptExportItems', lambda c: {'items': []})
-    ai_run.page.click('[data-act=rebuild-export]')
-    ai_run.page.wait_for_function("() => window.__qa.S.exp && window.__qa.S.exp.status !== 'running'")
 
 
 def test_only_changed_cases_are_converted_again(ai_run):
@@ -293,7 +285,7 @@ def test_only_changed_cases_are_converted_again(ai_run):
     ai_run.page.click('[data-act=run-export]')
     ai_run.page.wait_for_function("() => window.__qa.S.exp.status === 'done' && !/Кейсы изменились/.test(document.querySelector('#tab-body').textContent)")
     assert calls(ai_run, 'promptExportItems') == 2
-    assert len(re.findall(r'"id": "', ai_run.model.prompts_of('promptExportItems')[1])) == 1 and calls(ai_run, 'promptExportSpec') == 1
+    assert set(re.findall(r'"id": "([A-Z0-9-]+)"', ai_run.model.prompts_of('promptExportItems')[1])) == {'API-001'} and calls(ai_run, 'promptExportSpec') == 1
 
 
 def test_cases_the_model_skipped_are_reported_and_retried_alone(ai_run):
@@ -304,12 +296,12 @@ def test_cases_the_model_skipped_are_reported_and_retried_alone(ai_run):
     ai_run.page.click('[data-act=run-export]')
     ai_run.page.wait_for_function("() => window.__qa.S.exp.status === 'done' && !window.__qa.S.exp.error")
     last = ai_run.model.prompts_of('promptExportItems')[-1]
-    assert sorted(re.findall(r'"id": "([A-Z0-9-]+)"', last)) == ['API-002', 'E2E-001', 'UI-001']   # API-001 уже готов, заново не просим
+    assert sorted(set(re.findall(r'"id": "([A-Z0-9-]+)"', last))) == ['API-002', 'E2E-001', 'UI-001']   # API-001 уже готов, заново не просим
     assert len(output(ai_run).split('\n')) == 5
 
 
 def test_rows_are_padded_to_the_column_count(ai_run):
-    ai_run.model.on('promptExportItems', lambda c: {'items': [{'caseId': i, 'rows': [['Кейс ' + i]]} for i in re.findall(r'"id": "([A-Z0-9-]+)"', c.prompt)]})
+    ai_run.model.on('promptExportItems', lambda c: {'items': [{'caseId': i, 'rows': [['Кейс ' + i]]} for i in dict.fromkeys(re.findall(r'"id": "([A-Z0-9-]+)"', c.prompt))]})
     build(ai_run)
     assert output(ai_run).split('\n')[1] == 'Кейс API-001;'
 
