@@ -604,6 +604,7 @@ tr.req-row:hover td{background:var(--sunken)}
 .model-ic{width:22px;height:22px;display:grid;place-items:center;color:var(--stamp-text);flex:none}
 .model-ic svg{width:17px;height:17px}
 .model-panel #eco-hint{margin-top:-4px}
+.stage-list{display:flex;flex-direction:column;gap:10px}.stage-row{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface)}.stage-h{display:flex;gap:4px 10px;align-items:baseline;flex-wrap:wrap}.stage-why{margin:0}.stage-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
 /* tokens */
 .eco{border-top:1px solid var(--line);padding-top:12px;gap:10px}
@@ -1055,6 +1056,7 @@ tr.req-row:hover td{background:var(--hover)}
         <p class="hint">Через что QA pro обращается к ИИ. Выбор и ключи хранятся только в этом браузере и действуют во всех продуктах.</p>
         <div class="prov-list" id="prov-list" role="radiogroup" aria-label="Подключение к ИИ"></div>
         <p class="hint warn-hint" id="prov-legacy" hidden></p>
+        <div class="field"><span class="lbl">Модель по этапам</span><div id="stage-models"></div></div>
         <div class="field"><label class="lbl" for="review-ai">ИИ для ревью</label><select id="review-ai"></select></div>
         <p class="hint warn-hint" id="ai-hint" hidden></p>
         <label class="switch"><input type="checkbox" id="economy"><span class="sw"></span><span>Экономный режим</span></label>

@@ -559,6 +559,13 @@ function aiProblem(v) {
   return '';
 }
 const aiAbbrName = (c) => c.name || c.model || 'Подключение';
+// подпись модели с учётом выбора по этапам
+function aiLabelStage(v, stage) {
+  const t = parseAI(v), f = stageTier(stage);
+  if (t?.kind === 'claude' && f) return `Claude · ${CLAUDE_TIERS[f]}`;
+  if (t?.kind === 'conn' && f) { const m = stageModel(t.conn, f); if (m) return `${aiAbbrName(t.conn)} · ${m}`; }
+  return aiLabel(v);
+}
 const aiReady = (v) => !aiProblem(v);
 function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'claude' ? S.caps.tools : !!t.conn.tools); }
 
@@ -575,7 +582,12 @@ function meterAdd(step, inT, outT, cached = 0) {
 }
 const economy = () => !!S.settings.economy;
 const auxTier = (t) => (economy() ? 'quick' : t);
-async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other' } = {}) {
+/* модель этапа из настроек: null — «как основная» */
+const stageTier = (stage) => { const v = S.settings.stages?.[stage]; return v === 'quick' || v === 'default' || v === 'complex' ? v : null; };
+const stageOf = (step, stage) => stage || STAGE_OF_STEP[step] || 'aux';
+// у подключения по ключу Claude уровень задаёт модель; у ChatGPT и Иннокода одна модель — уровень ничего не меняет
+const stageModel = (conn, tier) => { const pv = provOfConn(conn.id); return (tier && pv && PROVIDERS[pv].tiers?.[tier]) || ''; };
+async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other', stage } = {}) {
   const v = ai || (role === 'gen' ? (S.run?.settings.genAI || S.settings.genAI) : aiValue('review'));
   const t = parseAI(v);
   const problem = aiProblem(v);
@@ -584,7 +596,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
   const full = prompt + JSON_TAIL;
   if (t.kind === 'claude') {
     const flat = full.replace(CACHE_MARK, '\n');
-    const opts = { signal: sig, modelTier: tier || t.tier };
+    const opts = { signal: sig, modelTier: stageTier(stageOf(step, stage)) || tier || t.tier };
     if (onProgress) opts.onText = ({ text }) => onProgress(text.length);
     let rounds = 0;
     if (tools) opts.tools = tools.map((x) => ({ ...x, execute: (input, o) => { rounds++; return x.execute(input, o); } }));
@@ -594,7 +606,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
     return res;
   }
   let usage = null;
-  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; } });
+  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; }, model: stageModel(t.conn, stageTier(stageOf(step, stage))) });
   if (usage) meterAdd(step, usage.in, usage.out, usage.cached || 0);
   else meterAdd(step, estTok(full), estTok(JSON.stringify(res)));
   return res;
@@ -603,7 +615,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
 /* ---------- внешние ИИ: OpenAI-совместимые API и Anthropic API ---------- */
 /* три способа подключения: аккаунт Claude (на claude.ai) или ключ Claude Console, ChatGPT по ключу OpenAI, Иннокод по ключу innoGPT */
 const PROVIDERS = {
-  claude: { id: 'p-claude', kind: 'anthropic', name: 'Claude', title: 'Аккаунт Claude', baseUrl: 'https://api.anthropic.com', model: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5-20251001'], tools: true, keyPh: 'sk-ant-…', keyWhere: 'Ключ создаётся в Claude Console (platform.claude.com) → API Keys.' },
+  claude: { id: 'p-claude', kind: 'anthropic', name: 'Claude', title: 'Аккаунт Claude', baseUrl: 'https://api.anthropic.com', model: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], tiers: { quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }, tools: true, keyPh: 'sk-ant-…', keyWhere: 'Ключ создаётся в Claude Console (platform.claude.com) → API Keys.' },
   openai: { id: 'p-openai', kind: 'openai', name: 'ChatGPT', title: 'ChatGPT (OpenAI)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.5', models: ['gpt-5.5'], tools: true, noTemp: true, keyPh: 'sk-…', keyWhere: 'Ключ создаётся на platform.openai.com → API keys. Оплата — по токенам с баланса OpenAI, а не из подписки ChatGPT Plus или Pro.' },
   innocode: { id: 'p-innocode', kind: 'openai', name: 'Иннокод', title: 'Иннокод', baseUrl: 'https://chat.aicenter.inno.tech/v1', model: 'qwen', models: ['qwen'], tools: false, noTemp: false, keyPh: 'ключ Иннокода', keyWhere: 'Ключ API Иннокода — тот же, что в настройках расширения QA Toolkit (раздел «ИнноКод»). Модель по умолчанию — qwen.' },
 };
@@ -669,8 +681,8 @@ function connHeaders(conn) {
   return h;
 }
 const SYS_JSON = 'Ты — помощник QA-команды. Отвечай строго в формате JSON, без пояснений вне JSON.';
-async function openaiCall(conn, messages, { tools, signal, onText }) {
-  const body = { model: conn.model, messages };
+async function openaiCall(conn, messages, { tools, signal, onText, model }) {
+  const body = { model: model || conn.model, messages };
   if (!conn.noTemp) body.temperature = 0.2;
   if (tools) body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema || { type: 'object', properties: {} } } }));
   const stream = !tools && !!onText;
@@ -699,8 +711,10 @@ async function openaiCall(conn, messages, { tools, signal, onText }) {
   if (j.usage) Object.defineProperty(m, '__usage', { value: j.usage, enumerable: false });
   return m;
 }
-async function anthropicCall(conn, messages, { tools, signal }) {
-  const body = { model: conn.model, max_tokens: Number(conn.maxTokens) || 16000, system: SYS_JSON, messages, temperature: 0.2 };
+async function anthropicCall(conn, messages, { tools, signal, model }) {
+  const body = { model: model || conn.model, max_tokens: Number(conn.maxTokens) || 16000, system: SYS_JSON, messages };
+  // Claude 5.x и новее не принимают нестандартную температуру (ответ 400); прежние поколения и чужие шлюзы — принимают
+  if (!/^claude-[a-z]+-(?:[5-9]|\d\d)(?:\D|$)/.test(body.model)) body.temperature = 0.2;
   if (tools) body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema || { type: 'object', properties: {} } }));
   const res = await httpJSON((conn.baseUrl || 'https://api.anthropic.com').replace(/\/+$/, '') + '/v1/messages', { headers: connHeaders(conn), body, signal, what: 'ИИ' });
   return res.json();
@@ -710,14 +724,14 @@ async function runTool(tools, name, input, signal) {
   if (!t) return 'Error: unknown tool';
   try { const r = await t.execute(input || {}, { signal }); return typeof r === 'string' ? r : JSON.stringify(r); } catch (e) { return 'Error: ' + (e?.message || e); }
 }
-async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage }) {
+async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage, model }) {
   const u = { in: 0, out: 0, cached: 0 }, report = () => onUsage?.(u);
   if (conn.kind === 'anthropic') {
     const k = prompt.indexOf(CACHE_MARK);
     const content = k > 0 ? [{ type: 'text', text: prompt.slice(0, k), cache_control: { type: 'ephemeral' } }, { type: 'text', text: prompt.slice(k + CACHE_MARK.length) }] : prompt;
     const messages = [{ role: 'user', content }];
     for (let round = 0; round < 6; round++) {
-      const j = await anthropicCall(conn, messages, { tools: tools && round < 5 ? tools : null, signal });
+      const j = await anthropicCall(conn, messages, { tools: tools && round < 5 ? tools : null, signal, model });
       if (j.usage) { u.in += (j.usage.input_tokens || 0) + (j.usage.cache_creation_input_tokens || 0) + (j.usage.cache_read_input_tokens || 0); u.cached += j.usage.cache_read_input_tokens || 0; u.out += j.usage.output_tokens || 0; report(); }
       const uses = (j.content || []).filter((b) => b.type === 'tool_use');
       if (uses.length && j.stop_reason === 'tool_use') {
@@ -737,7 +751,7 @@ async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage }) {
   const take = (msg) => { const us = msg?.__usage; if (us) { u.in += us.prompt_tokens || 0; u.out += us.completion_tokens || 0; u.cached += us.prompt_tokens_details?.cached_tokens || 0; report(); } };
   if (tools) {
     for (let round = 0; round < 6; round++) {
-      const msg = await openaiCall(conn, messages, { tools: round < 5 ? tools : null, signal });
+      const msg = await openaiCall(conn, messages, { tools: round < 5 ? tools : null, signal, model });
       take(msg);
       if (msg.tool_calls?.length) {
         messages.push({ role: 'assistant', content: msg.content || '', tool_calls: msg.tool_calls });
@@ -753,7 +767,7 @@ async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage }) {
     }
     throw { code: 'empty_completion' };
   }
-  const msg = await openaiCall(conn, messages, { signal, onText: onProgress });
+  const msg = await openaiCall(conn, messages, { signal, onText: onProgress, model });
   take(msg);
   return parseLoose(msg.content);
 }
@@ -1272,6 +1286,18 @@ async function stepPlan(run, types) {
 }
 /* актуализация: сверка кейсов из файла с требованиями */
 const MAP_BATCH = 10;
+/* Ответ модели по пакету кейсов → кейс пакета. Модель иногда нумерует кейсы заново с 1 вместо номеров из заголовков («### #11»).
+   Сопоставляем по номеру из заголовка, затем по порядковому номеру в пакете, затем по позиции (если кейсов вернули поровну).
+   Один ответ достаётся только одному кейсу. */
+function matchBatch(items, arr) {
+  const list = arrOf(arr).filter((x) => x && typeof x === 'object');
+  const byNum = new Map(list.map((x) => [Number(x.index), x]));
+  const hitAbs = items.filter((sc) => byNum.has(sc.index)).length, hitRel = items.filter((_, k) => byNum.has(k + 1)).length;
+  const used = new Set();
+  const take = (x) => { if (!x || used.has(x)) return null; used.add(x); return x; };
+  const found = items.map((sc, k) => take(hitAbs >= hitRel ? byNum.get(sc.index) : byNum.get(k + 1)));
+  return found.map((r, k) => r || (list.length === items.length ? take(list[k]) : null));
+}
 async function stepMap(run) {
   sstart(run, 'map');
   const todo = run.srcCases.filter((c) => !c.mapped);
@@ -1284,9 +1310,9 @@ async function stepMap(run) {
     const line = slog(run, 'map', `${label}: модель сверяет с ТЗ…`);
     try {
       const res = await ask(promptMap(run, b), { step: 'map', tier: auxTier(), cache: false, onProgress: (n) => { line.text = `${label}: пишет оценку — ${fmtKChars(n)}`; scheduleRender(); } });
-      const arr = arrOf(res?.cases);
-      for (const sc of b) {
-        const r = arr.find((x) => Number(x?.index) === sc.index) || (b.length === 1 ? arr[0] : null);
+      const rs = matchBatch(b, res?.cases);
+      for (const [k, sc] of b.entries()) {
+        const r = rs[k];
         const st = String(r?.status || '').toLowerCase();
         const ty = String(r?.type || '').toLowerCase();
         sc.type = TYPES.includes(ty) ? ty : sc.typeHint || 'ui';
@@ -1329,10 +1355,10 @@ async function stepActualize(run) {
     try {
       const res = await ask(promptActualize(run, b.type, b.items), { step: 'actualize', cache: false, onProgress: (n) => { line.text = `${label}: пишет кейсы — ${fmtKChars(n)}`; scheduleRender(); } });
       const info = tplInfo(b.type);
-      const arr = arrOf(res?.cases);
+      const rs = matchBatch(b.items, res?.cases);
       let ok = 0;
-      for (const sc of b.items) {
-        const r = arr.find((x) => Number(x?.index) === sc.index) || (b.items.length === 1 ? arr[0] : null);
+      for (const [k, sc] of b.items.entries()) {
+        const r = rs[k];
         let tc = r?.testCase && typeof r.testCase === 'object' && !Array.isArray(r.testCase) ? r.testCase : null;
         if (!tc) continue;
         let dispId = sc.srcId && !takenSrc.has(sc.srcId) ? sc.srcId : '';
@@ -1480,7 +1506,7 @@ async function coverageAudit(run) {
     const label = packs.length > 1 ? `Сверка ${k + 1}/${packs.length}` : 'Сверка покрытия';
     const line = slog(run, 'coverage', `${label}: модель сверяет кейсы с критериями…`);
     try {
-      const res = await ask(promptCoverageAudit(run, pk, types), { step: 'coverage', onProgress: (n) => { line.text = `${label}: пишет — ${fmtKChars(n)}`; scheduleRender(); } });
+      const res = await ask(promptCoverageAudit(run, pk, types), { step: 'coverage', stage: 'aux', onProgress: (n) => { line.text = `${label}: пишет — ${fmtKChars(n)}`; scheduleRender(); } });
       const ids = new Set(pk.map((r) => r.id));
       const g = arrOf(res?.gaps).map((x) => ({ requirementId: String(x?.requirementId || ''), type: String(x?.type || '').toLowerCase(), checks: arrStr(x?.checks).filter((c) => !outOfScope(c)) }))
         .filter((x) => ids.has(x.requirementId) && x.checks.length);
@@ -2065,7 +2091,7 @@ function startReview(full = false, tab = 'review') {
     }
     run.findings = prev.filter((f) => f.source === 'ai' && ((f.kind === 'case' && keepCase.has(f.targetId)) || (f.kind === 'checklist' && keepItem.has(f.targetId))));
     S.fdUI.clear();
-    slog(run, 'review', `Ревьюер: ${aiLabel(aiValue('review'))}${S.cfg.reviewRules.trim() ? ' · правила ревью команды' : ''}${S.lessons.length ? ` · правил из замечаний: ${S.lessons.length}` : ''}`);
+    slog(run, 'review', `Ревьюер: ${aiLabelStage(aiValue('review'), 'review')}${S.cfg.reviewRules.trim() ? ' · правила ревью команды' : ''}${S.lessons.length ? ` · правил из замечаний: ${S.lessons.length}` : ''}`);
     if (keepCase.size + keepItem.size) slog(run, 'review', `Не менялись с прошлого ревью: ${keepCase.size ? `кейсов ${keepCase.size}` : ''}${keepCase.size && keepItem.size ? ', ' : ''}${keepItem.size ? `пунктов чек-листа ${keepItem.size}` : ''} — их замечания сохранены, повторно не проверяю`, 'ok');
     // проверки без модели
     if (run.cases.length) for (const r of uncovered(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'major', category: 'Покрытие', message: `Требование ${r.id} «${r.title}» не покрыто тест-кейсами.`, suggestion: 'Дописать тест-кейсы для этого требования.', source: 'auto' });

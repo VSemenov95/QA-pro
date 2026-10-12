@@ -344,6 +344,7 @@ function renderParams() {
   $('#depth').innerHTML = DEPTHS.map((d) => `<button type="button" role="radio" aria-checked="${S.settings.depth === d.id}" data-depth="${d.id}">${d.label}</button>`).join('');
   $('#depth-hint').textContent = (DEPTHS.find((d) => d.id === S.settings.depth) || DEPTHS[1]).hint;
   renderProviders();
+  renderStages();
   renderAIHint();
   $('#agent-tools').checked = S.settings.agentTools;
   $('#skip-existing').checked = S.settings.skipExisting;
@@ -1531,6 +1532,29 @@ async function onProvClick(e) {
   catch (err) { S.provTest = { pid, ok: false, text: errText(err) }; }
   if (!$('#set-model')?.hidden) renderProviders(true);
 }
+/* ---------- модель по этапам ---------- */
+const STAGE_OPT = { same: 'Как основная модель', quick: 'Быстрая (Haiku)', default: 'Стандартная (Sonnet)', complex: 'Максимальная (Opus)' };
+function stageSupported(stage) {   // уровень меняет модель у Claude (аккаунт или ключ); у ChatGPT и Иннокода модель одна
+  const t = parseAI(stage === 'review' ? aiValue('review') : S.settings.genAI);
+  return !!t && (t.kind === 'claude' || !!PROVIDERS[provOfConn(t.conn.id)]?.tiers);
+}
+function renderStages() {
+  const box = $('#stage-models');
+  if (!box) return;
+  const st = S.settings.stages, sup = STAGES.map((x) => stageSupported(x.id)), any = sup.some(Boolean);
+  const same = STAGES.every((x) => st[x.id] === x.rec), allMain = STAGES.every((x) => st[x.id] === 'same');
+  box.innerHTML = `<div class="stage-list">${STAGES.map((x, i) => {
+    const opts = STAGE_TIER_VALUES.map((v) => `<option value="${v}" ${st[x.id] === v ? 'selected' : ''}>${STAGE_OPT[v]}${v === x.rec ? ' — рекомендуем' : ''}</option>`).join('');
+    return `<div class="stage-row"><div class="stage-h"><label class="lbl" for="stage-${x.id}">${esc(x.title)}</label><span class="small muted">${esc(x.desc)}</span></div>
+      <select id="stage-${x.id}" data-stage="${x.id}" ${sup[i] ? '' : 'disabled'}>${opts}</select>
+      <p class="hint stage-why"><b>Рекомендуем: ${esc(STAGE_OPT[x.rec].split(' (')[0].toLowerCase())}.</b> ${esc(x.why)}</p></div>`;
+  }).join('')}</div>
+    <div class="stage-acts"><button class="btn sm accent" type="button" data-stage-act="apply" ${any && !same ? '' : 'disabled'}>Применить рекомендации</button><button class="btn sm" type="button" data-stage-act="reset" ${any && !allMain ? '' : 'disabled'}>Все этапы — как основная</button></div>
+    <p class="hint" id="stage-note">${any
+    ? (same ? 'Выбрана рекомендуемая раскладка: сильная модель там, где важно качество, быстрая — там, где расход велик, а решения простые.' : allMain ? 'Сейчас все этапы идут на одной модели. Рекомендуемая раскладка: анализ и кейсы — стандартная, ревью и служебные шаги — быстрая; на нашем тестовом ТЗ это переносит на быструю модель около 55% входных токенов.' : 'Раскладка отличается от рекомендуемой — это нормально, если вы её проверили на своих документах.')
+    : 'Для ChatGPT и Иннокода уровень модели по этапам не переключается: используется одна модель. Выбор работает для аккаунта Claude и для подключения по ключу Claude.'}
+    Выбор по этапам сильнее экономного режима. Рекомендации — по замеру на одном ТЗ и ценам API на октябрь 2026; проверьте на своих документах.</p>`;
+}
 function renderAIHint() {
   const p1 = aiProblem(S.settings.genAI), rv2 = aiValue('review'), p2 = S.settings.reviewAI === 'same' ? '' : aiProblem(rv2);
   const el = $('#ai-hint');
@@ -2303,6 +2327,18 @@ function bind() {
   $('#types').addEventListener('change', (e) => { const t = e.target.dataset.type; if (!t) return; S.settings.types[t] = e.target.checked; saveSettings(); renderRunControls(); });
   $('#depth').addEventListener('click', (e) => { const b = e.target.closest('[data-depth]'); if (!b) return; S.settings.depth = b.dataset.depth; saveSettings(); renderParams(); });
   $('#review-ai').addEventListener('change', onAISelect);
+  $('#stage-models').addEventListener('change', (e) => {
+    const id = e.target.dataset?.stage;
+    if (!id || !STAGES.some((x) => x.id === id) || !STAGE_TIER_VALUES.includes(e.target.value)) return;
+    S.settings.stages[id] = e.target.value; saveSettings(); renderParams();
+  });
+  $('#stage-models').addEventListener('click', (e) => {
+    const act = e.target.closest('[data-stage-act]')?.dataset.stageAct;
+    if (!act) return;
+    for (const x of STAGES) S.settings.stages[x.id] = act === 'apply' ? x.rec : 'same';
+    saveSettings(); renderParams();
+    toast(act === 'apply' ? 'Применена рекомендуемая раскладка моделей по этапам' : 'Все этапы идут на основной модели');
+  });
   $('#prov-list').addEventListener('change', onProvInput);
   $('#prov-list').addEventListener('input', (e) => { if (e.target.matches('[data-pk],[data-pm],[data-pu]')) onProvInput(e); });
   $('#prov-list').addEventListener('click', onProvClick);
@@ -2649,6 +2685,6 @@ async function voiceFinish(chunks, mime) {
   } catch (e) { voiceSay('Распознавание не удалось: ' + (e?.message || 'мост не ответил'), 'err'); }
   finally { voiceBusy = false; if (ac) ac.close().catch(() => {}); }
 }
-if (window.__qaTest) window.__qa = { S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();
