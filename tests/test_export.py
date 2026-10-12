@@ -245,7 +245,7 @@ def test_sfera_json_skips_obsolete_cases(app, tmp_path):
 @pytest.fixture
 def alone(make_app):
     app = make_app(**standalone())
-    connect_ai(app)
+    app.ai = connect_ai(app)
     app.add_sample()
     app.generate()
     return app
@@ -262,6 +262,8 @@ def anchor_download(app, selector):
 def test_standalone_generation_goes_through_the_connection(alone):
     assert alone.state('S.run.status') == 'done' and alone.state('S.run.cases.length') == 4
     assert alone.state("S.settings.genAI") == 'conn:' + AI_CONN['id']
+    reqs = alone.ai.requests
+    assert len(reqs) == len(alone.model.calls) and {(r['url'], r['auth'], r['model']) for r in reqs} == {('http://ai.test/v1/chat/completions', 'Bearer secret', 'corp-llm')}
 
 
 def test_standalone_default_export_download(alone):

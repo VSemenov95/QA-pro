@@ -215,7 +215,7 @@ def test_close_button_closes_the_window(env):
     set_section(w, env)
     go(w)
     with w.expect_event('close'):
-        w.click('#close')
+        w.evaluate("() => setTimeout(() => document.querySelector('#close').click(), 0)")   # окно закрывается во время самого нажатия
     assert w.is_closed()
 
 
