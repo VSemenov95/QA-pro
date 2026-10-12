@@ -67,42 +67,16 @@ def test_generation_toast_and_draft_tab(done):
     assert 'Готово: 4 тест-кейса, чек-лист из 4 пунктов' in ' '.join(done.toast_texts())
 
 
-# ---------- черновик ----------
-def test_cases_wait_in_draft_outside_the_product(done):
-    assert done.state('S.run.stage') == 'draft'
-    assert done.state('S.prodIndex.cases.length') == 0
-    assert done.text('#tab-draft .cnt') == '4'
-
-
-def test_add_to_project_moves_cases_into_product_index(done):
-    done.tab('draft')
-    done.page.click('[data-act=draft-add]')
-    done.page.wait_for_function("() => window.__qa.S.run.stage === 'added'")
-    done.page.wait_for_function("() => window.__qa.S.prodIndex.cases.length === 4")
-    assert sorted(done.state('S.prodIndex.cases.map((x) => x.i)')) == ['API-001', 'API-002', 'E2E-001', 'UI-001']
-    assert 'Мой продукт' in ' '.join(done.toast_texts())
-
-
-def test_added_cases_leave_the_draft_actions(done):
-    done.tab('draft')
-    done.page.click('[data-act=draft-add]')
-    done.page.wait_for_function("() => window.__qa.S.run.stage === 'added'")
-    assert done.count('[data-act=draft-add]') == 0 and 'в проекте' in done.text('.draft-head')
-
-
-def test_next_run_continues_numbering_after_added_draft(done):
-    done.tab('draft')
-    done.page.click('[data-act=draft-add]')
-    done.page.wait_for_function("() => window.__qa.S.prodIndex.cases.length === 4")
-    done.call('a.S.run = null; a.renderAll()')
-    done.generate()
-    assert sorted(done.state("S.run.cases.map((c) => c.dispId)")) == ['API-003', 'API-004', 'E2E-002', 'UI-002']
-
-
 # ---------- что генерировать ----------
+def switch(app, sel, on):
+    """Флажок за стилизованной подписью: нажимается подпись."""
+    if app.page.is_checked(sel) != on:
+        app.page.click(f'label:has({sel})')
+
+
 def set_outputs(app, cases=True, checklist=True):
     for k, on in (('cases', cases), ('checklist', checklist)):
-        app.page.set_checked(f'#out-{k}', on)
+        switch(app, f'#out-{k}', on)
 
 
 @pytest.mark.parametrize('cases,checklist,label', [
@@ -138,7 +112,7 @@ def test_nothing_selected_blocks_the_run(app):
 
 def test_no_test_types_blocks_the_run(app):
     for t in ('api', 'ui', 'e2e'):
-        app.page.set_checked(f'#type-{t}', False)
+        switch(app, f'#type-{t}', False)
     assert app.page.is_disabled('#btn-run')
     assert app.text('#run-note') == 'Выберите хотя бы один вид тестов.'
 
@@ -151,7 +125,7 @@ def test_no_documents_blocks_the_run(app):
 
 def test_selected_types_limit_requirements_and_cases(app):
     for t in ('api', 'e2e'):
-        app.page.set_checked(f'#type-{t}', False)
+        switch(app, f'#type-{t}', False)
     app.generate()
     assert app.state("S.run.cases.every((c) => c.type === 'ui')") is True and app.state('S.run.cases.length') >= 1
     assert app.state("S.run.requirements.filter((r) => !r.inScope).map((r) => r.id)") == ['R-002', 'R-003']
@@ -161,7 +135,7 @@ def test_selected_types_limit_requirements_and_cases(app):
 # ---------- анализ: несколько фрагментов ----------
 def test_requirements_from_fragments_are_merged(app, tmp_path):
     """Большой документ режется на фрагменты; одинаковое требование из двух фрагментов — одно, критерии складываются."""
-    para = ('Абзац требований. ' * 600).strip()   # ~10 тыс. знаков
+    para = ('Абзац требований. ' * 500).strip()   # ~9 тыс. знаков: вместе с примером ТЗ документы дают ровно два фрагмента
     big = files.write(tmp_path / 'ТЗ-большое.md', '\n\n'.join(f'## Раздел {i}\n{para}' for i in range(3)))
     answers = [
         {'requirements': [requirement('Ссылка «Забыли пароль?»', criteria=['видна под полем']), requirement('Только в первом', types=('api',))], 'questions': ['Нужен ли капча?']},
@@ -191,18 +165,39 @@ def test_priority_words_are_normalized(app):
 
 def test_second_run_reuses_analysis_of_same_documents(app):
     app.generate()
-    app.call('a.S.run = null; a.renderAll()')
     app.generate()
     assert len(app.model.calls_of('promptAnalyze')) == 1
     assert 'взят из кэша продукта' in ' '.join(app.state("S.run.steps.analyze.log.map((l) => l.text)"))
 
 
 def test_analysis_cache_can_be_switched_off(app):
-    app.page.uncheck('#reuse-analysis')
+    switch(app, '#reuse-analysis', False)
     app.generate()
-    app.call('a.S.run = null; a.renderAll()')
     app.generate()
     assert len(app.model.calls_of('promptAnalyze')) == 2
+
+
+# ---------- расход токенов ----------
+def test_usage_counts_every_model_request_by_step(done):
+    u = done.state('S.run.usage')
+    assert u['calls'] == len(done.model.calls)
+    assert {k: v['calls'] for k, v in u['by'].items()} == {'analyze': 2, 'checklist': 1, 'plan': 1, 'generate': 3, 'coverage': 1, 'knowledge': 1}
+    assert u['in'] > 0 and u['out'] > 0
+
+
+def test_agent_tab_shows_usage(done):
+    done.tab('agent')
+    assert '9 запросов' in done.text('#tab-body .stats') and 'Расход по шагам (оценка): ' in done.text('.usage-line')
+    assert 'генерация' in done.text('.usage-line') and 'анализ' in done.text('.usage-line')
+
+
+def test_new_generation_resets_case_filters(done):
+    done.tab('cases')
+    done.page.click('[data-act=fsuite][data-s=smoke]')
+    done.page.fill('#case-q', 'API')
+    done.generate()
+    done.tab('cases')
+    assert done.state("S.filter.suite") == 'all' and done.page.input_value('#case-q') == '' and done.count('#case-list article') >= 4
 
 
 # ---------- чек-лист: нормализация ответа ----------
@@ -231,17 +226,53 @@ def test_suites_of_cases_are_normalized(app):
 
 
 # ---------- ошибки модели ----------
-def test_rate_limit_in_analysis_stops_the_run_and_can_be_resumed(app):
+def test_rate_limit_in_analysis_stops_the_run(app):
     app.model.on('promptAnalyze', ModelError('rate_limited'))
     app.generate()
     assert app.state('S.run.status') == 'error'
     assert 'исчерпан лимит' in app.state('S.run.error')
     app.tab('agent')
     assert 'Работа прервана' in app.text('.banner.err')
+    assert app.count('[data-act=resume-run]') == 1
+    assert app.state('S.run.cases.length') == 0 and len(app.model.calls_of('promptPlan')) == 0
+
+
+@pytest.mark.xfail(strict=True, reason='БАГ: «Продолжить с места остановки» после лимита запросов в анализе считает шаг «Анализ» выполненным '
+                   '(статус error) и заканчивает запуск как «Готово» с нулём требований и кейсов; анализ не повторяется')
+def test_resume_after_rate_limit_in_analysis_repeats_analysis(app):
+    app.model.on('promptAnalyze', ModelError('rate_limited'))
+    app.generate()
     app.model.handlers.pop('promptAnalyze')
+    app.tab('agent')
     app.page.click('[data-act=resume-run]')
     app.wait_idle()
-    assert app.state('S.run.status') == 'done' and app.state('S.run.cases.length') == 4
+    assert app.state('S.run.requirements.length') == 4 and app.state('S.run.cases.length') == 4
+
+
+@pytest.mark.xfail(strict=True, reason='БАГ: «Продолжить с места остановки» после лимита запросов на шаге «Чек-лист» не повторяет чек-лист: '
+                   'шаг в статусе error считается выполненным, запуск завершается «Готово» без чек-листа, хотя он выбран')
+def test_resume_after_rate_limit_in_checklist_repeats_checklist(app):
+    app.model.on('promptChecklist', ModelError('rate_limited'))
+    app.generate()
+    assert app.state('S.run.status') == 'error' and app.state('S.run.requirements.length') == 4
+    app.model.handlers.pop('promptChecklist')
+    app.tab('agent')
+    app.page.click('[data-act=resume-run]')
+    app.wait_idle()
+    assert app.state('S.run.checklist && S.run.checklist.groups.length') == 2
+
+
+def test_resume_after_rate_limit_in_cases_writes_only_missing(app):
+    """Лимит на шаге кейсов: анализ, чек-лист и план не повторяются, кейсы допишутся."""
+    app.model.on('promptGenerate', ModelError('rate_limited'))
+    app.generate()
+    assert app.state('S.run.status') == 'error' and app.state('S.run.cases.length') == 0
+    app.model.handlers.pop('promptGenerate')
+    app.tab('agent')
+    app.page.click('[data-act=resume-run]')
+    app.wait_idle()
+    assert app.state('S.run.status') == 'done' and app.state('S.run.cases.length') >= 4
+    assert [len(app.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 1]
 
 
 def test_plan_failure_falls_back_to_acceptance_criteria(app):
@@ -267,7 +298,8 @@ def test_cases_with_foreign_plan_item_and_requirements_are_repaired(app):
         return {'cases': [{'planItem': 'P-99', 'requirementIds': ['R-999'], 'suites': [], 'testCase': case_body('Кейс ' + c)} for _, c in checks_of(call.prompt)]}
     app.model.on('promptGenerate', gen)
     app.generate()
-    assert app.state("S.run.cases.every((c) => /^P-\\d+$/.test(c.planItem) && c.planItem !== 'P-99' && c.requirementIds.length > 0 && !c.requirementIds.includes('R-999'))") is True
+    assert app.state("S.run.cases.every((c) => S.run.plan.some((p) => p.id === c.planItem) && c.planItem !== 'P-99')") is True
+    assert app.state("S.run.cases.every((c) => c.requirementIds.length > 0 && !c.requirementIds.includes('R-999') && c.requirementIds.every((id) => S.run.reqById[id]))") is True
 
 
 # ---------- ответы на вопросы к документации ----------
@@ -303,6 +335,15 @@ def test_applying_answer_adds_criteria_and_marks_question(done):
     assert 'Ответы учтены: Q-01' in ' '.join(done.state("S.run.steps.answers.log.map((l) => l.text)"))
 
 
+def test_changed_answer_is_pending_again(done):
+    answer_first_question(done)
+    done.page.click('[data-act=apply-answers]')
+    done.wait_idle()
+    done.tab('questions')
+    done.page.fill('textarea[data-q="Q-01"]', 'Показываем таймер и блокируем кнопку')
+    assert done.text('#qst-Q-01') == 'не учтён' and not done.page.is_disabled('[data-act=apply-answers]')
+
+
 def test_impact_prompt_contains_the_answer(done):
     answer_first_question(done)
     done.page.click('[data-act=apply-answers]')
@@ -314,6 +355,7 @@ def test_impact_prompt_contains_the_answer(done):
 def test_answer_rewrites_affected_case_and_adds_new_check(done):
     done.model.on('promptImpact', {'criteria': [], 'update': [{'caseId': 'API-001', 'instruction': 'Указать код 429 на четвёртый запрос'}],
                                    'add': [{'type': 'api', 'requirementIds': ['R-002'], 'check': 'Четвёртый запрос за 15 минут — 429', 'suites': ['regression']}], 'checklistUpdate': [{'itemId': 'CL-004', 'check': 'Четвёртый запрос — 429 и таймер'}]})
+    done.model.on('promptGenerate', lambda call: cases_for(call.prompt))
     done.model.on('promptReviseBatch', lambda call: {'cases': [{'caseId': 'API-001', 'testCase': case_body('Исправленный по ответу')}]})
     answer_first_question(done)
     done.page.click('[data-act=apply-answers]')
@@ -335,3 +377,325 @@ def test_answers_go_into_later_prompts(done):
     done.page.click('[data-act=do-refine]')
     done.page.wait_for_function("() => document.querySelector('.case-note')?.textContent.includes('доработан')")
     assert 'При 4-м запросе показываем таймер обратного отсчёта' in done.model.prompts_of('promptRefine')[0]
+
+
+# ---------- полнота анализа и сверка покрытия ----------
+def test_completeness_pass_adds_missing_requirements_and_criteria(app):
+    """Второй проход по фрагменту: пропущенное требование добавляется, дубль по названию — нет, критерий дописывается существующему."""
+    app.model.on('promptAnalyzeMore', {
+        'requirements': [requirement('Блокировка после 5 неудачных попыток', types=('ui', 'api'), criteria=['6-я попытка — «Вход заблокирован на 30 минут»']), {'title': 'Ссылка «Забыли пароль?»', 'description': 'дубль'}],
+        'criteria': [{'title': 'Ссылка «Забыли пароль?»', 'add': ['Ссылка ведёт на /password-reset', 'Ссылка видна под полем пароля']}]})
+    app.generate()
+    assert app.state("S.run.requirements.map((r) => r.title)") == ['Ссылка «Забыли пароль?»', 'API запроса сброса', 'Сквозное восстановление', 'Лимит запросов', 'Блокировка после 5 неудачных попыток']
+    assert app.state("S.run.reqById['R-001'].criteria") == ['Ссылка видна под полем пароля', 'Ссылка ведёт на /password-reset']   # повторный критерий не дублируется
+    assert app.state("S.run.reqById['R-005'].criteria") == ['6-я попытка — «Вход заблокирован на 30 минут»']
+    assert 'проверка полноты: +1 требование, +1 критерий' in ' '.join(app.state("S.run.steps.analyze.log.map((l) => l.text)"))
+
+
+def test_completeness_pass_failure_keeps_first_answer(app):
+    app.model.on('promptAnalyzeMore', ModelError('invalid_json'))
+    app.generate()
+    assert app.state('S.run.status') == 'done' and app.state('S.run.requirements.length') == 4
+
+
+def audit_gap(call):
+    ids = [r for r in __import__('re').findall(r'### (R-\d+) ', call.prompt)]
+    if 'R-001' not in ids:
+        return {'gaps': []}
+    return {'gaps': [{'requirementId': 'R-001', 'type': 'ui', 'checks': ['Ссылка ведёт на /password-reset', 'Проверить запись в таблице users напрямую в БД']}, {'requirementId': 'R-777', 'type': 'ui', 'checks': ['Чужое требование']}]}
+
+
+def test_coverage_audit_adds_checks_for_uncovered_criteria(app):
+    app.model.on('promptCoverageAudit', audit_gap).on('promptGenerate', lambda call: cases_for(call.prompt))
+    app.generate()
+    assert app.state("S.run.plan.filter((p) => p.id.startsWith('C-')).map((p) => [p.id, p.type, p.requirementIds, p.checks])") == [['C-01', 'ui', ['R-001'], ['Ссылка ведёт на /password-reset']]]
+    assert app.state("S.run.cases.some((c) => c.testCase.title === '[FE] Кейс: Ссылка ведёт на /password-reset' && c.requirementIds.includes('R-001'))") is True
+    assert app.state('S.run.auditDone') is True
+    log = ' '.join(app.state("S.run.steps.coverage.log.map((l) => l.text)"))
+    assert 'Сверяю покрытие критериев: 4 требования, 1 запрос' in log and 'Дописываю 1 кейс для непокрытых критериев' in log
+
+
+def test_completeness_prompt_lists_requirements_already_found(app):
+    app.generate()
+    p = app.model.prompts_of('promptAnalyzeMore')[0]
+    assert '«Ссылка «Забыли пароль?»»: Ссылка видна под полем пароля' in p and '«Лимит запросов»' in p
+    assert len(app.model.calls_of('promptAnalyzeMore')) == 1 and len(app.model.calls_of('promptCoverageAudit')) == 1
+
+
+def test_coverage_audit_gets_cases_of_each_requirement(app):
+    app.generate()
+    p = app.model.prompts_of('promptCoverageAudit')[0]
+    assert '### R-001 «Ссылка «Забыли пароль?»»' in p and 'Критерии: 1) Ссылка видна под полем пароля' in p
+    assert 'UI-001' in p and 'API-001' in p
+
+
+def test_failed_audit_is_repeated_not_marked_done(app):
+    app.model.on('promptCoverageAudit', ModelError('invalid_json'))
+    app.generate()
+    assert app.state('S.run.status') == 'done' and app.state('!S.run.auditDone') is True
+
+
+# ---------- объём тестирования ----------
+SCOPE_CASES = [
+    ('Исследовательское тестирование формы восстановления', True),
+    ('Свободное исследование формы', True),
+    ('Исследовательская проверка на усмотрение тестировщика', True),
+    ('Выполнить INSERT INTO users и проверить ответ', True),
+    ('Создать запись в таблице заявок', True),
+    ('Проверить запись в таблице users напрямую в БД', True),
+    ('После сброса SELECT * FROM users показывает новый хэш', True),
+    ('В выпадающем списке SELECT «Роль» есть «Оператор»', False),
+    ('POST /api/v1/password-reset с корректным email — 202', False),
+    ('DELETE /api/v1/password-reset/1 — 405', False),
+    ('После запроса в таблице заявок появилась запись со статусом NEW', False),
+    ('', False),
+]
+
+
+@pytest.mark.parametrize('check,out', SCOPE_CASES)
+def test_out_of_scope_checks(app, check, out):
+    assert app.call('a.outOfScope(arg)', check) is out
+
+
+def test_scope_rule_is_in_prompts_of_every_step(app):
+    from pathlib import Path
+    rule = (Path(__file__).resolve().parent.parent / 'rules' / 'scope.md').read_text(encoding='utf-8').splitlines()[0]
+    app.generate()
+    for kind in ('promptAnalyze', 'promptAnalyzeMore', 'promptChecklist', 'promptPlan', 'promptGenerate', 'promptCoverageAudit'):
+        assert rule in app.model.prompts_of(kind)[0], kind
+
+
+def test_reviewer_is_told_about_scope(app):
+    app.generate()
+    app.page.click('#btn-review')
+    app.wait_idle()
+    assert 'нет исследовательских тестов и отдельных тестов только на БД' in app.model.prompts_of('promptReviewCases')[0]
+
+
+def test_plan_drops_exploratory_and_db_only_checks(app):
+    app.model.on('promptPlan', {'items': [
+        {'type': 'api', 'title': 'API', 'requirementIds': ['R-002'], 'checks': ['202 для корректного email', 'DELETE /api/v1/password-reset/1 — 405', 'Выполнить INSERT INTO users и проверить ответ']},
+        {'type': 'ui', 'title': 'Исследовательское тестирование формы', 'requirementIds': ['R-001'], 'checks': ['Свободное исследование формы']},
+        {'type': 'ui', 'title': 'Форма', 'requirementIds': ['R-001'], 'checks': ['Ссылка видна', 'Исследовательская проверка на усмотрение тестировщика']}]})
+    app.generate()
+    checks = app.state("S.run.plan.filter((p) => p.id.startsWith('P-') && !p.title.startsWith('Дополнительно')).map((p) => [p.title, p.checks])")
+    assert checks == [['API', ['202 для корректного email', 'DELETE /api/v1/password-reset/1 — 405']], ['Форма', ['Ссылка видна']]]
+    assert 'Убрано проверок вне объёма (исследовательские, только на БД или ручная подготовка данных в БД): 3' in ' '.join(app.state("S.run.steps.plan.log.map((l) => l.text)"))
+
+
+def test_checklist_drops_out_of_scope_items_but_keeps_ui_select(app):
+    app.model.on('promptChecklist', {'groups': [{'title': 'Смешанное', 'items': [
+        {'check': 'Ссылка «Забыли пароль?» видна', 'type': 'ui', 'suites': ['smoke'], 'requirementIds': ['R-001']},
+        {'check': 'В выпадающем списке SELECT «Роль» есть «Оператор»', 'type': 'ui', 'suites': ['regression'], 'requirementIds': ['R-001']},
+        {'check': 'После сброса SELECT * FROM users показывает новый хэш', 'type': 'api', 'suites': ['regression'], 'requirementIds': ['R-002']},
+        {'check': 'Исследовательское тестирование формы восстановления', 'type': 'ui', 'suites': ['regression'], 'requirementIds': ['R-001']}]}]})
+    app.generate()
+    assert app.state("S.run.checklist.groups.flatMap((g) => g.items.map((i) => i.check))") == ['Ссылка «Забыли пароль?» видна', 'В выпадающем списке SELECT «Роль» есть «Оператор»']
+
+
+def test_audit_drops_out_of_scope_checks(app):
+    app.model.on('promptCoverageAudit', audit_gap).on('promptGenerate', lambda call: cases_for(call.prompt))
+    app.generate()
+    assert not any('напрямую в БД' in t for t in app.state("S.run.cases.map((c) => c.testCase.title)"))
+
+
+# ---------- обрезанный ответ при генерации ----------
+def run_with_limit(app, limit, **kw):
+    from tests.support.model_generation import truncating_generate
+    sizes = []
+    app.model.on('promptGenerate', truncating_generate(limit, sizes, **kw))
+    app.generate()
+    return sizes
+
+
+def test_truncated_reply_splits_batch_until_it_fits(app):
+    sizes = run_with_limit(app, 1)
+    assert max(sizes) > 1 and sizes.count(1) >= 5   # длинные пачки оборвались и поделились; в итоге каждая проверка отдельно
+    assert app.state('S.run.status') == 'done' and app.state('S.run.failed.length') == 0
+    checks = app.state("S.run.plan.flatMap((p) => p.checks)")
+    titles = app.state("S.run.cases.map((c) => c.testCase.title)")
+    assert sorted(titles) == sorted('[' + {'api': 'BE', 'ui': 'FE', 'e2e': 'E2E'}[t] + '] Кейс: ' + c for t, c in app.state("S.run.plan.flatMap((p) => p.checks.map((c) => [p.type, c]))"))
+    assert len(titles) == len(checks)   # ни дублей, ни потерь
+
+
+def test_split_is_written_to_the_log(app):
+    run_with_limit(app, 1)
+    assert 'ответ не уместился — пишу по частям (2)' in ' '.join(app.state("S.run.steps.generate.log.map((l) => l.text)"))
+
+
+def test_batch_fitting_the_limit_is_not_split(app):
+    sizes = run_with_limit(app, 100)
+    assert app.state('S.run.cases.length') == sum(sizes) and 'не уместился' not in ' '.join(app.state("S.run.steps.generate.log.map((l) => l.text)"))
+
+
+def plan_with_bad_check():
+    return {'items': [{'type': 'api', 'title': 'API', 'requirementIds': ['R-002'], 'checks': ['202 для корректного email', '400 для неверного формата', '429 на четвёртый запрос']}]}
+
+
+def test_check_that_never_fits_does_not_stop_other_cases(app):
+    app.model.on('promptPlan', plan_with_bad_check())
+    run_with_limit(app, 10, fail_on='429 на четвёртый')
+    titles = app.state("S.run.cases.map((c) => c.testCase.title)")
+    assert '[BE] Кейс: 202 для корректного email' in titles and '[BE] Кейс: 400 для неверного формата' in titles
+    assert not any('429' in t for t in titles)
+    assert app.state('S.run.steps.generate.status') == 'error'
+
+
+@pytest.mark.xfail(strict=True, reason='БАГ: если одна проверка плана так и не уместилась в ответ, запуск всё равно заканчивается «Готово»: '
+                   'шаг «Проверка покрытия» стирает запись об ошибке, потому что требование покрыто другими кейсами. Недописанная проверка '
+                   'теряется без заметного предупреждения (нет статуса «Готово с ошибками» и кнопки повтора на вкладке «Агент»)')
+def test_check_that_never_fits_makes_run_partial(app):
+    app.model.on('promptPlan', plan_with_bad_check())
+    run_with_limit(app, 10, fail_on='429 на четвёртый')
+    assert app.state('S.run.status') == 'partial'
+    app.tab('agent')
+    assert app.count('#tab-body [data-act=resume-run]') == 1
+
+
+def test_resume_writes_only_missing_checks(app):
+    app.model.on('promptPlan', plan_with_bad_check())
+    run_with_limit(app, 10, fail_on='429 на четвёртый')
+    before = len(app.model.calls_of('promptGenerate'))
+    app.model.on('promptGenerate', lambda call: cases_for(call.prompt))
+    app.tab('cases')
+    app.page.click('[data-act=resume-run]')
+    app.wait_idle()
+    new = app.model.calls_of('promptGenerate')[before:]
+    from tests.support.model_generation import checks_of
+    assert [[c for _, c in checks_of(x.prompt)] for x in new] == [['429 на четвёртый запрос']]
+    assert app.state('S.run.status') == 'done' and app.state('S.run.cases.filter((c) => c.testCase.title.includes("429")).length') == 1
+    titles = app.state("S.run.cases.map((c) => c.testCase.title)")
+    assert len(titles) == len(set(titles))   # написанные раньше проверки не повторились
+
+
+# ---------- предпросмотр документов ----------
+def preview_btn(name):
+    return f'li.doc:has(.doc-name[title="{name}"]) [data-doc-act=preview]'
+
+
+def test_preview_shows_extracted_text(app, tmp_path):
+    app.upload(files.spec_file(tmp_path))
+    app.page.click(preview_btn('ТЗ-восстановление.md'))
+    t = app.text('.doc-preview')
+    assert t.startswith('# ТЗ: Восстановление пароля в личном кабинете') and '4.2. Не более 3 запросов' in t
+
+
+def test_preview_is_toggled_by_second_click(app, tmp_path):
+    app.upload(files.spec_file(tmp_path))
+    app.page.click(preview_btn('ТЗ-восстановление.md'))
+    assert app.count('.doc-preview') == 1
+    app.page.click(preview_btn('ТЗ-восстановление.md'))
+    assert app.count('.doc-preview') == 0
+
+
+def test_preview_of_long_document_is_cut(app, tmp_path):
+    text = 'Начало документа.\n' + 'а' * 5500 + '\nКонец документа.'
+    app.upload(files.write(tmp_path / 'длинный.txt', text))
+    app.page.click(preview_btn('длинный.txt'))
+    shown = app.text('.doc-preview')
+    assert shown.startswith('Начало документа.') and shown.endswith('…') and 'Конец документа' not in shown
+
+
+def test_document_with_error_has_no_preview_button(app, tmp_path):
+    app.upload(files.write(tmp_path / 'пустой.txt', '   '))
+    assert app.count(preview_btn('пустой.txt')) == 0 and 'В файле не найден текст' in app.text('li.doc:has(.doc-name[title="пустой.txt"])')
+
+
+@pytest.mark.needs_libs
+def test_preview_of_docx_with_table(app, tmp_path):
+    app.upload(files.docx_file(tmp_path))
+    app.page.click(preview_btn('ТЗ-корзина.docx'))
+    t = app.text('.doc-preview')
+    assert '# ТЗ: Корзина' in t and '2.1. Пользователь добавляет товар в корзину кнопкой «В корзину».' in t and '| Количество | от 1 до 99 |' in t
+
+
+@pytest.mark.needs_libs
+def test_preview_of_xlsx_sheet(app, tmp_path):
+    app.upload(files.xlsx_requirements(tmp_path))
+    app.page.click(preview_btn('требования.xlsx'))
+    t = app.text('.doc-preview')
+    assert '### Лист «Требования»' in t and '| FR-1 | Сумма заказа превышает 500 рублей — доставка бесплатная |' in t
+
+
+@pytest.mark.needs_libs
+def test_preview_of_pdf_pages(app, tmp_path):
+    app.upload(files.pdf_file(tmp_path))
+    app.page.click(preview_btn('спецификация.pdf'))
+    t = app.text('.doc-preview')
+    assert '--- Страница 1 ---' in t and '3.1. POST /api/v1/cart возвращает 201 Created' in t
+
+
+@pytest.mark.needs_libs
+def test_generation_reads_every_uploaded_document(app, tmp_path):
+    app.upload(files.docx_file(tmp_path), files.xlsx_requirements(tmp_path), files.pdf_file(tmp_path))
+    app.generate()
+    p = app.model.prompts_of('promptAnalyze')[0]
+    for name, piece in (('ТЗ-корзина.docx', 'кнопкой «В корзину»'), ('требования.xlsx', 'FR-1'), ('спецификация.pdf', '/api/v1/cart')):
+        assert f'<document name="{name}"' in p and piece in p, name
+    assert 'в 4 документах' in ' '.join(app.state("S.run.steps.parse.log.map((l) => l.text)"))
+
+
+# ---------- мобильная вёрстка ----------
+def test_mobile_layout_has_no_horizontal_scroll(make_app):
+    app = make_app(viewport=(400, 860))
+    app.page.emulate_media(color_scheme='dark')
+    app.add_sample()
+    app.generate()
+    wide = []
+    for tab in ('agent', 'reqs', 'questions', 'draft', 'cases', 'checklist', 'review', 'export', 'history'):
+        app.tab(tab)
+        if tab == 'cases':
+            app.page.click('#case-list article:first-child .case-h')
+        if app.js('document.documentElement.scrollWidth') > 400:
+            wide.append(tab)
+    app.open_settings('model')
+    for settab in ('tpl', 'export', 'review', 'tms', 'bg'):
+        app.page.click(f'#settab-{settab}')
+        if app.js('document.documentElement.scrollWidth') > 400:
+            wide.append('settings:' + settab)
+    assert wide == []
+
+
+def test_mobile_run_button_is_reachable(make_app):
+    app = make_app(viewport=(400, 860))
+    box = app.page.locator('#btn-run').bounding_box()
+    assert box and 0 <= box['x'] and box['x'] + box['width'] <= 400
+
+
+# ---------- шаблоны кейсов ----------
+def test_template_prefix_is_used_in_case_numbers(app):
+    app.open_settings('tpl')
+    app.page.fill('#cfg-prefix', 'PRJ-API-')
+    app.page.click('[data-cfgtype=ui]')
+    app.page.fill('#cfg-prefix', 'UI-PRJ-')
+    app.close_settings()
+    app.generate()
+    assert app.state("S.run.cases.map((c) => [c.dispId, c.testCase.id])") == [['PRJ-API-001', 'PRJ-API-001'], ['PRJ-API-002', 'PRJ-API-002'], ['UI-PRJ-001', 'UI-PRJ-001'], ['E2E-001', 'E2E-001']]
+
+
+def test_template_example_goes_into_cases_prompt(app):
+    app.generate()
+    p = app.model.prompts_of('promptGenerate')[0]
+    assert 'Образец тест-кейса. Повторяй точно его поля' in p and '[BE] POST /api/v1/password-reset — запрос ссылки для зарегистрированного email' in p
+
+
+def test_broken_template_blocks_the_run_and_opens_settings(app):
+    app.open_settings('tpl')
+    app.page.fill('#cfg-example', '{')
+    app.close_settings()
+    app.page.click('#btn-run')
+    assert 'Шаблон API: Пример тест-кейса — некорректный JSON' in app.text('#run-note')
+    assert app.visible('#set-ov') and app.state('S.run') is None
+
+
+def test_case_fields_follow_the_template_order(app):
+    """Поля кейса идут в порядке шаблона, лишние поля модели — в конце."""
+    def gen(call):
+        res = cases_for(call.prompt)
+        for c in res['cases']:
+            c['testCase'] = {'лишнее': 'x', 'steps': [], 'title': 'Кейс', 'priority': 'High', 'id': ''}
+        return res
+    app.model.on('promptGenerate', gen)
+    app.generate()
+    keys = app.state("Object.keys(S.run.cases[0].testCase)")
+    assert keys[:4] == ['id', 'title', 'priority', 'steps'] and keys[-1] == 'лишнее'

@@ -8,6 +8,7 @@ from tests.support import files, model_kb
 ROWS = "[...document.querySelectorAll('#kb-rows .kb-row')].map((e) => [e.querySelector('.kb-row-t').textContent, e.querySelector('.kb-row-m').textContent])"
 TITLES = "[...document.querySelectorAll('#kb-rows .kb-row-t')].map((e) => e.textContent)"
 EXTRA, CALL = 'kb_extra.md', 'kb_созвон-call.md'
+TWO = ['API сброса пароля', 'Восстановление пароля']   # порядок латиницы и кириллицы задаёт локаль, поэтому сравниваем отсортированным
 
 
 def titles(app):
@@ -69,7 +70,7 @@ def test_unparsed_document_is_offered_for_parsing(kb):
 
 
 def test_sample_is_split_into_sections_by_function(parsed):
-    assert titles(parsed) == ['API сброса пароля', 'Восстановление пароля']
+    assert sorted(titles(parsed)) == TWO
     assert 'разделов 2' in parsed.text('.kb-line')
     assert len(parsed.model.calls_of('promptKbSplit')) == 1 and len(parsed.model.calls_of('promptKbSynth')) == 2
 
@@ -97,19 +98,21 @@ def test_upload_in_generation_is_parsed_automatically(app, tmp_path):
     assert 'в базе знаний' in app.text('#doc-list li:has-text("kb_extra")')
 
 
-def test_auto_parsing_can_be_switched_off(kb, tmp_path):
-    kb.page.click('#kb-auto')   # без документов в базе блок поиска скрыт, но переключатель на месте
+def test_auto_parsing_can_be_switched_off(parsed, tmp_path):
+    kb = parsed
+    kb.page.click('label.switch:has(#kb-auto)')
     assert kb.state('S.settings.kbAuto') is False
+    before = len(kb.model.calls_of('promptKbSplit'))
     kb.upload(files.write(tmp_path / EXTRA, model_kb.limits_doc(3)))
     kb.wait_idle()
-    assert kb.model.calls_of('promptKbSplit') == []
-    assert 'Не разобраны по разделам: 2' in kb.text('#kb-job')
+    assert len(kb.model.calls_of('promptKbSplit')) == before
+    assert 'Не разобраны по разделам: 1 документ' in kb.text('#kb-job')
 
 
-def test_auto_parsing_setting_is_saved(kb):
-    kb.page.click('#kb-auto')
-    kb.reload()
-    assert kb.state('S.settings.kbAuto') is False
+def test_auto_parsing_setting_is_saved(parsed):
+    parsed.page.click('label.switch:has(#kb-auto)')
+    parsed.reload()
+    assert parsed.state('S.settings.kbAuto') is False
 
 
 def test_documents_without_functional_sections_go_to_general(kb, tmp_path):
@@ -120,14 +123,14 @@ def test_documents_without_functional_sections_go_to_general(kb, tmp_path):
 def test_sections_survive_reload(parsed):
     parsed.reload()
     parsed.mode('help')
-    assert titles(parsed) == ['API сброса пароля', 'Восстановление пароля']
+    assert sorted(titles(parsed)) == TWO
 
 
 # ---------- статья раздела ----------
 def test_article_shows_lead_sources_and_summary(parsed):
     open_section(parsed, 'API сброса пароля')
     art = parsed.text('.kb-art')
-    assert 'Эндпоинты запроса и подтверждения сброса' in art
+    assert 'Все сведения о разделе «API сброса пароля»' in art   # краткое описание — из сводки
     assert 'Пример — ТЗ восстановление пароля.md' in parsed.text('.kb-art .hq-src')
     assert 'POST /api/v1/password-reset' in parsed.text('.kb-synth .md')
 
@@ -135,7 +138,7 @@ def test_article_shows_lead_sources_and_summary(parsed):
 def test_article_back_returns_to_list(parsed):
     open_section(parsed, 'API сброса пароля')
     parsed.page.click('[data-act=kb-back]')
-    assert titles(parsed) == ['API сброса пароля', 'Восстановление пароля']
+    assert sorted(titles(parsed)) == TWO
 
 
 def test_rename_by_enter(parsed):
@@ -196,8 +199,8 @@ def test_search_filters_sections_and_counts(parsed):
 
 
 def test_search_looks_into_descriptions(parsed):
-    parsed.page.fill('#kb-q', 'ссылке из письма')   # слова только из описания раздела
-    assert titles(parsed) == ['Восстановление пароля']
+    parsed.page.fill('#kb-q', 'из документов продукта')   # слова есть только в описании разделов, не в названиях
+    assert sorted(titles(parsed)) == TWO
 
 
 def test_search_without_matches(parsed):
@@ -231,7 +234,8 @@ def test_deleting_a_document_removes_its_fragments_from_shared_sections(limits):
 def test_deleting_a_document_rebuilds_summaries_of_its_sections(limits):
     before = limits.model.kb.synth_calls
     remove_doc(limits, 'созвон')
-    limits.page.wait_for_function('(n) => true', arg=before)
+    limits.page.wait_for_function("() => window.__qa.S.kb.index.blocks.find((b) => b.title === 'Восстановление пароля').conf === 0")   # расхождение ушло вместе с документом
+    limits.wait_idle()
     assert limits.model.kb.synth_calls > before
     assert limits.state("S.kb.index.blocks.every((b) => b.sh && b.sh === b.ph)")
 
@@ -264,7 +268,7 @@ def test_imported_product_keeps_sections(limits, tmp_path):
     limits.import_product(path)
     limits.page.wait_for_function('() => window.__qa.S.products.length === 2 && window.__qa.S.kb.loaded && window.__qa.S.kb.index.blocks.length === 2')
     limits.mode('help')
-    assert titles(limits) == ['API сброса пароля', 'Восстановление пароля']
+    assert sorted(titles(limits)) == TWO
     open_section(limits, 'Восстановление пароля')
     assert 'Расхождения между документами · 1' in limits.text('.kb-conf')
 
@@ -322,7 +326,6 @@ def test_extracts_are_listed_and_stay_open(limits):
 
 def test_related_sections_are_linked(parsed, tmp_path):
     parsed.model.kb.links = {'Восстановление пароля': ['API сброса пароля']}
-    parsed.page.click('[data-act=kb-synth-one][data-id], #kb-rows .kb-row') if False else None
     open_section(parsed, 'Восстановление пароля')
     parsed.page.click('[data-act=kb-synth-one]')
     parsed.page.wait_for_selector('.kb-synth .chip-link')
@@ -399,3 +402,144 @@ def test_progress_is_shown_under_the_document_list(progress_app):
     progress_app.page.wait_for_function("() => /Разбираю документы по разделам/.test(document.querySelector('#docs-note').textContent)", timeout=10000)
     progress_app.wait_idle()
     assert 'Разбираю' not in progress_app.text('#docs-note')
+
+
+# ---------- документы с расхождениями ----------
+DOC_ROWS = "els => els.map((e) => ({ name: e.querySelector('.doc-name').textContent, conf: e.querySelector('.doc-meta .warn')?.textContent || '', btn: !!e.querySelector('[data-doc-act=conf]') }))"
+
+
+@pytest.fixture
+def run_docs(parsed, tmp_path):
+    """Документы с разными лимитами загружены в генерации: они в запуске, а расхождение между ними видно в списке."""
+    parsed.mode('generate')
+    add_docs(parsed, tmp_path, (EXTRA, model_kb.limits_doc(3)), (CALL, model_kb.call_doc(5)))
+    return parsed
+
+
+def doc_rows(app):
+    return app.page.eval_on_selector_all('#doc-list .doc', DOC_ROWS)
+
+
+def test_documents_with_conflicts_are_marked_in_the_list(run_docs):
+    rows = {r['name']: r for r in doc_rows(run_docs)}
+    assert rows[EXTRA]['conf'] == 'расхождений 1' and rows[EXTRA]['btn']
+    assert rows[CALL]['conf'] == 'расхождений 1' and rows[CALL]['btn']
+
+
+def test_document_without_conflicts_has_no_mark(limits):
+    sample = next(r for r in doc_rows(limits) if r['name'].startswith('Пример'))
+    assert sample['conf'] == '' and not sample['btn']
+
+
+def test_conflicts_dialog_lists_places_by_section(run_docs):
+    run_docs.page.click('#doc-list li:has-text("созвон") [data-doc-act=conf]')
+    dlg = run_docs.page.evaluate("() => ({ open: !document.querySelector('#mat-ov').hidden, title: document.querySelector('#mat-title').textContent, sections: [...document.querySelectorAll('#mat-body .conf-sec b')].map((e) => e.textContent), items: [...document.querySelectorAll('#mat-body li')].map((e) => e.textContent), marks: [...document.querySelectorAll('#mat-body mark')].map((m) => m.textContent) })")
+    assert dlg['open'] and dlg['title'] == 'Расхождения: kb_созвон-call'
+    assert dlg['sections'] == ['Раздел «Восстановление пароля»']
+    assert len(dlg['items']) == 1 and 'не более 3 за 15 минут' in dlg['items'][0] and 'не более 5 за 15 минут' in dlg['items'][0]
+    assert dlg['marks'] == ['kb_созвон-call']   # выделено имя самого документа
+
+
+def test_conflicts_dialog_opens_the_section(run_docs):
+    run_docs.page.click('#doc-list li:has-text("созвон") [data-doc-act=conf]')
+    run_docs.page.click('#mat-body [data-conf-open]')
+    run_docs.page.wait_for_selector('.kb-art h3')
+    state = run_docs.page.evaluate("() => ({ mode: window.__qa.S.settings.mode, closed: document.querySelector('#mat-ov').hidden, title: document.querySelector('.kb-art h3').textContent })")
+    assert state == {'mode': 'help', 'closed': True, 'title': 'Восстановление пароля'}
+
+
+def test_conflicts_of_old_sections_are_loaded_on_demand(limits):
+    """Разделы, записанные до появления краткого списка расхождений, хранят их только внутри раздела — они подгружаются при показе."""
+    limits.js("() => { for (const b of window.__qa.S.kb.index.blocks) delete b.cf; window.__qa.S.kb.cache = {}; }")
+    limits.page.click('#help-head [data-v=qa]')
+    limits.page.wait_for_function("() => [...document.querySelectorAll('#doc-list .doc')].some((e) => /kb_extra/.test(e.textContent) && e.querySelector('[data-doc-act=conf]'))")
+    assert {r['name'] for r in doc_rows(limits) if r['btn']} == {EXTRA, CALL}
+
+
+# ---------- список разделов: по алфавиту, со сворачиванием ----------
+SEEDED = ['Отчёты', 'авторизация', '«Личный кабинет»', 'Ёлка-проверка', 'Есть ли права', '10 Настройки', '2 Профиль', 'Восстановление пароля']
+# как в словаре: без учёта регистра и кавычек, «Ё» как «Е», числа по значению (цифры идут раньше букв)
+SEEDED_ORDER = ['2 Профиль', '10 Настройки', 'авторизация', 'Восстановление пароля', 'Ёлка-проверка', 'Есть ли права', '«Личный кабинет»', 'Отчёты']
+
+
+@pytest.fixture
+def listed(kb):
+    """Оглавление из восьми разделов (записано сразу в базу, без разбора документов)."""
+    kb.call("""(async () => {
+      const blocks = arg.map((t, i) => ({ id: 'kbs' + i, title: t, summary: 'Описание: ' + t, docIds: [], parts: 1, size: 1200 + i * 37, updatedAt: 1, ph: 'x', sh: 'x', conf: 0 }));
+      await a.kbIdxWrite(S.productId, blocks, {}, null);
+      await a.loadKb(S.productId);
+    })()""", SEEDED)
+    kb.page.click('[data-act=help-view][data-v=qa]')
+    kb.page.click('[data-act=help-view][data-v=blocks]')
+    return kb
+
+
+def fold_expanded(app):
+    return app.page.get_attribute('.kb-list-h .fold-btn', 'aria-expanded')
+
+
+def test_sections_are_sorted_like_in_a_dictionary(listed):
+    assert titles(listed) == SEEDED_ORDER
+
+
+def test_list_header_counts_sections(listed):
+    assert listed.text('.kb-list-h .cnt') == '8'
+
+
+def test_row_shows_documents_and_size(listed):
+    assert dict(listed.page.evaluate('() => ' + ROWS))['2 Профиль'] == '0 документов · 1,4 тыс. знаков'
+
+
+def test_list_can_be_folded_into_a_summary(listed):
+    listed.page.click('.kb-list-h .fold-btn')
+    assert fold_expanded(listed) == 'false' and listed.count('#kb-rows') == 0
+    assert listed.text('.kb-list-sum') == '2 Профиль, 10 Настройки, авторизация, Восстановление пароля и ещё 4'
+    assert listed.js("localStorage.getItem('qapro.kbFold')") == 'true'
+
+
+def test_summary_click_unfolds_the_list(listed):
+    listed.page.click('.kb-list-h .fold-btn')
+    listed.page.click('.kb-list-sum .fold-sum')
+    assert fold_expanded(listed) == 'true' and len(titles(listed)) == 8
+
+
+def test_keyboard_toggles_the_list_and_keeps_focus(listed):
+    listed.page.focus('.kb-list-h .fold-btn')
+    listed.page.keyboard.press('Enter')
+    assert fold_expanded(listed) == 'false'
+    assert listed.state("document.activeElement.matches('.kb-list-h .fold-btn')")
+
+
+def test_search_unfolds_a_folded_list(listed):
+    listed.page.click('.kb-list-h .fold-btn')
+    listed.page.fill('#kb-q', 'проф')
+    assert fold_expanded(listed) == 'true' and titles(listed) == ['2 Профиль']
+    assert listed.js("localStorage.getItem('qapro.kbFold')") == 'false'
+
+
+def test_fold_state_of_the_list_survives_reload(listed):
+    listed.page.click('.kb-list-h .fold-btn')
+    listed.reload()
+    listed.mode('help')
+    assert fold_expanded(listed) == 'false'
+
+
+@pytest.mark.xfail(strict=True, reason='БАГ: раздел, который есть в оглавлении, но записи которого в базе нет (например, коллега удалил его в другом окне), открывается бесконечной «Загружаю раздел…»: страница в цикле читает базу (сотни чтений в секунду) и не сообщает об ошибке')
+def test_section_without_a_record_reports_an_error(listed):
+    listed.page.click('#kb-rows .kb-row:has-text("Ёлка-проверка")')
+    listed.page.wait_for_function("() => !/Загружаю раздел/.test(document.querySelector('#kb-body').textContent)", timeout=4000)
+
+
+def test_sections_fit_a_phone_screen(make_app):
+    app = make_app(viewport=(400, 860))
+    model_kb.install(app.model)
+    app.mode('help')
+    app.call("""(async () => {
+      const blocks = arg.map((t, i) => ({ id: 'kbs' + i, title: t + ' — очень длинное название раздела, которое не помещается в одну строку на телефоне', summary: 'Описание: ' + t, docIds: [], parts: 1, size: 2400, updatedAt: 1, ph: 'x', sh: 'x', conf: 0 }));
+      await a.kbIdxWrite(S.productId, blocks, {}, null);
+      await a.loadKb(S.productId);
+    })()""", SEEDED)
+    app.page.click('[data-act=help-view][data-v=qa]')
+    app.page.click('[data-act=help-view][data-v=blocks]')
+    assert len(titles(app)) == 8 and app.state('document.documentElement.scrollWidth <= window.innerWidth')

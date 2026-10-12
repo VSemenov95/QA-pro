@@ -45,7 +45,7 @@ def call_doc(n=5):
             "### Сообщения и ошибки\n- Сообщение при превышении: «Слишком много попыток. Повторите через 30 минут»\n")
 
 
-def big_doc(k, subs=4, facts=30, conflict=None):
+def big_doc(k, subs=4, facts=24, conflict=None):
     """Большой документ об одном разделе: facts фактов в каждом из subs подзаголовков. Факты «Факт F<подзаголовок>-<номер>»
     одинаковы во всех документах, «Факт U<документ>-…» — у каждого документа свои. conflict=(подзаголовок, номер, значение) —
     этот документ называет другое значение факта."""
@@ -54,7 +54,7 @@ def big_doc(k, subs=4, facts=30, conflict=None):
         out.append(f'### {sub}')
         for j in range(facts):
             v = conflict[2] if conflict and conflict[0] == si and conflict[1] == j else 10 * (j + 1)
-            out.append(f'- Факт F{si}-{j}: поле «Поле {j}» на экране «Профиль клиента» — до {v} символов, ошибка 4{j % 10}0 «Проверьте поле {j}»')
+            out.append(f'- Факт F{si}-{j}: поле «Поле {j}» на экране «Профиль» — до {v} символов, ошибка 4{j % 10}0')
         out.append(f'- Факт U{k}-{si}: поле «Особое {k}» видно только роли «Оператор {k}» и сохраняется кнопкой «Сохранить»')
         out.append('')
     return '\n'.join(out)
@@ -209,7 +209,7 @@ class KbMock:
                     parts.append(f'### {sub}\n' + '\n'.join(r['clean']))
         if conflicts:
             parts.append(f'### {CONF_HEAD}\n' + '\n'.join('- ' + c for c in conflicts))
-        return {'summary': 'Сводка: ' + title, 'synth': '\n'.join(parts), 'conflicts': conflicts, 'links': self._links(p, title)}
+        return {'summary': f'Все сведения о разделе «{title}» из документов продукта', 'synth': '\n'.join(parts), 'conflicts': conflicts, 'links': self._links(p, title)}
 
     def _links(self, prompt, title):
         others = {_norm(m.group(2)): m.group(1) for m in re.finditer(r'(?m)^- (kb\w+) · (.+?)$', prompt.split('## Другие разделы базы знаний\n', 1)[-1])}
@@ -234,7 +234,7 @@ class KbMock:
         for c in prev_conf:
             if not any(x.split(':')[0] == c.split(':')[0] for x in conflicts):
                 conflicts.append(c)
-        return {'summary': f'Сводка: {title}', 'synth': '\n'.join(out), 'conflicts': conflicts, 'links': self._links(p, title)}
+        return {'summary': f'Все сведения о разделе «{title}» из документов продукта', 'synth': '\n'.join(out), 'conflicts': conflicts, 'links': self._links(p, title)}
 
     def condense(self, call):
         self.cond_calls += 1

@@ -162,6 +162,10 @@ class WsClient:
 
     def close(self):
         try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
             self.sock.close()
         except OSError:
             pass
@@ -285,3 +289,36 @@ class Bridge:
                 os.kill(pid, 9)
             except OSError:
                 pass
+
+
+def until(pred, timeout=10, step=0.02, what='условие'):
+    """Ждёт, пока pred() вернёт истину (опрос, а не пауза): возвращает значение pred."""
+    end = time.time() + timeout
+    while True:
+        v = pred()
+        if v:
+            return v
+        if time.time() > end:
+            raise AssertionError(f'не дождались: {what} ({timeout} с)')
+        time.sleep(step)
+
+
+class McpHost:
+    """Возможность mcp приложения Claude на стороне Python: вызовы страницы (host:<мост>) уходят в настоящий мост.
+
+    up=False — моста нет в приложении (server_not_connected); deny['sfera_upload'] = 'cancelled' — пользователь отклонил вызов.
+    Долгое ожидание sfera_job сокращается: вызов из страницы выполняется в потоке событий Playwright и не должен его надолго занимать.
+    """
+
+    def __init__(self, bridge, max_wait_ms=250):
+        self.bridge, self.up, self.deny, self.log, self.max_wait_ms = bridge, True, {}, [], max_wait_ms
+
+    def __call__(self, tool, args):
+        self.log.append(tool)
+        if not self.up:
+            return {'__err': 'server_not_connected', 'message': 'no host'}
+        if tool in self.deny:
+            return {'__err': self.deny[tool], 'message': ''}
+        if tool == 'sfera_job':
+            args = dict(args, waitMs=min(int(args.get('waitMs') or 0), self.max_wait_ms))
+        return self.bridge.call(tool, args)

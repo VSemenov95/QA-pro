@@ -154,3 +154,87 @@ def wait_until(app, cond, timeout=15000, step=100):
         app.page.wait_for_timeout(step)
         waited += step
     raise AssertionError('не дождались условия: ' + getattr(cond, '__name__', 'cond'))
+
+
+# ---------- кейсы по шаблону и ревьюер ----------
+def template_case(ty, title):
+    """Кейс ровно по образцу templates/<вид>.md: все поля шаблона на месте, поэтому автоматическая проверка полей молчит."""
+    import os
+    from .model import ROOT
+    with open(os.path.join(ROOT, 'templates', ty + '.md'), encoding='utf-8') as f:
+        sample = json.loads(f.read().split('```json\n', 1)[1].rsplit('\n```', 1)[0])
+    sample = sample[0] if isinstance(sample, list) else sample
+    sample['title'] = title
+    sample['id'] = ''
+    return sample
+
+
+def generate_by_template(call):
+    """Ответ на «Напиши тест-кейсы»: по кейсу на группу плана, по образцу шаблона вида."""
+    ty = 'api' if 'вида API' in call.prompt else 'ui' if 'вида UI' in call.prompt else 'e2e'
+    pref = {'api': '[BE]', 'ui': '[FE]', 'e2e': '[E2E]'}[ty]
+    return {'cases': [{'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 else ['regression'],
+                       'testCase': template_case(ty, f'{pref} Кейс для {pid}: проверка восстановления пароля')}
+                      for k, pid in enumerate(re.findall(r'### ([A-Z]+-\d+)\.', call.prompt))]}
+
+
+def reviewer(by_target, message='Ожидаемый результат не совпадает с п. 3.1: должен быть код 202.', suggestion='Указать код 202 и тело {"status":"sent"}.'):
+    """Ревьюер: {'API-001': ['critical'], 'CL-002': ['minor']} → по замечанию на каждую степень важности; остальным объектам замечаний нет.
+    Подходит и для кейсов, и для пунктов чек-листа."""
+    def handler(call):
+        ids = re.findall(r'\{"id":"([A-Z0-9-]+)","type"', call.prompt) + re.findall(r'(?m)^(CL-\d+) \[', call.prompt)
+        out = []
+        for tid in ids:
+            for n, sev in enumerate(by_target.get(tid, [])):
+                out.append({'targetId': tid, 'severity': sev, 'category': 'Соответствие ТЗ', 'message': f'{message} ({tid}/{n + 1})', 'suggestion': suggestion})
+        return {'findings': out}
+    return handler
+
+
+def three_steps_cases(call):
+    """Кейсы с тремя шагами («Действие N» → «Результат N»): для проверки порядка и нумерации шагов."""
+    return {'cases': [{'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'],
+                       'testCase': {**case_body('Три шага'), 'steps': [{'step': i, 'action': f'Действие {i}', 'expected': f'Результат {i}'} for i in (1, 2, 3)]}}
+                      for pid in re.findall(r'### ([A-Z]+-\d+)\.', call.prompt)]}
+
+
+# ---------- мок ТМС (Test IT, Qase, TestRail, свой API) ----------
+class TmsRoute:
+    """Подмена API системы управления тестированием на http://tms.test: запоминает запросы, отвечает так, как отвечают Test IT, Qase и TestRail.
+    fail — {часть названия кейса: код ответа}: такой кейс ТМС отклоняет; deny — код ответа на любой запрос (например, 401)."""
+    def __init__(self, app, base='http://tms.test'):
+        self.requests, self.fail, self.deny, self.n = [], {}, None, 0
+        app.ctx.route(base + '/**', self.handle)
+
+    @property
+    def posts(self):
+        return [r for r in self.requests if r['method'] == 'POST']
+
+    def handle(self, route):
+        from urllib.parse import urlparse
+        req = route.request
+        cors = {'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS',
+                'access-control-allow-headers': req.headers.get('access-control-request-headers', '*')}
+        if req.method == 'OPTIONS':
+            return route.fulfill(status=204, headers=cors)
+        u = urlparse(req.url)
+        path = u.path + ('?' + u.query if u.query else '')
+        body = json.loads(req.post_data) if req.post_data else None
+        self.requests.append({'method': req.method, 'path': path, 'headers': dict(req.headers), 'body': body})
+        title = (body or {}).get('name') or (body or {}).get('title') or ''
+        code = self.deny or next((c for k, c in self.fail.items() if k in title), None)
+        if code:
+            return route.fulfill(status=code, body='отклонено', headers=cors)
+        self.n += 1
+        res = {}
+        if req.method == 'GET':
+            res = {'name': 'Демо-проект'} if '/api/v2/projects/' in path else {'result': {'title': 'Демо Qase'}} if path.startswith('/project/') else {'name': 'Раздел TestRail'}
+        elif path.startswith('/api/v2/workItems'):
+            res = {'id': f'uuid-{self.n}', 'globalId': 1000 + self.n}
+        elif path.endswith('/bulk'):
+            res = {'result': {'ids': [500 + i for i in range(len(body['cases']))]}}
+        elif 'add_case' in path:
+            res = {'id': 700 + self.n}
+        else:
+            res = {'id': f'CUS-{self.n}'}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(res), headers=cors)

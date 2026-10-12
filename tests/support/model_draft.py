@@ -64,7 +64,7 @@ def reduce_keep(ids):
 def reduce_line_ids(prompt):
     """Кейсы из запроса сокращения: строки «id | вид | приоритет | требования | заголовок»."""
     block = prompt.split('## Кейсы', 1)[1].split('## Требования', 1)[0]
-    return [m.group(1) for m in re.finditer(r'(?m)^([A-Z]+-\d+) \|', block)]
+    return [m.group(1) for m in re.finditer(r'(?m)^([A-Z0-9]+-\d+) \|', block)]
 
 
 def make_draft(app, review=None):
@@ -86,3 +86,23 @@ def add_to_project(app):
         app.page.click('[data-act=draft-add].armed')
     app.page.wait_for_function("() => window.__qa.S.run.stage === 'added'", timeout=15000)
     app.page.wait_for_function('(n) => window.__qa.S.prodIndex.cases.length >= n', arg=n, timeout=15000)
+
+
+def run_path(app):
+    return app.state('`products/${S.productId}/runs/${S.run.id}`')
+
+
+def wait_db(app, pred, what='запись в базе', tries=100):
+    """Запуск сохраняется в базу отложенно: ждём, пока в ней появится нужное (pred получает базу), а не спим фиксированное время."""
+    for _ in range(tries):
+        if pred(app.db):
+            return
+        app.page.wait_for_timeout(100)
+    raise AssertionError('не дождались: ' + what)
+
+
+def wait_saved(app, cases=None, stage=None):
+    """Ждёт, пока сохранённый запуск станет таким: столько кейсов и/или такая стадия."""
+    path = run_path(app)
+    wait_db(app, lambda db: (cases is None or len((db.get(path + '/parts/p0') or {}).get('cases', [])) == cases)
+            and (stage is None or (db.get(path) or {}).get('stage') == stage), f'запуск сохранён: кейсов {cases}, стадия {stage}')

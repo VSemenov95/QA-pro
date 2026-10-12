@@ -72,7 +72,7 @@ def test_next_run_starts_numbering_over_while_first_is_draft(draft, tmp_path):
 
 
 def test_draft_is_restored_after_reload(draft):
-    draft.page.wait_for_timeout(600)   # запуск сохраняется отложенно
+    md.wait_saved(draft, cases=4, stage='draft')
     draft.reload()
     draft.page.wait_for_function('() => window.__qa.S.run', timeout=15000)
     assert draft.state('[S.run.stage, S.run.cases.length]') == ['draft', 4]
@@ -400,13 +400,19 @@ def test_cases_tab_has_checkboxes_and_select_all(added):
 def test_select_all_takes_only_filtered_cases(added):
     added.page.click('[data-act=ftype][data-t=api]')
     added.page.check('#case-selbar .sel-all-cb')
-    assert 'Выбрано 2 из 2' in added.text('#case-selbar')
+    assert 'Выбрано 2 из 2' in added.text('#case-selbar') and added.count('.case-b') == 0
     assert sorted(added.state("[...S.caseSel].map((u) => S.run.cases.find((c) => c.uid === u).dispId)")) == ['API-001', 'API-002']
 
 
 def test_checkbox_click_does_not_expand_the_case(added):
     added.page.click('#case-list .case-sel >> nth=0')
     assert added.count('.case-b') == 0 and added.state('S.caseSel.size') == 1
+
+
+def test_clear_selection_in_cases_tab(added):
+    added.page.check('#case-selbar .sel-all-cb')
+    added.page.click('#case-selbar [data-act=sel-none]')
+    assert added.state('S.caseSel.size') == 0 and 'Выбрать все (4)' in added.text('#case-selbar')
 
 
 def test_delete_filtered_cases_removes_them_from_run_and_product(added):
