@@ -196,6 +196,10 @@ const S = {
   caseUI: new Map(),
   reqOpen: new Set(),
   filter: { type: 'all', suite: 'all', q: '' },
+  casesScope: 'run',     // вкладка «Тест-кейсы»: 'run' — кейсы открытого запуска, 'product' — все кейсы продукта
+  pc: { type: 'all', q: '', docs: {}, busy: false, error: '' },   // кейсы продукта: фильтры и документы по запускам
+  secEdit: null,         // переименование раздела: { key, doc, value }
+  localSections: lsGet('qapro.sections', {}),   // названия разделов без продукта
   clFilter: { type: 'all', suite: 'all' },
   clEdit: null,
   exp: null, expCtl: null, expCache: new Map(),

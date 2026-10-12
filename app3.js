@@ -618,7 +618,7 @@ function renderTabs() {
   validTab();
   $('#tabs').hidden = S.settings.mode === 'help';
   const r = S.run;
-  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r?.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
+  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
 function renderTab() {
@@ -627,7 +627,7 @@ function renderTab() {
   validTab();
   const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, history: historyTab }[S.tab];
   body.innerHTML = fn();
-  if (S.tab === 'cases') { renderCaseList(); renderTmsBar(); }
+  if (S.tab === 'cases') { if (prodScope()) renderProdCases(); else { renderCaseList(); renderTmsBar(); } }
   S.pendingCasesRender = false;
 }
 function renderAll() { renderStatus(); renderProduct(); renderDocs(); renderRunControls(); renderTabs(); renderTab(); }
@@ -793,10 +793,11 @@ function questionsTab() {
 /* ---------- cases ---------- */
 function casesTab() {
   const r = S.run;
+  if (prodScope()) return scopeSwitch() + prodCasesTab();
   const addBtns = (r) => `<span class="add-case"><span class="small muted">Добавить вручную:</span>${(r.settings.types || TYPES).map((t) => `<button class="btn sm" type="button" data-act="add-case" data-t="${t}">+ ${TL[t]}</button>`).join('')}</span>`;
   if (!r || !r.cases.length) {
     const off = r && !outputsOf(r).cases;
-    return emptyHTML(S.running && !off ? 'Кейсы появятся по мере генерации' : 'Тест-кейсов пока нет', off ? 'В этом запуске генерировался только чек-лист. Включите «Тест-кейсы» в параметрах и запустите снова — или добавьте кейсы вручную.' : S.running ? 'Следите за ходом работы на вкладке «Агент».' : 'Загрузите документы и запустите генерацию.', r && !S.running ? `<span style="margin-top:8px">${addBtns(r)}</span>` : '');
+    return scopeSwitch() + emptyHTML(S.running && !off ? 'Кейсы появятся по мере генерации' : 'Тест-кейсов пока нет', off ? 'В этом запуске генерировался только чек-лист. Включите «Тест-кейсы» в параметрах и запустите снова — или добавьте кейсы вручную.' : S.running ? 'Следите за ходом работы на вкладке «Агент».' : 'Загрузите документы и запустите генерацию.', r && !S.running ? `<span style="margin-top:8px">${addBtns(r)}</span>` : '');
   }
   const n = (t) => r.cases.filter((c) => t === 'all' || c.type === t).length;
   const ns = (s) => r.cases.filter((c) => c.suites?.includes(s)).length;
@@ -805,12 +806,57 @@ function casesTab() {
   const nst = (k) => r.cases.filter((c) => c.status === k).length;
   const stchips = r.mode === 'update' ? `<span class="fsep" aria-hidden="true"></span>${Object.keys(UPD_ST).filter((k) => nst(k)).map((k) => `<button class="fchip" type="button" data-act="fstatus" data-s="${k}" aria-pressed="${S.filter.status === k}"><i class="st-dot st-${k}" aria-hidden="true"></i>${UPD_ST[k]}<span class="n">${nst(k)}</span></button>`).join('')}` : '';
   const draftNote = isDraft(r) ? `<div class="banner info" style="margin-bottom:10px"><div>Кейсы в черновике — ещё не в проекте. Проверка ревьюером, исправления и добавление в проект — во вкладке <button class="link" type="button" data-act="go-tab" data-tab="draft">«Черновик»</button>.</div></div>` : '';
-  return draftNote + `${r.mode === 'update' ? `<p class="hint" style="margin-bottom:10px">Актуализация «${esc(r.source?.name || 'файл')}»: ${r.srcCases.length} ${plural(r.srcCases.length, 'кейс', 'кейса', 'кейсов')} из файла переписаны по шаблонам команды. Откройте кейс, чтобы увидеть причину статуса, изменения и исходный вариант.</p>` : ''}<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}${stchips}<input type="text" id="case-q" placeholder="Поиск по кейсам" value="${esc(S.filter.q)}" aria-label="Поиск по кейсам">
+  return scopeSwitch() + draftNote + `${r.mode === 'update' ? `<p class="hint" style="margin-bottom:10px">Актуализация «${esc(r.source?.name || 'файл')}»: ${r.srcCases.length} ${plural(r.srcCases.length, 'кейс', 'кейса', 'кейсов')} из файла переписаны по шаблонам команды. Откройте кейс, чтобы увидеть причину статуса, изменения и исходный вариант.</p>` : ''}<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}${stchips}<input type="text" id="case-q" placeholder="Поиск по кейсам" value="${esc(S.filter.q)}" aria-label="Поиск по кейсам">
     <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">${canResume(r) ? '<button class="btn accent" type="button" data-act="resume-run">Продолжить генерацию</button>' : ''}<button class="btn" type="button" data-act="expand-all">Развернуть все</button><button class="btn" type="button" data-act="collapse-all">Свернуть</button></span></div>
     <div class="sel-bar" id="case-selbar"></div>
     <div class="cases" id="case-list"></div>
     <div class="cases-foot">${addBtns(r)}</div>
     <div class="tms-bar" id="tms-bar"></div>`;
+}
+/* ---------- разделы: тест-кейсы по документам ---------- */
+// кейсы продукта показываются, когда запуск не открыт (например, сразу после загрузки продукта) или выбрана область «Весь продукт»
+const prodScope = () => S.prodIndex.cases.length > 0 && (!S.run || S.casesScope === 'product');
+function scopeSwitch() {
+  if (!S.run || !S.prodIndex.cases.length) return '';
+  const on = prodScope() ? 'product' : 'run';
+  const b = (id, name, n) => `<button class="fchip" type="button" data-act="cases-scope" data-s="${id}" aria-pressed="${on === id}">${name}<span class="n">${n}</span></button>`;
+  return `<div class="toolbar scope-sw" role="group" aria-label="Какие кейсы показывать">${b('run', 'Этот запуск', S.run.cases.length)}${b('product', 'Весь продукт', S.prodIndex.cases.length)}</div>`;
+}
+function sectionsHTML(items) {   // items: [{ doc, html }] — разделы по документу, внутри — карточки кейсов
+  const groups = new Map();
+  for (const it of items) { const k = secKey(it.doc); if (!groups.has(k)) groups.set(k, { key: k, doc: it.doc, rows: [] }); groups.get(k).rows.push(it.html); }
+  const ord = (prodScope() ? S.docs : S.run?.docs || S.docs || []).map((d) => secKey(d.name));
+  const list = [...groups.values()].sort((a, b) => (a.doc ? 0 : 1) - (b.doc ? 0 : 1) || (ord.indexOf(a.key) + 1 || 1e6) - (ord.indexOf(b.key) + 1 || 1e6));
+  return list.map((g) => {
+    const name = secName(g.doc), ed = S.secEdit?.key === g.key;
+    const head = ed
+      ? `<div class="sec-edit"><input type="text" id="sec-in" value="${esc(S.secEdit.value)}" maxlength="120" aria-label="Название раздела" autocomplete="off"><button class="btn sm accent" type="button" data-act="sec-save">Сохранить</button><button class="btn sm" type="button" data-act="sec-cancel">Отмена</button>${name !== secDefault(g.doc) ? '<button class="btn sm" type="button" data-act="sec-reset">Как документ</button>' : ''}</div>`
+      : `<h3 class="sec-t">${esc(name)}</h3><span class="sec-n" title="Кейсов в разделе">${g.rows.length}</span>${g.doc && name !== secDefault(g.doc) ? `<span class="sec-d small muted" title="Документ">${esc(g.doc)}</span>` : ''}<button class="icon-btn sec-ed" type="button" data-act="sec-rename" data-key="${esc(g.key)}" data-doc="${esc(g.doc)}" title="Изменить название раздела" aria-label="Изменить название раздела «${esc(name)}»">${ICON.pen}</button>`;
+    return `<section class="sec" aria-label="${esc(name)}"><header class="sec-h">${head}</header><div class="cases">${g.rows.join('')}</div></section>`;
+  }).join('');
+}
+function prodCasesTab() {
+  const n = (t) => S.prodIndex.cases.filter((x) => t === 'all' || x.t === t).length;
+  const chips = ['all', ...TYPES].filter((t) => t === 'all' || n(t)).map((t) => `<button class="fchip" type="button" data-act="pc-type" data-t="${t}" aria-pressed="${S.pc.type === t}">${t === 'all' ? 'Все' : TL[t]}<span class="n">${n(t)}</span></button>`).join('');
+  return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}», добавленные в проект, — по документам, из которых они написаны. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
+    <div class="toolbar">${chips}<input type="text" id="pc-q" placeholder="Поиск по кейсам" value="${esc(S.pc.q)}" aria-label="Поиск по кейсам продукта"></div>
+    <div class="sections" id="pcase-list"></div>`;
+}
+function prodCaseDoc(x) {
+  if (S.run?.id === x.r) return docOfCase(S.run, S.run.cases.find((c) => c.dispId === x.i) || {});
+  return S.pc.docs[x.r]?.[x.i] || '';
+}
+const prodCaseRow = (x) => `<article class="case"><div class="case-h pc-row" role="button" tabindex="0" data-act="pc-open" data-r="${esc(x.r)}" data-i="${esc(x.i)}" title="Открыть кейс">
+  <span class="case-id t-${x.t}">${esc(x.i)}</span><div style="min-width:0"><div class="case-t">${esc(x.n)}</div></div><span class="muted" style="transform:rotate(-90deg);display:grid">${ICON.chev}</span></div></article>`;
+function renderProdCases() {
+  const el = $('#pcase-list');
+  if (!el) return;
+  ensureProdCaseDocs();
+  if (S.prodIndex.cases.some((x) => S.run?.id !== x.r && !S.pc.docs[x.r])) { el.innerHTML = `<p class="hint">${esc(S.pc.error || 'Загружаю тест-кейсы продукта…')}</p>`; return; }
+  const q = S.pc.q.trim().toLowerCase();
+  const list = S.prodIndex.cases.filter((x) => (S.pc.type === 'all' || x.t === S.pc.type) && (!q || x.i.toLowerCase().includes(q) || x.n.toLowerCase().includes(q)));
+  el.innerHTML = list.length ? sectionsHTML(list.map((x) => ({ doc: prodCaseDoc(x), html: prodCaseRow(x) }))) : emptyHTML('Ничего не найдено', 'Измените фильтр или запрос.');
+  if (S.secEdit) { const inp = $('#sec-in'); if (inp && document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } }
 }
 function filteredCases() {
   const r = S.run, q = S.filter.q.trim().toLowerCase();
@@ -822,7 +868,8 @@ function renderCaseList() {
   const el = $('#case-list');
   if (!el || !S.run) return;
   const list = filteredCases();
-  el.innerHTML = list.length ? list.map(caseHTML).join('') : emptyHTML('Ничего не найдено', 'Измените фильтр или запрос.');
+  el.innerHTML = list.length ? sectionsHTML(list.map((c) => ({ doc: docOfCase(S.run, c), html: caseHTML(c) }))) : emptyHTML('Ничего не найдено', 'Измените фильтр или запрос.');
+  if (S.secEdit) { const inp = $('#sec-in'); if (inp && document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } }
   const bar = $('#case-selbar');
   if (bar) bar.innerHTML = selBarHTML(list, 'cases');
 }
@@ -2040,6 +2087,28 @@ function onTabClick(e) {
     }
     case 'apply-answers': applyAnswers(); break;
     case 'ftype': S.filter.type = el.dataset.t; renderTab(); break;
+    case 'cases-scope': S.casesScope = el.dataset.s === 'product' ? 'product' : 'run'; S.secEdit = null; renderTab(); break;
+    case 'pc-type': S.pc.type = el.dataset.t; renderTab(); break;
+    case 'pc-open': {   // открыть запуск с этим кейсом и показать кейс
+      const runId = el.dataset.r, id = el.dataset.i;
+      (async () => {
+        if (S.run?.id !== runId && !(await openHistory(runId, { tab: 'cases' }))) return;
+        const c = S.run?.cases.find((x) => x.dispId === id);
+        if (!c) return toast('Кейс не найден в запуске — возможно, его удалили.', 'err');
+        S.casesScope = 'run'; S.filter = { type: 'all', suite: 'all', q: '' }; S.tab = 'cases'; caseUI(c.uid).open = true; renderTabs(); renderTab();
+        document.getElementById('case-' + c.uid)?.scrollIntoView({ block: 'center' });
+      })();
+      break;
+    }
+    case 'sec-rename': S.secEdit = { key: el.dataset.key, doc: el.dataset.doc, value: secName(el.dataset.doc) }; renderTab(); break;
+    case 'sec-cancel': S.secEdit = null; renderTab(); break;
+    case 'sec-save': case 'sec-reset': {
+      const ed = S.secEdit; if (!ed) break;
+      const v = act === 'sec-reset' ? '' : ($('#sec-in')?.value ?? ed.value);
+      S.secEdit = null;
+      renameSection(ed.doc, v).then(() => { renderTab(); toast(v.trim() && v.trim() !== secDefault(ed.doc) ? 'Название раздела сохранено' : 'Раздел назван по документу'); }).catch(() => { renderTab(); toast('Не удалось сохранить название — нужны права на изменение.', 'err'); });
+      renderTab(); break;
+    }
     case 'fsuite': S.filter.suite = S.filter.suite === el.dataset.s ? 'all' : el.dataset.s; renderTab(); break;
     case 'fstatus': S.filter.status = S.filter.status === el.dataset.s ? 'all' : el.dataset.s; renderTab(); break;
     case 'toggle-src': ui.showSrc = !ui.showSrc; renderCaseList(); break;
@@ -2478,9 +2547,15 @@ function bind() {
   body.addEventListener('toggle', (e) => { if (e.target.matches?.('.kb-parts')) S.kb.partsOpen = e.target.open ? S.kb.open : null; }, true);
   $('#prod-import-file').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importProduct(f); e.target.value = ''; });
   body.addEventListener('change', (e) => { if (e.target.id === 'mat-file') { const f = [...e.target.files]; e.target.value = ''; if (f.length) vidAdd(f); return; } if (e.target.id === 'mat-model' || e.target.id === 'mat-lang') { S.mat[e.target.id === 'mat-model' ? 'model' : 'lang'] = e.target.value; lsSet(e.target.id === 'mat-model' ? 'qapro.asrModel' : 'qapro.asrLang', e.target.value); e.target.blur(); renderMatAsr(); return; } if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+  body.addEventListener('keydown', (e) => {
+    if (e.target.id === 'sec-in') { if (e.key === 'Enter') { e.preventDefault(); body.querySelector('[data-act="sec-save"]')?.click(); } else if (e.key === 'Escape') { e.preventDefault(); S.secEdit = null; renderTab(); } }
+    else if (e.target.classList?.contains('pc-row') && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.target.click(); }
+  });
   body.addEventListener('input', (e) => {
     const t = e.target;
     if (t.id === 'case-q') { S.filter.q = t.value; renderCaseList(); renderTmsBar(); return; }
+    if (t.id === 'pc-q') { S.pc.q = t.value; renderProdCases(); return; }
+    if (t.id === 'sec-in') { if (S.secEdit) S.secEdit.value = t.value; return; }
     if (t.dataset.fp && t.dataset.uid) {
       const u = caseUI(t.dataset.uid), parts = t.dataset.fp.split('|'), kind = t.dataset.kind;
       if (kind === 'json') { u.formJSON[parts[0]] = t.value; return; }

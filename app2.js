@@ -3434,6 +3434,7 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.history = []; S.legacy = []; S.historyState = 'idle';
   S.know = { busy: false, log: [], error: '', ctl: null };
   S.prodIndex = { pid, cases: [], checklist: [] };
+  S.pc = { type: 'all', q: '', docs: {}, busy: false, error: '' }; S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
   S.mat.open = null;
@@ -3771,6 +3772,56 @@ async function restorePrevPassport() {
   try { await savePassport(pid, p.passportPrev.text, null); toast('Возвращена предыдущая версия знаний'); renderTab(); }
   catch { toast('Не удалось вернуть версию — нужны права на изменение.', 'err'); }
 }
+/* ---------- разделы тест-кейсов: по документу, из которого взяты требования кейса ---------- */
+const NO_DOC = 'Без документа';
+const docBase = (name) => String(name || '').replace(/\.[a-z0-9]{1,5}$/i, '').trim();
+const secKey = (doc) => normKey(docBase(doc)) || '-';
+const secDefault = (doc) => docBase(doc) || NO_DOC;
+function docOfCase(run, c) {   // документ большинства требований кейса; без требований — пустая строка
+  const cnt = new Map();
+  for (const id of arrOf(c.requirementIds)) { const d = String(run?.reqById?.[id]?.doc || '').trim(); if (d) cnt.set(d, (cnt.get(d) || 0) + 1); }
+  let best = '', n = 0;
+  for (const [d, k] of cnt) if (k > n) { best = d; n = k; }
+  return best;
+}
+const cleanSections = (m) => Object.fromEntries(Object.entries(m && typeof m === 'object' && !Array.isArray(m) ? m : {}).map(([k, v]) => [String(k).slice(0, 80), String(v || '').replace(/\s+/g, ' ').trim().slice(0, 120)]).filter(([, v]) => v).slice(0, 300));
+const secStore = () => (S.productId ? productById(S.productId)?.caseSections : S.localSections) || {};
+const secName = (doc) => String(secStore()[secKey(doc)] || '').trim() || secDefault(doc);
+/* название раздела можно изменить вручную; пустое или совпадающее с названием документа — возвращает название документа */
+async function renameSection(doc, name) {
+  const key = secKey(doc), v = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 120), next = { ...secStore() };
+  if (!v || v === secDefault(doc)) delete next[key]; else next[key] = v;
+  if (!S.productId) { S.localSections = next; lsSet('qapro.sections', next); return; }
+  if (!S.caps.db) { upsertLocalProduct(S.productId, { ...productById(S.productId), caseSections: next }); return; }
+  await updateProduct(S.productId, { caseSections: next });
+}
+/* кейсы продукта: документ каждого кейса берётся из сохранённого запуска (требования и кейсы), результат кладётся в кэш */
+async function loadRunCaseDocs(pid, runId) {
+  const base = runBase(pid), meta = (await S.caps.db.doc(`${base}/${runId}`).get()).data();
+  if (!meta) return {};
+  const reqById = Object.fromEntries(arrOf(meta.requirements).map((r) => [r.id, r])), out = {};
+  for (let i = 0; i < (meta.partsCount || 0); i++) {
+    const p = (await S.caps.db.doc(`${base}/${runId}/parts/p${i}`).get()).data();
+    for (const c of arrOf(p?.cases)) out[c.dispId] = docOfCase({ reqById }, c);
+  }
+  return out;
+}
+async function ensureProdCaseDocs() {
+  const pid = S.productId, pc = S.pc;
+  if (!pid || !S.caps.db || pc.busy) return;
+  const need = [...new Set(S.prodIndex.cases.map((x) => x.r))].filter((id) => !pc.docs[id] && S.run?.id !== id);
+  if (!need.length) return;
+  pc.busy = true; pc.error = '';
+  const rerender = () => { if (S.productId === pid && S.tab === 'cases' && prodScope()) renderProdCases(); };
+  try {
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(3, need.length) }, async () => {
+      while (next < need.length && S.productId === pid) { const id = need[next++]; pc.docs[id] = await loadRunCaseDocs(pid, id).catch(() => ({})); }
+    }));
+  } catch { pc.error = 'Не удалось прочитать часть запусков.'; }
+  pc.busy = false;
+  rerender();
+}
 /* ================= экспорт и импорт продукта ================= */
 const slugName = (s) => String(s || 'product').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'product';
 async function exportProduct() {
@@ -3797,7 +3848,7 @@ async function exportProduct() {
     }
     const out = {
       format: 'qa-pro-product', version: 1, exportedAt: new Date().toISOString(),
-      product: { name: p.name, description: p.description || '', qaCtx: p.qaCtx || {}, passport: p.passport || null, passportPrev: p.passportPrev || null, counters: p.counters || {}, stats: p.stats || {}, createdAt: p.createdAt },
+      product: { name: p.name, description: p.description || '', qaCtx: p.qaCtx || {}, passport: p.passport || null, passportPrev: p.passportPrev || null, counters: p.counters || {}, stats: p.stats || {}, createdAt: p.createdAt, caseSections: p.caseSections || {} },
       docs, index: { cases: arrOf(cases?.items), checklist: arrOf(checklist?.items) }, known: known || null, runs,
       kb: { index: kbIdx || null, blocks: kb },
     };
@@ -3829,7 +3880,8 @@ async function importProduct(file) {
     }
     await createProduct(name, d.product.description || '', { id, docs, qaCtx: d.product.qaCtx || {} });
     if (d.product.passport?.text) { await savePassport(id, String(d.product.passport.text).slice(0, PASSPORT_MAX), null); }
-    await db.doc(prodPath(id)).update({ ...(d.product.passport?.text ? {} : { passport: null, passportPrev: null }), counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(d.product.counters || {}) }, stats: { cases: 0, checklist: 0, lastRunAt: 0, ...(d.product.stats || {}) } });
+    await db.doc(prodPath(id)).update({ ...(d.product.passport?.text ? {} : { passport: null, passportPrev: null }), counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(d.product.counters || {}) }, stats: { cases: 0, checklist: 0, lastRunAt: 0, ...(d.product.stats || {}) }, caseSections: cleanSections(d.product.caseSections) });
+    const fresh = (await db.doc(prodPath(id)).get()).data(); if (fresh) upsertLocalProduct(id, fresh);   // локальная копия продукта — с названиями разделов и счётчиками
     if (d.index) {
       await db.doc(`${prodPath(id)}/meta/cases`).set({ items: arrOf(d.index.cases), updatedAt: Date.now() });
       await db.doc(`${prodPath(id)}/meta/checklist`).set({ items: arrOf(d.index.checklist), updatedAt: Date.now() });
@@ -3852,6 +3904,7 @@ async function importProduct(file) {
     }
     S.prodIO = null;
     await switchProduct(id);
+    if (S.prodIndex.cases.length) { S.tab = 'cases'; S.casesScope = 'product'; renderAll(); }   // загруженные кейсы сразу видны на вкладке «Тест-кейсы»
     toast(`Продукт «${name}» загружен: документов ${docs.length}, запусков ${nr}`);
   } catch (e) {
     S.prodIO = null; renderProduct();
