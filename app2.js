@@ -254,6 +254,7 @@ const outOfScope = (t) => { const x = String(t || ''); return SCOPE_RX_EXPL.test
 /* в тексте кейса нет отсылок к требованиям QA pro: связь с требованиями хранится отдельно (requirementIds) */
 const REQ_REF_RULE = /*@md:rules/req-refs.md*/'';
 const TITLE_TAG_RULE = /*@md:rules/title-tags.md*/'';
+const KAFKA_RULE = /*@md:rules/kafka.md*/'';
 const DESC_KEY_RX = /description|описан|objective|цел[ья]|scenario|сценари|summary|назначени|comment|коммент/i;
 function noReqRefs(v, desc = false) {
   let t = String(v ?? '');
@@ -448,7 +449,7 @@ function promptGenerate(run, b, mode = {}) {
   const focus = b.items.map((it) => `${it.title} ${it.checks.join(' ')} ${it.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', b.type, 25, focus);
   const rules = rulesText();
-  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
+  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
 ${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}
 Требования:
@@ -458,7 +459,7 @@ ${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n
 function promptRefine(run, c, comment) {
   const info = tplInfo(c.type);
   const reqs = c.requirementIds.map((id) => reqLine(run.reqById?.[id])).filter(Boolean).join('\n');
-  return renderPrompt("promptRefine", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
+  return renderPrompt("promptRefine", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
 }
 function promptImpact(run, qs) {
   const cases = run.cases.map((c) => `${c.dispId} [${c.type}] ${c.requirementIds.join(',')}: ${pickTitleText(c.testCase)}`).join('\n');
@@ -467,7 +468,7 @@ function promptImpact(run, qs) {
 }
 function promptReviseBatch(run, type, ups) {
   const info = tplInfo(type);
-  return renderPrompt("promptReviseBatch", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
+  return renderPrompt("promptReviseBatch", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
 Инструкция: ${u.instruction}
 Требования:
 ${u.c.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}
@@ -486,7 +487,7 @@ function promptActualize(run, type, batch) {
   const info = tplInfo(type);
   const rules = rulesText();
   const focus = batch.map((x) => `${x.title} ${x.instruction || ''} ${x.reqIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
-  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
+  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
 Статус: ${sc.status === 'changed' ? '"changed" — исправить' : sc.status === 'obsolete' ? '"obsolete" — устарел' : '"same" — без изменений по сути'}${sc.status === 'changed' && sc.instruction ? `\nЧто исправить: ${sc.instruction}` : ''}
 Требования:
 ${sc.reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'не сопоставлены'}`).join('\n\n') });

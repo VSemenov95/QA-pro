@@ -11,5 +11,5 @@
 ## Замечание ревьюера
 ⟦comment⟧
 
-⟦REQ_REF_RULE⟧ ⟦TITLE_TAG_RULE⟧
+⟦REQ_REF_RULE⟧ ⟦TITLE_TAG_RULE⟧ ⟦KAFKA_RULE⟧
 Ответь только JSON-объектом исправленного тест-кейса — той же структуры, без обёрток и пояснений.⟦e12⟧
