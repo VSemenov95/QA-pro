@@ -41,8 +41,31 @@ def _signatures():
 SIGS = _signatures()
 
 
+def _split_signatures():
+    """Промпты базы знаний начинаются одинаково («Ты — аналитик базы знаний … по продукту «⟦…⟧».») и различаются дальше:
+    для них сравнивается вся первая строка, а подстановки ⟦…⟧ считаются любым текстом."""
+    by = {}
+    for f in glob.glob(os.path.join(ROOT, 'prompts', '*.md')):
+        first = open(f, encoding='utf-8').readline().strip()
+        by.setdefault(first.split('⟦')[0].strip(), []).append((first, os.path.basename(f)[:-3]))
+    out = []
+    for items in by.values():
+        if len(items) < 2 or len(items[0][0].split('⟦')[0].strip()) < 20:
+            continue
+        for first, kind in items:
+            out.append((re.compile('.*?'.join(re.escape(p) for p in re.split(r'⟦[^⟧]*⟧', first)), re.S), kind))
+    return out
+
+
+SPLIT_SIGS = _split_signatures()
+
+
 def classify(prompt):
     head = prompt[:600]
+    long_head = prompt[:3000]
+    for rx, kind in SPLIT_SIGS:
+        if rx.match(long_head):
+            return kind
     for sig, kind in SIGS:
         if sig in head:
             return kind
