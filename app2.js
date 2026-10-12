@@ -1310,12 +1310,14 @@ const MAP_BATCH = 10;
    Один ответ достаётся только одному кейсу. */
 function matchBatch(items, arr) {
   const list = arrOf(arr).filter((x) => x && typeof x === 'object');
-  const byNum = new Map(list.map((x) => [Number(x.index), x]));
+  const byNum = new Map();
+  for (const x of list) if (!byNum.has(Number(x.index))) byNum.set(Number(x.index), x);   // при повторе номера берём первый ответ, как раньше
   const hitAbs = items.filter((sc) => byNum.has(sc.index)).length, hitRel = items.filter((_, k) => byNum.has(k + 1)).length;
   const used = new Set();
   const take = (x) => { if (!x || used.has(x)) return null; used.add(x); return x; };
   const found = items.map((sc, k) => take(hitAbs >= hitRel ? byNum.get(sc.index) : byNum.get(k + 1)));
-  return found.map((r, k) => r || (list.length === items.length ? take(list[k]) : null));
+  const claimed = (x) => items.some((sc, j) => Number(x.index) === (hitAbs >= hitRel ? sc.index : j + 1));   // ответ с номером другого кейса по позиции не раздаём
+  return found.map((r, k) => r || (list.length === items.length && list[k] && !claimed(list[k]) ? take(list[k]) : null));
 }
 async function stepMap(run) {
   sstart(run, 'map');

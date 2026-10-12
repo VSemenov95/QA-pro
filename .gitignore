@@ -17,3 +17,5 @@ node_modules/
 *.f32
 *.onnx
 *.log
+tests/.cache/
+.pytest_cache/
