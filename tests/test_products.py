@@ -202,6 +202,25 @@ def test_deleting_the_only_product_creates_a_fresh_one(app):
     assert select_text(app) == 'Мой продукт' and [k for k in app.db.store if old in k] == []
 
 
+@pytest.mark.xfail(strict=True, reason='БАГ: «Удалить продукт» не удаляет историю вопросов к базе знаний этого продукта: запись data/users/<пользователь>/help_<id продукта> остаётся в базе навсегда')
+def test_delete_product_removes_question_history(app):
+    model_kb.install(app.model)
+    first = pid_of(app)
+    second = app.create_product('Биллинг')
+    app.mode('help')
+    app.page.click('[data-act=help-view][data-v=qa]')
+    app.page.fill('#help-input', 'Что умеет продукт?')
+    app.page.press('#help-input', 'Enter')
+    app.page.wait_for_function("() => document.querySelectorAll('#help-list .hq').length >= 1")
+    app.wait_idle()
+    app.mode('generate')
+    app.page.click('[data-act=prod-del]')
+    app.page.click('[data-act=prod-del]')
+    app.page.wait_for_function('(p) => window.__qa.S.productId === p', arg=first)
+    app.wait_idle()
+    assert [k for k in app.db.store if second in k] == []
+
+
 def test_panel_folds_to_one_line_summary(app):
     app.page.click('[data-act=pp-toggle] >> nth=0')
     assert app.text('.pp-sum') == '1 документ · 0 кейсов · чек-лист 0 · знаний нет'
@@ -341,7 +360,9 @@ def test_export_does_not_include_sample_text_but_includes_own_documents(app, tmp
 
 @pytest.fixture
 def copy(app, tmp_path):
-    """Продукт с одним запуском выгружен и загружен как копия."""
+    """Продукт с контекстом QA и одним запуском выгружен и загружен как копия."""
+    app.page.fill('#qa-ctx', 'Окружение stage')
+    app.page.wait_for_function('() => !window.__qa.S.ctxDirty')
     first_run(app)
     _, data = export_product(app)
     app.exported = files.write(tmp_path / 'product.json', app.js('window.__dlData'))
@@ -365,6 +386,22 @@ def test_copy_keeps_documents_knowledge_and_counters(copy):
     d = product_doc(copy)
     assert d['counters'] == {'api': 2, 'ui': 1, 'e2e': 1, 'cl': 4} and d['passport']['len'] > 0
     assert 'Назначение и границы' in copy.state('S.products.find((p) => p.id === S.productId).passport.text')
+
+
+def test_copy_keeps_extra_context(copy):
+    assert copy.page.input_value('#qa-ctx') == 'Окружение stage' and product_doc(copy)['qaCtx']['all'] == 'Окружение stage'
+
+
+def test_copy_remembers_what_the_passport_already_knows(copy):
+    """Требования, которые паспорт уже усвоил, в копии повторно не отправляются модели."""
+    if copy.state('!!S.run'):
+        copy.page.click('#btn-newses')
+        copy.page.wait_for_function('() => !window.__qa.S.run')
+    copy.js("() => { const S = window.__qa.S; for (const d of S.docs) S.runDocs.add(d.id); window.__qa.renderAll(); }")
+    copy.model.reset()
+    copy.generate()
+    assert copy.model.calls_of('promptPassportFull', 'promptPassportDelta') == []
+    assert 'Новых сведений нет' in copy.state("S.run.steps.knowledge.log.map((l) => l.text).join(' ')")
 
 
 def test_copy_has_the_same_cases_in_its_index(copy):

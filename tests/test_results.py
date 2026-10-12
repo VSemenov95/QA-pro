@@ -319,6 +319,19 @@ def test_short_remark_is_not_generalized(results):
     assert len(results.model.calls_of('promptLesson')) == 0
 
 
+# ---------- копирование ----------
+def clipboard(app):
+    return app.js("() => navigator.clipboard.readText()")
+
+
+def test_copy_case_json(results):
+    results.ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin='http://app.test')
+    open_case(results, 'UI-001')
+    results.page.click('#case-list [data-act=copy-case]')
+    results.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some((e) => e.textContent.includes('Скопировано'))")
+    assert json.loads(clipboard(results)) == results.state("S.run.cases.find((c) => c.dispId === 'UI-001').testCase")
+
+
 # ---------- чек-лист ----------
 def cl_texts(app):
     return app.page.eval_on_selector_all('.cl-item', "els => els.map((e) => [e.querySelector('.cl-id').textContent, e.querySelector('.cl-text')?.textContent])")
@@ -369,6 +382,13 @@ def test_checklist_json_download(checklist):
     assert out['sources'] == ['Пример — ТЗ восстановление пароля.md']
     assert [g['title'] for g in out['groups']] == ['Форма восстановления', 'API сброса']
     assert out['groups'][1]['items'][0] == {'id': 'CL-003', 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']}
+
+
+def test_checklist_copy_gives_markdown(checklist):
+    checklist.ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin='http://app.test')
+    checklist.page.click('[data-act=cl-copy]')
+    checklist.page.wait_for_function("() => [...document.querySelectorAll('.toast')].some((e) => e.textContent.includes('Скопировано'))")
+    assert clipboard(checklist).startswith('# Чек-лист\n\n## Форма восстановления\n\n- [ ] CL-001 ')
 
 
 def new_item(app, text, group='0'):

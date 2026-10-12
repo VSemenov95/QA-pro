@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.support import files
+from tests.support import files, model_kb
 from tests.support.app import open_app
 from tests.support.db import MemoryDB
 
@@ -143,17 +143,22 @@ def test_worker_parses_documents_added_in_a_closed_window(browser, tmp_path):
     w = Windows(browser)
     try:
         worker = w.open(worker=True)
+        model_kb.install(worker.model)
         wait_db(worker.page, lambda: worker_doc(w.db), 20, 'присутствие исполнителя')
+        wait_db(worker.page, lambda: worker.state("S.kb.index.blocks.length > 0 && !S.kb.job.busy && !S.know.busy") and worker_doc(w.db).get('doing') == '', 60, 'исполнитель разобрал пример ТЗ и свободен')
         desk = w.open(desk=True)
-        before = {k for k in w.db.store if '/kb/' in k or k.endswith('/meta/kb')}
-        desk.page.set_input_files('#file-input', files.write(tmp_path / 'лимиты.txt', 'ТЗ: дополнительный документ про лимиты. Не более 3 запросов за 15 минут.'))
-        desk.page.wait_for_function("() => window.__qa.S.docs.some((d) => d.name === 'лимиты.txt')")
+        model_kb.install(desk.model)
+        desk.page.set_input_files('#file-input', files.write(tmp_path / 'лимиты.md', model_kb.limits_doc()))
+        desk.page.wait_for_function("() => window.__qa.S.docs.some((d) => d.name === 'лимиты.md')")
         desk.page.evaluate(PAGEHIDE)
         desk.ctx.close()
         for k in [k for k in w.db.leases if k.endswith('/meta/kbjob')]:
             w.db.leases.pop(k)   # аренда закрытого окна истекла (в жизни — через 2 минуты)
-        wait_db(worker.page, lambda: any('лимит' in str(v) for k, v in w.db.store.items() if '/kb' in k and k not in before) or any(v.get('kind') == 'kbblock' for v in w.db.store.values() if isinstance(v, dict)), 60, 'разбор документа в базу знаний')
-        assert any(isinstance(v, dict) and v.get('kind') == 'kbblock' for v in w.db.store.values())
+        wait_db(worker.page, lambda: len(worker.state('Object.keys(S.kb.index.docs || {})')) == 2, 60, 'новый документ разобран в базу знаний')
+        sections = dict(worker.state('S.kb.index.blocks.map((b) => [b.title, b.docIds.length])'))
+        assert sections['Восстановление пароля'] == 2   # раздел теперь собран из двух документов
+        index = next(v for k, v in w.db.store.items() if k.endswith('/meta/kb'))
+        assert len(index['docs']) == 2
     finally:
         w.close()
 
@@ -162,7 +167,7 @@ def test_worker_parses_documents_added_in_a_closed_window(browser, tmp_path):
 def test_switch_on_makes_the_tab_a_worker(win):
     a = win.open()
     a.open_settings('bg')
-    a.page.check('#bg-worker')
+    a.page.click('#bg-body label.switch')
     wait_db(a.page, lambda: worker_doc(win.db), 10, 'присутствие исполнителя')
     assert a.page.evaluate("localStorage.getItem('qapro.worker')") == 'true'
     assert any('Эта вкладка — фоновый исполнитель' in t for t in a.toast_texts())
@@ -173,7 +178,7 @@ def test_switch_off_removes_the_worker(win):
     a = win.open(worker=True)
     wait_db(a.page, lambda: worker_doc(win.db), 10, 'присутствие исполнителя')
     a.open_settings('bg')
-    a.page.uncheck('#bg-worker')
+    a.page.click('#bg-body label.switch')
     wait_db(a.page, lambda: worker_doc(win.db) is None, 10, 'присутствие удалено')
     assert a.page.evaluate("localStorage.getItem('qapro.worker')") == 'false'
 

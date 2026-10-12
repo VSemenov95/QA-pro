@@ -74,6 +74,33 @@ def test_empty_history_says_so(app):
     assert 'Запусков пока нет' in app.text('#tab-body')
 
 
+def test_history_list_updates_after_a_new_run(app):
+    app.tab('history')
+    app.page.wait_for_selector('.empty')
+    app.tab('agent')
+    app.generate()
+    finish_saving(app)
+    app.tab('history')
+    app.page.wait_for_selector('.hrow')
+    assert app.count('.hrow') == 1
+
+
+def test_second_run_is_second_row_newest_first(app):
+    app.generate()
+    finish_saving(app)
+    app.page.click('#btn-newses')
+    app.add_sample() if app.state('S.docs.length') == 0 else None
+    app.page.click('[data-doc-act]') if False else None
+    first = app.state('S.run.id') if app.state('S.run') else None
+    app.state('[...S.runDocs].length')
+    app.call("S.docs.forEach((d) => S.runDocs.add(d.id))")
+    app.generate()
+    wait_until(app, lambda: run_meta(app).get('status') == 'done' and run_meta(app).get('hb') == 0)
+    app.tab('history')
+    app.page.wait_for_function("() => document.querySelectorAll('.hrow').length === 2")
+    assert 'открыт' in app.text('.hrow:first-child')
+
+
 def reopen_from_history(app):
     app.generate()
     finish_saving(app)

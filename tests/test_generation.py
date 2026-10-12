@@ -130,6 +130,8 @@ def test_selected_types_limit_requirements_and_cases(app):
     assert app.state("S.run.cases.every((c) => c.type === 'ui')") is True and app.state('S.run.cases.length') >= 1
     assert app.state("S.run.requirements.filter((r) => !r.inScope).map((r) => r.id)") == ['R-002', 'R-003']
     assert 'вне выбранных видов тестов' in ' '.join(app.state("S.run.steps.analyze.log.map((l) => l.text)"))
+    app.tab('reqs')
+    assert app.text('tr.req-row[data-id=R-002] td:last-child') == 'вне выбора' and app.text('tr.req-row[data-id=R-001] td:last-child') != 'вне выбора'
 
 
 # ---------- анализ: несколько фрагментов ----------
@@ -168,6 +170,20 @@ def test_second_run_reuses_analysis_of_same_documents(app):
     app.generate()
     assert len(app.model.calls_of('promptAnalyze')) == 1
     assert 'взят из кэша продукта' in ' '.join(app.state("S.run.steps.analyze.log.map((l) => l.text)"))
+
+
+def test_changed_rules_invalidate_analysis_cache(app):
+    app.generate()
+    app.page.fill('#cfg-rules', 'Новые правила команды')
+    app.generate()
+    assert len(app.model.calls_of('promptAnalyze')) == 2
+
+
+def test_changed_document_invalidates_analysis_cache(app, tmp_path):
+    app.generate()
+    app.upload(files.spec_file(tmp_path))
+    app.generate()
+    assert len(app.model.calls_of('promptAnalyze')) == 2
 
 
 def test_analysis_cache_can_be_switched_off(app):
@@ -290,6 +306,36 @@ def test_empty_generation_answer_gives_partial_run(app):
     assert app.state('S.run.status') == 'partial'
     assert app.state("S.run.failed.map((f) => f.error)") != [] and 'Модель не вернула ни одного кейса' in app.state('S.run.failed[0].error')
     assert app.state('S.run.cases.length') == 0
+
+
+def test_partial_run_shows_banner_and_can_be_repeated(app):
+    app.model.on('promptGenerate', {'cases': []})
+    app.generate()
+    app.tab('agent')
+    assert 'Готово с ошибками.' in app.text('.banner.warn') and app.count('#tab-body [data-act=resume-run]') == 1
+    app.model.handlers.pop('promptGenerate')
+    app.page.click('#tab-body [data-act=resume-run]')
+    app.wait_idle()
+    assert app.state('S.run.status') == 'done' and app.state('S.run.cases.length') >= 4 and app.state('S.run.failed.length') == 0
+
+
+@pytest.mark.parametrize('shape', ['list', 'testCases', 'flat', 'junk'])
+def test_cases_answer_shapes_are_accepted(app, shape):
+    """Модель вернула кейсы не в том виде, что просили: массив, ключ testCases, поля кейса без обёртки testCase, посторонние элементы."""
+    def gen(call):
+        cases = [{'planItem': pid, 'suites': ['regression'], 'testCase': case_body('Кейс: ' + c)} for pid, c in checks_of(call.prompt)]
+        if shape == 'list':
+            return cases
+        if shape == 'testCases':
+            return {'testCases': cases}
+        if shape == 'flat':
+            return {'cases': [{'planItem': c['planItem'], 'suites': c['suites'], **c['testCase']} for c in cases]}
+        return {'cases': [None, 'text', 5] + cases}
+    app.model.on('promptGenerate', gen)
+    app.generate()
+    titles = app.state("S.run.cases.map((c) => c.testCase.title)")
+    assert app.state('S.run.status') == 'done' and len(titles) == app.state("S.run.plan.reduce((n, p) => n + p.checks.length, 0)")
+    assert all(t.startswith('[') and ': ' in t for t in titles)
 
 
 def test_cases_with_foreign_plan_item_and_requirements_are_repaired(app):
@@ -660,6 +706,18 @@ def test_mobile_run_button_is_reachable(make_app):
     app = make_app(viewport=(400, 860))
     box = app.page.locator('#btn-run').bounding_box()
     assert box and 0 <= box['x'] and box['x'] + box['width'] <= 400
+
+
+# ---------- глубина проверок ----------
+@pytest.mark.parametrize('depth,phrase', [('smoke', 'Смоук: только ключевые позитивные проверки'), ('standard', 'Базовый: позитивные проверки, основные негативные сценарии'), ('full', 'Полный: применяй техники тест-дизайна')])
+def test_depth_goes_to_checklist_and_plan(app, depth, phrase):
+    app.page.click(f'[data-depth={depth}]')
+    app.generate()
+    assert phrase in app.model.prompts_of('promptChecklist')[0] and phrase in app.model.prompts_of('promptPlan')[0]
+
+
+def test_depth_is_basic_by_default(app):
+    assert app.page.get_attribute('[data-depth=standard]', 'aria-checked') == 'true'
 
 
 # ---------- шаблоны кейсов ----------
