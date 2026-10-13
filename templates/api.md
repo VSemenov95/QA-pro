@@ -34,7 +34,7 @@ idPrefix: API-
   "steps": [
     {
       "step": 1,
-      "action": "Отправить запрос из блока request",
+      "action": "Вызвать POST /api/v1/password-reset с телом:\n\n```json\n{\n  \"email\": \"user@example.ru\"\n}\n```",
       "expected": "Код ответа 202 Accepted"
     },
     {
