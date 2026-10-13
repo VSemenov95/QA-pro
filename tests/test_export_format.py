@@ -11,7 +11,7 @@ HEADER = 'ID;Название;Предусловия;Шаг;Ожидаемый �
 SPEC = {'fileType': 'csv', 'filename': 'testit-import', 'mode': 'map', 'rowMode': 'step', 'delimiter': ';', 'notes': 'CSV для Test IT, шаг на строку.',
         'cols': [{'header': 'ID', 'value': '{{id}}', 'firstOnly': True}, {'header': 'Название', 'value': '{{title}}', 'firstOnly': True},
                  {'header': 'Предусловия', 'value': '{{preconditions|; }}', 'firstOnly': True}, {'header': 'Шаг', 'value': '{{step.n}}. {{step.action}}'},
-                 {'header': 'Ожидаемый результат', 'value': '{{step.expected}}'}, {'header': 'Приоритет', 'value': '{{priority=high:Высокий,medium:Средний,low:Низкий}}', 'firstOnly': True},
+                 {'header': 'Ожидаемый результат', 'value': '{{step.expected}}'}, {'header': 'Приоритет', 'value': '{{priority=P3_HIGH:Высокий,P2_MEDIUM:Средний,P1_LOW:Низкий,P4_CRITICAL:Критический}}', 'firstOnly': True},
                  {'header': 'Теги', 'value': '{{suites|, }}', 'firstOnly': True}], 'itemRules': 'по шаблону'}
 AI_SPEC = {'fileType': 'csv', 'filename': 'ai-import', 'mode': 'ai', 'delimiter': ';', 'columns': ['Название', 'Шаги'], 'itemRules': 'Название — как есть, шаги одной ячейкой'}
 

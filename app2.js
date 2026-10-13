@@ -12,8 +12,11 @@ function tplInfo(type) {
 const selectedTypes = () => TYPES.filter((t) => S.settings.types[t]);
 const arrOf = (v) => (Array.isArray(v) ? v : []);
 const arrStr = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).map((s) => s.trim()).filter(Boolean);
-const normPrio = (p) => { const s = String(p || '').toLowerCase(); return /high|выс|крит/.test(s) ? 'high' : /low|низ/.test(s) ? 'low' : 'medium'; };
-const PRIO_RU = { high: 'Высокий', medium: 'Средний', low: 'Низкий' };
+/* приоритет — только четыре значения; старые записи (high/medium/low, High/Medium/Low) приводятся к ним */
+const PRIOS = ['P4_CRITICAL', 'P3_HIGH', 'P2_MEDIUM', 'P1_LOW'];
+const normPrio = (p) => { const s = String(p || '').toLowerCase(); return /p4|крит|critical/.test(s) ? 'P4_CRITICAL' : /p3|high|выс/.test(s) ? 'P3_HIGH' : /p1|low|низ/.test(s) ? 'P1_LOW' : 'P2_MEDIUM'; };
+const PRIO_RU = { P4_CRITICAL: 'Критический', P3_HIGH: 'Высокий', P2_MEDIUM: 'Средний', P1_LOW: 'Низкий' };
+const prioRu = (p) => PRIO_RU[normPrio(p)];
 const normKey = (s) => String(s).toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
 function normSuites(v) {
   const out = new Set();
@@ -255,6 +258,8 @@ const outOfScope = (t) => { const x = String(t || ''); return SCOPE_RX_EXPL.test
 const REQ_REF_RULE = /*@md:rules/req-refs.md*/'';
 const TITLE_TAG_RULE = /*@md:rules/title-tags.md*/'';
 const KAFKA_RULE = /*@md:rules/kafka.md*/'';
+const PRIORITY_RULE = /*@md:rules/priority.md*/'';
+const PRECONDITIONS_RULE = /*@md:rules/preconditions.md*/'';
 const DESC_KEY_RX = /description|описан|objective|цел[ья]|scenario|сценари|summary|назначени|comment|коммент/i;
 function noReqRefs(v, desc = false) {
   let t = String(v ?? '');
@@ -449,7 +454,7 @@ function promptGenerate(run, b, mode = {}) {
   const focus = b.items.map((it) => `${it.title} ${it.checks.join(' ')} ${it.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', b.type, 25, focus);
   const rules = rulesText();
-  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
+  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
 ${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}
 Требования:
@@ -459,7 +464,7 @@ ${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n
 function promptRefine(run, c, comment) {
   const info = tplInfo(c.type);
   const reqs = c.requirementIds.map((id) => reqLine(run.reqById?.[id])).filter(Boolean).join('\n');
-  return renderPrompt("promptRefine", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
+  return renderPrompt("promptRefine", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "e1": TL[c.type], "e2": templateBlock(c.type), "e3": reqs ? `\n## Требования, которые покрывает кейс\n${reqs}\n` : '', "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), c.type), "e6": knowBlocks(run, 'batch', `${pickTitleText(c.testCase)} ${comment} ${c.requirementIds.map((id) => reqText(run.reqById?.[id])).join(' ')}`), "fence": fence, "e8": JSON.stringify(c.testCase), "comment": comment, "REQ_REF_RULE": REQ_REF_RULE, "e12": info.ok && info.idField ? ` Значение поля "${info.idField}" не меняй.` : '' });
 }
 function promptImpact(run, qs) {
   const cases = run.cases.map((c) => `${c.dispId} [${c.type}] ${c.requirementIds.join(',')}: ${pickTitleText(c.testCase)}`).join('\n');
@@ -468,7 +473,7 @@ function promptImpact(run, qs) {
 }
 function promptReviseBatch(run, type, ups) {
   const info = tplInfo(type);
-  return renderPrompt("promptReviseBatch", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
+  return renderPrompt("promptReviseBatch", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "e1": TL[type], "e2": templateBlock(type), "e3": clarBlock(run), "e4": qaCtxBlock(ctxOf(run), type), "e5": knowBlocks(run, 'batch', ups.map((u) => `${pickTitleText(u.c.testCase)} ${u.instruction}`).join(' ')), "e6": ups.map((u) => `### ${u.c.dispId}
 Инструкция: ${u.instruction}
 Требования:
 ${u.c.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}
@@ -487,7 +492,7 @@ function promptActualize(run, type, batch) {
   const info = tplInfo(type);
   const rules = rulesText();
   const focus = batch.map((x) => `${x.title} ${x.instruction || ''} ${x.reqIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
-  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
+  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
 Статус: ${sc.status === 'changed' ? '"changed" — исправить' : sc.status === 'obsolete' ? '"obsolete" — устарел' : '"same" — без изменений по сути'}${sc.status === 'changed' && sc.instruction ? `\nЧто исправить: ${sc.instruction}` : ''}
 Требования:
 ${sc.reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'не сопоставлены'}`).join('\n\n') });
@@ -969,6 +974,7 @@ const titleTagOk = (c) => { const tc = { ...(c.testCase || {}) }, was = pickTitl
 function orderLikeTemplate(tc, info, type) {
   tc = noReqDeep(cleanCase(tc)); // без <p>, HTML и буквальных «\n» и без отсылок к требованиям QA pro
   if (type) tagTitle(tc, type);
+  if (typeof tc.priority === 'string') tc.priority = normPrio(tc.priority);
   if (!info.ok) return tc;
   const ordered = {};
   for (const k of info.fields) if (k in tc) ordered[k] = tc[k];
@@ -1642,7 +1648,7 @@ function applyAnswers() {
     }
     if (run.checklist) {
       for (const u of clUpd) u.item.check = u.check;
-      if (adds.length) addChecklistGroup(run, 'Уточнения по ответам на вопросы', adds.map((a) => ({ id: '', check: a.check, type: a.type, priority: 'medium', suites: a.suites, requirementIds: a.requirementIds })));
+      if (adds.length) addChecklistGroup(run, 'Уточнения по ответам на вопросы', adds.map((a) => ({ id: '', check: a.check, type: a.type, priority: 'P2_MEDIUM', suites: a.suites, requirementIds: a.requirementIds })));
     }
     for (const q of qs) q.appliedAnswer = q.answer.trim();
     slog(run, 'answers', `Ответы учтены: ${qs.map((q) => q.id).join(', ')}`, 'ok');
@@ -2265,7 +2271,7 @@ function regenDrafts() {
 function reduceSelect(cases, keepIds, target) {
   const byId = new Map(cases.map((c) => [c.dispId, c]));
   const reqsOf = (id) => byId.get(id).requirementIds || [];
-  const rankOf = (id) => ({ high: 0, medium: 1, low: 2 })[normPrio(byId.get(id).testCase?.priority)];
+  const rankOf = (id) => PRIOS.indexOf(normPrio(byId.get(id).testCase?.priority));
   const all = new Set(cases.flatMap((c) => c.requirementIds || []));
   const cov = (ids) => { const s = new Set(); for (const id of ids) for (const r of reqsOf(id)) s.add(r); return s; };
   const covers = (ids) => { const s = cov(ids); return [...all].every((r) => s.has(r)); };
@@ -2536,7 +2542,7 @@ function sferaCase(c) {
     preConditions: t.pre.map((x) => ({ action: hp(x), expectedResult: '<p></p>' })),
     steps: t.steps.map((s) => ({ action: hp(s.action + (s.data ? `\nДанные: ${s.data}` : '')), expectedResult: hp(s.expected || '') })),
     postConditions: t.post.map((x) => ({ action: hp(x), expectedResult: '<p></p>' })),
-    priority: { high: 'P3_HIGH', medium: 'P2_MEDIUM', low: 'P1_LOW' }[t.priority] || 'P2_MEDIUM',
+    priority: normPrio(t.priority),
     suites: c.suites || [],
   };
 }
@@ -2925,7 +2931,7 @@ async function tmsTestConn(cfg) {
   if (cfg.kind === 'testrail') { const r = await httpJSON(`${base}/index.php?/api/v2/get_section/${encodeURIComponent(cfg.section)}`, { method: 'GET', headers: h, signal, what: 'TestRail' }); const j = await r.json(); return `Раздел найден: ${j.name || cfg.section}`; }
   return 'Для своего API проверка не выполняется — загрузите один кейс, чтобы проверить.';
 }
-const TI_PRIO = { high: 'High', medium: 'Medium', low: 'Low' };
+const TI_PRIO = { P4_CRITICAL: 'Critical', P3_HIGH: 'High', P2_MEDIUM: 'Medium', P1_LOW: 'Low' };
 async function tmsUpload(cases) {
   const cfg = S.tms;
   if (cfg.kind === 'sfera') return sferaUpload(cases);
@@ -2944,7 +2950,7 @@ async function tmsUpload(cases) {
       for (let i = 0; i < cases.length && !signal.aborted; i += 20) {
         const chunk = cases.slice(i, i + 20);
         try {
-          const body = { cases: chunk.map((c) => { const t = tmsCase(c); const o = { title: t.title, description: t.description, preconditions: t.pre.join('\n'), postconditions: t.post.join('\n'), priority: { high: 1, medium: 2, low: 3 }[t.priority], steps: t.steps.map((s) => ({ action: s.action, expected_result: s.expected, data: s.data })), tags: t.tags }; if (cfg.section) o.suite_id = Number(cfg.section); return o; }) };
+          const body = { cases: chunk.map((c) => { const t = tmsCase(c); const o = { title: t.title, description: t.description, preconditions: t.pre.join('\n'), postconditions: t.post.join('\n'), priority: { P1_LOW: 3, P2_MEDIUM: 2, P3_HIGH: 1, P4_CRITICAL: 1 }[t.priority], steps: t.steps.map((s) => ({ action: s.action, expected_result: s.expected, data: s.data })), tags: t.tags }; if (cfg.section) o.suite_id = Number(cfg.section); return o; }) };
           const r = await httpJSON(`${base}/case/${encodeURIComponent(cfg.project)}/bulk`, { headers: h, body, signal, what: 'Qase' });
           const j = await r.json().catch(() => ({}));
           const ids = arrOf(j.result?.ids);
@@ -2978,7 +2984,7 @@ async function tmsUpload(cases) {
             mark(c, j.globalId || j.id, '');
           } else if (cfg.kind === 'testrail') {
             const body = {
-              title: t.title, priority_id: { low: 1, medium: 2, high: 3 }[t.priority], custom_preconds: t.pre.join('\n'), refs: c.requirementIds.join(','),
+              title: t.title, priority_id: { P1_LOW: 1, P2_MEDIUM: 2, P3_HIGH: 3, P4_CRITICAL: 4 }[t.priority], custom_preconds: t.pre.join('\n'), refs: c.requirementIds.join(','),
               custom_steps_separated: t.steps.map((s) => ({ content: s.action + (s.data ? `\nДанные: ${s.data}` : ''), expected: s.expected })),
             };
             const r = await httpJSON(`${base}/index.php?/api/v2/add_case/${encodeURIComponent(cfg.section)}`, { headers: h, body, signal, what: 'TestRail' });

@@ -17,7 +17,7 @@ function pickTitle(tc) {
 }
 function pickTitleText(tc) { return pickTitle(tc).text; }
 const prioOf = (tc) => tc?.priority ?? tc?.Priority ?? tc?.['приоритет'] ?? tc?.['Приоритет'] ?? null;
-const prioClass = (p) => 'p-' + normPrio(p);
+const prioClass = (p) => ({ P4_CRITICAL: 'p-critical', P3_HIGH: 'p-high', P2_MEDIUM: 'p-medium', P1_LOW: 'p-low' })[normPrio(p)];
 /* Показ текста кейса: сообщения Kafka, SQL, тела запроса и ответа API — блоком кода, без кавычек. Меняется только вид на экране. */
 function richText(s) {
   if (!/[{\[`]|SELECT|INSERT|UPDATE|DELETE|MERGE/i.test(s)) return esc(s).replace(/\n/g, '<br>');
@@ -747,7 +747,7 @@ function reqsTab() {
     return `<tr class="req-row" tabindex="0" data-act="toggle-req" data-id="${q.id}" aria-expanded="${open}">
       <td class="mono">${q.id}</td><td>${esc(q.title)}</td>
       <td><span style="display:flex;gap:4px;flex-wrap:wrap">${q.types.map((t) => `<span class="chip ${t}">${TL[t]}</span>`).join('') || '<span class="muted">—</span>'}</span></td>
-      <td><span class="chip p-${q.priority}">${PRIO_RU[q.priority]}</span></td>
+      <td><span class="chip ${prioClass(q.priority)}">${prioRu(q.priority)}</span></td>
       <td class="small muted">${esc(q.doc)}${q.section ? ' · ' + esc(q.section) : ''}</td><td>${covCell}</td></tr>
       ${open ? `<tr class="req-detail"><td></td><td colspan="5">
         ${q.description ? `<p>${esc(q.description)}</p>` : ''}
@@ -964,7 +964,7 @@ function checklistMarkdown(r) {
   for (const g of r.checklist.groups) {
     if (!g.items.length) continue;
     lines.push(`## ${g.title}`, '');
-    for (const i of g.items) lines.push(`- [ ] ${i.id} ${i.check} — ${TL[i.type]}, ${PRIO_RU[i.priority].toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}`);
+    for (const i of g.items) lines.push(`- [ ] ${i.id} ${i.check} — ${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}`);
     lines.push('');
   }
   return lines.join('\n');
@@ -991,7 +991,7 @@ function checklistTab() {
     const fds = openFindingsFor(r, 'checklist', i.id);
     const ref = S.clRefine?.id === i.id ? S.clRefine : null;
     const body = S.clEdit === i.id ? clEditHTML(r, i) : `<div class="cl-text">${i.check ? esc(i.check) : '<span class="muted">Пустой пункт</span>'}</div>
-      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip p-${i.priority}">${PRIO_RU[i.priority]}</span>${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
+      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
       ${ref ? `<div class="case-edit" style="margin-top:8px"><label class="lbl" for="clr-input">Замечание к пункту</label><textarea id="clr-input" rows="2" placeholder="Например: укажи конкретное значение лимита; это проверка API, а не UI" ${ref.busy ? 'disabled' : ''}>${esc(ref.comment || '')}</textarea>
         ${ref.error ? `<p class="case-note err">${esc(ref.error)}</p>` : ''}
         <div class="case-acts">${ref.busy ? '<span class="case-note muted">Модель дорабатывает пункт…</span><button class="btn" type="button" data-act="cl-refine-stop">Остановить</button>' : `<button class="btn accent" type="button" data-act="cl-refine-go" data-id="${i.id}">Доработать с ИИ</button><button class="btn" type="button" data-act="cl-refine-cancel">Отмена</button>`}</div></div>` : ''}`;
@@ -1008,7 +1008,7 @@ function clEditHTML(r, it) {
   const gIdx = r.checklist.groups.findIndex((g) => g.items.includes(it));
   return `<div class="cl-form"><textarea id="cl-input" rows="2" aria-label="Формулировка пункта ${it.id}" placeholder="Формулировка проверки">${esc(it.check)}</textarea>
     <div class="cl-form-row"><select id="cl-type" aria-label="Вид">${TYPES.map((t) => `<option value="${t}" ${t === it.type ? 'selected' : ''}>${TL[t]}</option>`).join('')}</select>
-      <select id="cl-prio" aria-label="Приоритет">${['high', 'medium', 'low'].map((p) => `<option value="${p}" ${p === it.priority ? 'selected' : ''}>${PRIO_RU[p]}</option>`).join('')}</select>
+      <select id="cl-prio" aria-label="Приоритет">${PRIOS.map((p) => `<option value="${p}" ${p === normPrio(it.priority) ? 'selected' : ''}>${PRIO_RU[p]}</option>`).join('')}</select>
       <select id="cl-group" aria-label="Группа">${r.checklist.groups.map((g, i) => `<option value="${i}" ${i === gIdx ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select>
       <input id="cl-reqs" type="text" class="mono" placeholder="R-001, R-002" value="${esc(it.requirementIds.join(', '))}" aria-label="Требования"></div>
     <div class="cl-edit"><button class="btn accent" type="button" data-act="cl-save" data-id="${it.id}">Сохранить</button><button class="btn" type="button" data-act="cl-cancel" data-id="${it.id}">Отмена</button></div></div>`;
@@ -1019,7 +1019,7 @@ function removeChecklistItem(r, id) {
 function newChecklistItem(r, gi) {
   const g = r.checklist.groups[gi];
   if (!g) return;
-  const it = { id: 'CL-' + pad(++r.counters.cl), check: '', type: (r.settings.types || TYPES)[0] || 'ui', priority: 'medium', suites: ['regression'], requirementIds: [], manual: true };
+  const it = { id: 'CL-' + pad(++r.counters.cl), check: '', type: (r.settings.types || TYPES)[0] || 'ui', priority: 'P2_MEDIUM', suites: ['regression'], requirementIds: [], manual: true };
   g.items.push(it);
   S.clEdit = it.id; S.clNewId = it.id; S.clFilter = { type: 'all', suite: 'all' };
   renderTabs(); renderTab(); $('#cl-input')?.focus();
@@ -2765,6 +2765,6 @@ async function voiceFinish(chunks, mime) {
   } catch (e) { voiceSay('Распознавание не удалось: ' + (e?.message || 'мост не ответил'), 'err'); }
   finally { voiceBusy = false; if (ac) ac.close().catch(() => {}); }
 }
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, prioClass, prioRu, PRIOS, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

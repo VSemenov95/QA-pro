@@ -7,4 +7,4 @@
 
 Замечание: ⟦comment⟧
 
-Ответь только JSON-объектом: {"check":"новая формулировка","priority":"high|medium|low","suites":["regression"]}
+Ответь только JSON-объектом: {"check":"новая формулировка","priority":"P1_LOW|P2_MEDIUM|P3_HIGH|P4_CRITICAL","suites":["regression"]}

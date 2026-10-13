@@ -12,4 +12,4 @@
 3. Не повторяй уже выделенное другими словами и ничего не додумывай сверх текста. Если всё выделено — пустые списки.
 4. ⟦SCOPE_RULE⟧
 
-Ответь только JSON-объектом: {"requirements":[{"title":"…","description":"…","types":["ui"],"priority":"medium","doc":"…","section":"…","quote":"…","criteria":["…"]}],"criteria":[{"title":"…","add":["…"]}]}
+Ответь только JSON-объектом: {"requirements":[{"title":"…","description":"…","types":["ui"],"priority":"P2_MEDIUM","doc":"…","section":"…","quote":"…","criteria":["…"]}],"criteria":[{"title":"…","add":["…"]}]}

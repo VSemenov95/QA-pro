@@ -6,7 +6,7 @@
 ## Кейсы для исправления
 ⟦e6⟧
 
-Сохрани структуру и всё, что инструкция не затрагивает. ⟦REQ_REF_RULE⟧ ⟦TITLE_TAG_RULE⟧ ⟦KAFKA_RULE⟧⟦e8⟧ Пересмотри наборы suites с учётом изменений. ⟦SUITES_RULE⟧
+Сохрани структуру и всё, что инструкция не затрагивает. ⟦REQ_REF_RULE⟧ ⟦TITLE_TAG_RULE⟧ ⟦KAFKA_RULE⟧ ⟦PRIORITY_RULE⟧⟦e8⟧ Пересмотри наборы suites с учётом изменений. ⟦SUITES_RULE⟧
 
 Ответь только JSON-объектом:
 {"cases":[{"caseId":"⟦e10⟧","suites":["regression"],"testCase":{ ...исправленный кейс... }}]}
