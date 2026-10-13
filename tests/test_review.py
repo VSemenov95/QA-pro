@@ -457,6 +457,10 @@ def test_failed_generalization_does_not_break_refine(generated):
     generated.page.fill('textarea[data-field=comment]', 'Укажи код ответа в ожидаемом результате')
     generated.page.click('[data-act=do-refine]')
     generated.page.wait_for_selector('.case-note:has-text("Кейс доработан.")')
+    for _ in range(100):   # урок учится в фоне: ждём запроса к модели, а не таймаута
+        if generated.model.calls_of('promptLesson'):
+            break
+        generated.page.wait_for_timeout(100)
     assert len(generated.model.calls_of('promptLesson')) == 1 and generated.db.children('lessons') == {}
 
 

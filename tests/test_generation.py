@@ -172,7 +172,7 @@ def test_requirement_without_title_or_with_unknown_type_is_dropped(app):
 def test_priority_words_are_normalized(app):
     app.model.on('promptAnalyze', {'requirements': [requirement('А', priority='Высокий'), requirement('Б', priority='low'), requirement('В', priority='что-то')], 'questions': []})
     app.generate()
-    assert app.state("S.run.requirements.map((r) => r.priority)") == ['high', 'low', 'medium']
+    assert app.state("S.run.requirements.map((r) => r.priority)") == ['P3_HIGH', 'P1_LOW', 'P2_MEDIUM']
 
 
 def test_second_run_reuses_analysis_of_same_documents(app):
@@ -236,7 +236,7 @@ def test_checklist_items_are_normalized(app):
         {'title': 'Пусто', 'items': []}]})
     app.generate()
     items = app.state("S.run.checklist.groups.flatMap((g) => g.items).map((i) => [i.id, i.check, i.type, i.priority, i.suites, i.requirementIds])")
-    assert items == [['CL-001', 'Ссылка видна', 'ui', 'high', ['smoke', 'regression'], ['R-001']], ['CL-002', 'Ответ 202', 'api', 'medium', [], []]]
+    assert items == [['CL-001', 'Ссылка видна', 'ui', 'P3_HIGH', ['smoke', 'regression'], ['R-001']], ['CL-002', 'Ответ 202', 'api', 'P2_MEDIUM', [], []]]
     assert app.state("S.run.checklist.groups.map((g) => g.title)") == ['Форма']
 
 

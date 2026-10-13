@@ -446,7 +446,7 @@ def test_checklist_json_download(checklist):
     out = json.loads(checklist.downloads()[-1]['text'])
     assert out['sources'] == ['Пример — ТЗ восстановление пароля.md']
     assert [g['title'] for g in out['groups']] == ['Форма восстановления', 'API сброса']
-    assert out['groups'][1]['items'][0] == {'id': 'CL-003', 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']}
+    assert out['groups'][1]['items'][0] == {'id': 'CL-003', 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'P3_HIGH', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']}
 
 
 def new_item(app, text, group='0'):
@@ -477,10 +477,10 @@ def test_empty_item_cannot_be_saved(checklist):
 def test_item_edit_changes_type_priority_and_requirements(checklist):
     checklist.page.click('[data-act=cl-edit][data-id=CL-002]')
     checklist.page.select_option('#cl-type', 'api')
-    checklist.page.select_option('#cl-prio', 'low')
+    checklist.page.select_option('#cl-prio', 'P1_LOW')
     checklist.page.fill('#cl-reqs', 'R-001, R-004')
     checklist.page.click('[data-act=cl-save]')
-    assert checklist.state("(({type, priority, requirementIds}) => [type, priority, requirementIds])(S.run.checklist.groups[0].items[1])") == ['api', 'low', ['R-001', 'R-004']]
+    assert checklist.state("(({type, priority, requirementIds}) => [type, priority, requirementIds])(S.run.checklist.groups[0].items[1])") == ['api', 'P1_LOW', ['R-001', 'R-004']]
 
 
 def test_item_refine_with_ai_rewrites_item(checklist):
