@@ -17,3 +17,10 @@ def test_rule_is_in_actualization_prompt(app, tmp_path):
     app.upload(files.spec_file(tmp_path))
     app.generate()
     assert RULE in app.model.prompts_of('promptActualize')[0]
+
+
+def test_kafka_send_step_form_is_in_generation_prompt(app):
+    app.add_sample()
+    app.generate()
+    p = app.model.prompts_of('promptGenerate')[0]
+    assert 'Отправить сообщение:' in p and '«Подготовь сообщение»' in p and '«Отправить подготовленное сообщение»' in p
