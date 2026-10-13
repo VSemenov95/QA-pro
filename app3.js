@@ -2146,7 +2146,7 @@ function onTabClick(e) {
       const info = tplInfo(c.type);
       if (info.ok && info.idField) ui.form[info.idField] = c.dispId;
       if (!ui.isNew) ui.prev = c.testCase;
-      c.testCase = orderLikeTemplate(ui.form, info);
+      c.testCase = orderLikeTemplate(ui.form, info); c.suites = withCritical(c.testCase.priority, c.suites || []);
       c.requirementIds = String(ui.formReqs || '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       if (!ui.isNew) touchCase(c, 'Исправлено вручную');
       ui.mode = 'view'; ui.isNew = false; ui.note = 'Изменения сохранены.'; ui.error = '';
@@ -2165,7 +2165,7 @@ function onTabClick(e) {
       const p = tryParse(ui.draft);
       if (!p.ok || !p.value || typeof p.value !== 'object' || Array.isArray(p.value)) { ui.error = p.ok ? 'Нужен JSON-объект.' : 'Ошибка JSON: ' + p.error; renderCaseList(); break; }
       if (!ui.isNew) { ui.prev = c.testCase; touchCase(c, 'Исправлено вручную'); }
-      c.testCase = p.value; ui.mode = 'view'; ui.isNew = false; ui.note = 'Изменения сохранены.'; ui.error = '';
+      c.testCase = p.value; c.suites = withCritical(c.testCase.priority, c.suites || []); ui.mode = 'view'; ui.isNew = false; ui.note = 'Изменения сохранены.'; ui.error = '';
       renderCaseList(); queueSave(r); break;
     }
     case 'do-refine': {
@@ -2216,7 +2216,7 @@ function onTabClick(e) {
       const it = findItem(el.dataset.id), v = $('#cl-input')?.value.trim();
       if (!it) break;
       if (!v) { toast('Введите формулировку пункта.', 'err'); break; }
-      it.check = v; it.type = $('#cl-type').value; it.priority = $('#cl-prio').value;
+      it.check = v; it.type = $('#cl-type').value; it.priority = $('#cl-prio').value; it.suites = withCritical(it.priority, it.suites || []);
       it.requirementIds = $('#cl-reqs').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       const gi = Number($('#cl-group').value), from = r.checklist.groups.find((g) => g.items.includes(it)), to = r.checklist.groups[gi];
       if (to && from !== to) { from.items = from.items.filter((x) => x !== it); to.items.push(it); }
@@ -2666,6 +2666,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

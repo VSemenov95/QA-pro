@@ -28,6 +28,8 @@ function normSuites(v) {
   }
   return SUITES.filter((s) => out.has(s));
 }
+/* проверка с приоритетом P4_CRITICAL всегда входит в смоук и в регресс (код, а не просьба модели) */
+const withCritical = (prio, suites) => (normPrio(prio) === 'P4_CRITICAL' ? [...SUITES] : suites);
 function indexReqs(run) { run.reqById = Object.fromEntries(run.requirements.map((r) => [r.id, r])); }
 function hash(str) {
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
@@ -1002,7 +1004,7 @@ function acceptCases(run, b, res) {
     const dispId = nextDispId(run, b.type);
     if (info.ok && info.idField) tc[info.idField] = dispId;
     tc = orderLikeTemplate(tc, info, b.type);
-    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: normSuites(c.suites), testCase: tc, dispId };
+    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: withCritical(tc.priority, normSuites(c.suites)), testCase: tc, dispId };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
     added++;
@@ -1228,7 +1230,7 @@ function normChecklistItem(run, it, types) {
   const type = String(it?.type || '').toLowerCase();
   return {
     id: '', check: String(it?.check || it?.text || '').trim(), type: types.includes(type) ? type : types[0],
-    priority: normPrio(it?.priority), suites: normSuites(it?.suites), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
+    priority: normPrio(it?.priority), suites: withCritical(it?.priority, normSuites(it?.suites)), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
   };
 }
 function addChecklistGroup(run, title, items) {
@@ -1401,7 +1403,7 @@ async function stepActualize(run) {
         if (info.ok && info.idField) tc[info.idField] = dispId;
         tc = orderLikeTemplate(tc, info, b.type);
         run.cases.push({
-          uid: rid('c'), type: b.type, planItem: 'SRC', requirementIds: sc.reqIds.slice(), suites: normSuites(r.suites), testCase: tc, dispId,
+          uid: rid('c'), type: b.type, planItem: 'SRC', requirementIds: sc.reqIds.slice(), suites: withCritical(tc.priority, normSuites(r.suites)), testCase: tc, dispId,
           status: sc.status, note: sc.reason, changes: sc.status === 'changed' ? arrStr(r.changes).slice(0, 8) : [], srcIdx: sc.index, sourceId: sc.srcId || null,
         });
         sc.done = true; ok++;
@@ -1606,7 +1608,7 @@ async function refineCaseCore(run, c, comment, signal) {
   const info = tplInfo(c.type);
   if (info.ok && info.idField) tc[info.idField] = c.dispId;
   const ui = caseUI(c.uid);
-  ui.prev = c.testCase; c.testCase = orderLikeTemplate(tc, info, c.type);
+  ui.prev = c.testCase; c.testCase = orderLikeTemplate(tc, info, c.type); c.suites = withCritical(c.testCase.priority, c.suites || []);
   touchCase(c, 'Доработано: ' + String(comment).split('\n')[0].slice(0, 160));
 }
 async function refineCase(c, comment) {
@@ -1686,6 +1688,7 @@ async function reviseCases(run, updates) {
         u.c.testCase = orderLikeTemplate(tc, info, b.type);
         touchCase(u.c, 'По ответу аналитика: ' + u.instruction.slice(0, 160));
         if (r.suites !== undefined) u.c.suites = normSuites(r.suites);
+        u.c.suites = withCritical(u.c.testCase.priority, u.c.suites || []);
         n++;
       }
       line.text = `${label}: исправлено ${n}`; line.kind = n ? 'ok' : 'warn';
@@ -2184,6 +2187,7 @@ async function refineItemCore(run, it, comment, signal) {
   if (!check) throw new Error('Модель не вернула формулировку пункта.');
   it.prevCheck = it.check; it.check = check;
   if (res.priority) it.priority = normPrio(res.priority);
+  it.suites = withCritical(it.priority, it.suites || []);
   if (res.suites !== undefined) it.suites = normSuites(res.suites);
 }
 const findingComment = (fs) => fs.map((f) => `Замечание ревьюера (${SEV_RU[f.severity].toLowerCase()}, ${f.category}): ${f.message}${f.suggestion ? ` Рекомендация: ${f.suggestion}` : ''}`).join('\n');
