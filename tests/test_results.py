@@ -204,22 +204,11 @@ def full(app):
     return app
 
 
-def test_form_edits_nested_object_as_json(full):
+def test_form_edits_step_row_in_place(full):
     form_of(full)
-    steps = full.state("S.run.cases.find((c) => c.dispId === 'API-001').testCase.steps")
-    steps[0]['expected'] = 'Код ответа 202 Accepted, тело {"status": "sent"}'
-    full.page.fill('.case-form textarea[data-fp="steps"]', json.dumps(steps, ensure_ascii=False))
+    full.page.fill('.case-form [data-fp="steps|0|expected"]', 'Код ответа 202 Accepted, тело {"status": "sent"}')
     full.page.click('[data-act=ff-save]')
     assert case_state(full, 'API-001', 'c.testCase.steps[0].expected') == 'Код ответа 202 Accepted, тело {"status": "sent"}'
-
-
-def test_form_json_error_names_the_field_and_blocks_saving(full):
-    form_of(full)
-    full.page.fill('.case-form input[data-fp="title"]', '[BE] Не сохранится')
-    full.page.fill('.case-form textarea[data-fp="steps"]', '[{"step": ')
-    full.page.click('[data-act=ff-save]')
-    assert full.text('#case-list .case-note.err').startswith('Поле «Шаги»: ошибка JSON')
-    assert case_state(full, 'API-001', 'c.testCase.title').startswith('[BE] Кейс для')
 
 
 def test_form_list_of_strings_is_edited_one_per_line(full):
