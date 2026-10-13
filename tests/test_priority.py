@@ -35,3 +35,13 @@ def test_generated_cases_have_only_allowed_priorities(app):
     app.generate()
     prios = app.state("S.run.cases.map((c) => c.testCase.priority)")
     assert prios and set(prios) <= ALLOWED, prios
+
+
+def test_saved_template_with_old_priority_is_sent_as_code(app):
+    """Пример шаблона, сохранённый раньше (с «Medium»), в запросах уходит с P2_MEDIUM."""
+    app.call("S.cfg.tpl.ui = { ...S.cfg.tpl.ui, example: JSON.stringify({ title: 'x', priority: 'Medium', steps: [] }) }")
+    assert app.state("a.tplInfo('ui').structure.priority") == 'P2_MEDIUM'
+    app.add_sample()
+    app.generate()
+    p = app.model.prompts_of('promptGenerate')[0]
+    assert '"priority": "Medium"' not in p and '"priority":"Medium"' not in p
