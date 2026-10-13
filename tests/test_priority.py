@@ -53,3 +53,11 @@ def test_saved_template_rules_with_old_priority_words_are_sent_as_codes(app):
     text = app.call("a.templateBlock('ui')")
     assert 'priority: P3_HIGH — основной путь, P2_MEDIUM — валидации, P1_LOW — косметика' in text
     assert 'High —' not in text and 'Medium —' not in text and 'Low —' not in text
+
+
+def test_critical_checks_are_smoke_in_suites_rule(app):
+    """Правило наборов: проверки с P4_CRITICAL входят в смоук и регресс."""
+    app.add_sample()
+    app.generate()
+    p = app.model.prompts_of('promptGenerate')[0]
+    assert 'Проверки с приоритетом P4_CRITICAL всегда входят в смоук и в регресс.' in p
