@@ -182,3 +182,24 @@ def test_rename_inside_run_list(shop):
     shop.page.click('[data-act=sec-save]')
     shop.page.wait_for_timeout(400)
     assert [s[0] for s in sections(shop)] == ['ТЗ-Платежи', 'Прочее']
+
+
+def test_delete_all_product_cases_needs_confirmation(shop):
+    shop.page.click('[data-act=cases-scope][data-s=product]') if shop.count('[data-act=cases-scope][data-s=product]') else None
+    shop.page.wait_for_selector('[data-act=pc-del-all]')
+    shop.page.click('[data-act=pc-del-all]')
+    assert shop.state('S.prodIndex.cases.length') == 7   # первый клик только просит подтверждения
+    shop.page.click('[data-act=pc-del-all]')
+    shop.page.wait_for_function('() => window.__qa.S.prodIndex.cases.length === 0', timeout=15000)
+    pid = shop.state('S.productId')
+    assert shop.db.get(f'products/{pid}/meta/cases') == {'items': [], 'updatedAt': shop.db.get(f'products/{pid}/meta/cases')['updatedAt']}
+    assert all(shop.db.get(f'products/{pid}/runs/{rid}')['partsCount'] == 0 for rid in ('run_a', 'run_b'))
+    assert not any('/parts/' in p and p.startswith(f'products/{pid}/runs/run_') for p in shop.db.paths(f'products/{pid}/runs/'))
+    assert shop.state('S.products.find((p) => p.id === S.productId).stats.cases') == 0
+
+
+def test_delete_all_keeps_the_runs_and_their_documents(shop):
+    pid = shop.state('S.productId')
+    shop.page.click('[data-act=pc-del-all]'); shop.page.click('[data-act=pc-del-all]')
+    shop.page.wait_for_function('() => window.__qa.S.prodIndex.cases.length === 0', timeout=15000)
+    assert shop.db.get(f'products/{pid}/runs/run_a') is not None and shop.db.get(f'products/{pid}/runs/run_b') is not None

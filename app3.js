@@ -848,7 +848,7 @@ function prodCasesTab() {
   const all = prodItems(), n = (t) => all.filter((x) => t === 'all' || x.t === t).length;
   const chips = ['all', ...TYPES].filter((t) => t === 'all' || n(t)).map((t) => `<button class="fchip" type="button" data-act="pc-type" data-t="${t}" aria-pressed="${S.pc.type === t}">${t === 'all' ? 'Все' : TL[t]}<span class="n">${n(t)}</span></button>`).join('');
   return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}» из всех его запусков, включая черновики, — по документам, из которых они написаны. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
-    <div class="toolbar">${chips}<input type="text" id="pc-q" placeholder="Поиск по кейсам" value="${esc(S.pc.q)}" aria-label="Поиск по кейсам продукта"></div>
+    <div class="toolbar">${chips}<button class="btn sm danger" type="button" data-act="pc-del-all" ${S.running || !all.length ? 'disabled' : ''}>Удалить все кейсы (${all.length})</button><input type="text" id="pc-q" placeholder="Поиск по кейсам" value="${esc(S.pc.q)}" aria-label="Поиск по кейсам продукта"></div>
     <div class="sections" id="pcase-list"></div>`;
 }
 const prodCaseRow = (x) => `<article class="case"><div class="case-h pc-row" role="button" tabindex="0" data-act="pc-open" data-r="${esc(x.r)}" data-i="${esc(x.i)}" title="Открыть кейс">
@@ -2094,6 +2094,7 @@ function onTabClick(e) {
     case 'ftype': S.filter.type = el.dataset.t; renderTab(); break;
     case 'cases-scope': S.casesScope = el.dataset.s === 'product' ? 'product' : 'run'; S.secEdit = null; renderTab(); break;
     case 'pc-type': S.pc.type = el.dataset.t; renderTab(); break;
+    case 'pc-del-all': if (armed(el, 'Удалить все кейсы продукта?')) deleteAllProductCases(); break;
     case 'pc-open': {   // открыть запуск с этим кейсом и показать кейс
       const runId = el.dataset.r, id = el.dataset.i;
       (async () => {

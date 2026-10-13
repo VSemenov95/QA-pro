@@ -3854,6 +3854,27 @@ async function ensureProdCases(force = false) {
   finally { pc.busy = false; if (S.productId === pid) { pc.loaded = true; pc.at = Date.now(); } }
   if (S.productId === pid) afterProdCases();
 }
+/* удалить все кейсы продукта: части запусков, индекс и открытый запуск; сами запуски и их документы остаются */
+async function deleteAllProductCases() {
+  const pid = S.productId, db = S.caps.db;
+  if (!pid || !db || S.running) return toast('Дождитесь окончания генерации.', 'err');
+  const n = prodItems().length;
+  if (!n) return;
+  try {
+    for (const id of S.pc.order) {
+      const base = `${runBase(pid)}/${id}`, meta = (await db.doc(base).get()).data();
+      if (!meta) continue;
+      for (let i = 0; i < (meta.partsCount || 0); i++) await db.doc(`${base}/parts/p${i}`).delete();
+      await db.doc(base).update({ partsCount: 0, updatedAt: Date.now() });
+    }
+    if (S.run && S.run.productId === pid) { S.run.cases = []; S.caseUI.clear(); S.caseSel.clear(); queueSave(S.run); }
+    await db.doc(`${prodPath(pid)}/meta/cases`).set({ items: [], updatedAt: Date.now() });
+    await updateProduct(pid, (p) => ({ stats: { ...(p.stats || {}), cases: 0 } }));
+    if (S.productId === pid) { S.prodIndex = { ...S.prodIndex, cases: [] }; S.pc = freshPc(); }
+    renderAll();
+    toast(`Удалено кейсов продукта: ${n}`);
+  } catch { toast('Не удалось удалить кейсы — нужны права на изменение.', 'err'); S.pc.at = 0; renderAll(); }
+}
 /* ================= экспорт и импорт продукта ================= */
 const slugName = (s) => String(s || 'product').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'product';
 async function exportProduct() {
