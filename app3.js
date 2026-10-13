@@ -2514,7 +2514,6 @@ function bind() {
   $('#reduce-go').addEventListener('click', reduceGo);
   $('#reduce-n').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); reduceGo(); } });
   $('#reduce-n').addEventListener('input', resetReduceWarn);
-  $('#btn-voice')?.addEventListener('click', voiceToggle);
   $('#btn-stop').addEventListener('click', () => S.ctl?.abort());
   // tabs
   $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; S.clEdit = null; S.clRefine = null; renderTabs(); renderTab(); saveSession(); });
@@ -2667,104 +2666,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-/* ---------- голосовые команды: микрофон → 16 кГц μ-law → мост (Whisper на этом компьютере) → команда ----------
-   Команды — навигация и запуск/остановка. Запуск генерации и ревью — только после «да» в течение 10 с. */
-const VOICE_MAX_SEC = 15, VOICE_CONFIRM_MS = 10000;
-const VOICE_TABS = [['agent', ['агент']], ['reqs', ['требования']], ['questions', ['вопросы']], ['draft', ['черновик']], ['cases', ['тест-кейсы', 'кейсы']], ['checklist', ['чек-лист', 'чеклист']], ['review', ['ревью']], ['export', ['экспорт']], ['history', ['история']]];
-const VOICE_HELP = 'Скажите: «открой требования» (или вопросы, черновик, тест-кейсы, чек-лист, экспорт, историю), «запусти генерацию», «запусти ревью», «остановить», «помощь». Генерация стартует после «да».';
-let voiceRec = null, voiceStream = null, voiceTimer = 0, voiceBusy = false, voicePending = null;
-const voiceNorm = (s) => ' ' + String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9\s-]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
-function voiceParse(raw) {
-  const t = voiceNorm(raw), has = (w) => t.includes(' ' + w + ' ');
-  if (!t.trim()) return null;
-  if (/^ (помощь|команды|что ты умеешь|что можно сказать) $/.test(t)) return { action: 'help' };
-  if (/^ (да|подтверждаю|подтвердить|давай|запускай|поехали) $/.test(t)) return { action: 'confirm' };
-  if (['стоп', 'останови', 'остановить', 'остановка', 'отмени', 'отмена'].some(has)) return { action: 'stop' };
-  const open = ['открой', 'открыть', 'покажи', 'показать', 'перейди', 'перейти', 'вкладка'].some(has);
-  const run = ['запусти', 'запустить', 'начни', 'начать', 'сгенерируй', 'сгенерировать', 'генерация'].some(has);
-  const tab = VOICE_TABS.find(([, words]) => words.some((w) => t.includes(' ' + w + ' ')));
-  if (open && tab) return { action: 'tab', tab: tab[0] };
-  if (run) return { action: has('ревью') ? 'review' : 'run' };
-  if (tab && t.trim().split(' ').length <= 2) return { action: 'tab', tab: tab[0] };
-  return null;
-}
-function voiceSay(msg, kind = '') {
-  const el = $('#voice-status');
-  if (el) { el.hidden = false; el.textContent = msg; el.className = 'small ' + (kind === 'err' ? 'err' : kind === 'warn' ? 'warn' : 'muted'); }
-  if (kind === 'err') toast(msg, 'err');
-  return msg;
-}
-function voiceUI() {
-  const b = $('#btn-voice'); if (!b) return;
-  b.setAttribute('aria-pressed', voiceRec ? 'true' : 'false'); b.classList.toggle('rec', !!voiceRec);
-  b.title = voiceRec ? 'Остановить запись' : 'Голосовые команды: нажмите и скажите команду';
-}
-function voiceRun(action, tab) {
-  if (action === 'tab') { const b = document.getElementById('tab-' + tab); if (b) { b.click(); return voiceSay('Открыл вкладку.'); } return voiceSay('Эта вкладка сейчас недоступна.', 'warn'); }
-  if (action === 'run' || action === 'review') {
-    const b = $(action === 'run' ? '#btn-run' : '#btn-review');
-    if (!b || b.disabled) return voiceSay(action === 'run' ? 'Генерацию сейчас нельзя запустить: нет документов или запуск уже идёт.' : 'Ревью сейчас нельзя запустить.', 'warn');
-    b.click(); return voiceSay(action === 'run' ? 'Запустил генерацию.' : 'Запустил ревью.');
-  }
-  if (action === 'stop') { const s = $('#btn-stop'); if (s && !s.hidden) { s.click(); return voiceSay('Остановил.'); } return voiceSay('Сейчас ничего не запущено.', 'warn'); }
-  if (action === 'help') return voiceSay(VOICE_HELP);
-  return voiceSay('Не понял команду.', 'warn');
-}
-function voiceExecute(raw) {
-  const cmd = voiceParse(raw);
-  if (cmd?.action === 'confirm') {
-    const p = voicePending; voicePending = null;
-    if (p && Date.now() < p.until) return voiceRun(p.action);
-    return voiceSay('Нечего подтверждать. ' + VOICE_HELP, 'warn');
-  }
-  voicePending = null;
-  if (!cmd) return voiceSay(`Не понял: «${raw}». ${VOICE_HELP}`, 'warn');
-  if (cmd.action === 'run' || cmd.action === 'review') {
-    voicePending = { action: cmd.action, until: Date.now() + VOICE_CONFIRM_MS };
-    return voiceSay(`${cmd.action === 'review' ? 'Запустить ревью' : 'Запустить генерацию'}? Скажите «да» в течение 10 секунд.`, 'warn');
-  }
-  return voiceRun(cmd.action, cmd.tab);
-}
-function voiceStop() {
-  clearTimeout(voiceTimer);
-  const rec = voiceRec; voiceRec = null; voiceUI();
-  if (rec && rec.state !== 'inactive') rec.stop();
-  voiceStream?.getTracks().forEach((t) => t.stop()); voiceStream = null;
-}
-async function voiceToggle() {
-  if (voiceBusy) return;
-  if (voiceRec) return voiceStop();
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return voiceSay('Этот браузер не даёт доступ к микрофону. Откройте QA pro в Chrome.', 'err');
-  if (!S.mat.route) { voiceSay('Проверяю мост распознавания речи…'); await asrDetect(); }
-  if (!S.mat.route) return voiceSay(S.mat.routeErr || 'Мост распознавания речи недоступен.', 'err');
-  try { voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { return voiceSay('Нет доступа к микрофону: ' + (e?.name === 'NotAllowedError' ? 'разрешите его в браузере.' : e?.message || 'ошибка'), 'err'); }
-  const chunks = [], rec = new MediaRecorder(voiceStream);
-  rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
-  rec.onstop = () => voiceFinish(chunks, rec.mimeType);
-  voiceRec = rec; rec.start(); voiceUI();
-  voiceSay('Слушаю… скажите команду и нажмите микрофон ещё раз.');
-  voiceTimer = setTimeout(voiceStop, VOICE_MAX_SEC * 1000);
-}
-async function voiceFinish(chunks, mime) {
-  if (!chunks.length) return voiceSay('Запись пустая. Попробуйте ещё раз.', 'warn');
-  voiceBusy = true; voiceSay('Распознаю…');
-  let ac = null;
-  try {
-    ac = new AudioContext({ sampleRate: VID_SR });
-    const ab = await ac.decodeAudioData(await new Blob(chunks, { type: mime || 'audio/webm' }).arrayBuffer());
-    const x = ab.getChannelData(0);
-    if (x.length < VID_SR / 4) return voiceSay('Слишком коротко. Скажите команду чуть дольше.', 'warn');
-    const mu = new Uint8Array(x.length);
-    for (let i = 0; i < x.length; i++) { let s = x[i]; if (s > 1) s = 1; else if (s < -1) s = -1; mu[i] = MU_ENC[Math.round(s * 32767) & 0xffff]; }
-    await asrReady(S.mat.model);
-    const r = await asrCall('asr_transcribe', { audio: b64u8(mu), language: 'russian' });
-    const text = asrClean(r?.text, '');
-    if (!text) return voiceSay('Ничего не услышал. Скажите команду ещё раз.', 'warn');
-    voiceExecute(text);
-  } catch (e) { voiceSay('Распознавание не удалось: ' + (e?.message || 'мост не ответил'), 'err'); }
-  finally { voiceBusy = false; if (ac) ac.close().catch(() => {}); }
-}
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, voiceParse, voiceExecute, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();
