@@ -45,3 +45,11 @@ def test_saved_template_with_old_priority_is_sent_as_code(app):
     app.generate()
     p = app.model.prompts_of('promptGenerate')[0]
     assert '"priority": "Medium"' not in p and '"priority":"Medium"' not in p
+
+
+def test_saved_template_rules_with_old_priority_words_are_sent_as_codes(app):
+    """Правила оформления, сохранённые раньше, тоже уходят в запросы с четырьмя значениями приоритета."""
+    app.call("S.cfg.tpl.ui = { ...S.cfg.tpl.ui, rules: '- priority: High — основной путь, Medium — валидации, Low — косметика' }")
+    text = app.call("a.templateBlock('ui')")
+    assert 'priority: P3_HIGH — основной путь, P2_MEDIUM — валидации, P1_LOW — косметика' in text
+    assert 'High —' not in text and 'Medium —' not in text and 'Low —' not in text

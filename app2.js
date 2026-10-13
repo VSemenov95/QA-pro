@@ -441,10 +441,13 @@ function cleanCase(v, key = '') {
   return v;
 }
 const plainDeep = (v) => (typeof v === 'string' ? deHtml(v) : Array.isArray(v) ? v.map(plainDeep) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plainDeep(x)])) : v);
+/* старые сохранённые правила оформления пишут приоритет как High/Medium/Low: в запросах — только P1_LOW…P4_CRITICAL */
+const prioInText = (s) => String(s || '').replace(/(priority\s*:\s*)(High|Medium|Low|Critical)\b/gi, (m, pre, v) => pre + normPrio(v))
+  .replace(/\b(High|Medium|Low|Critical)(?=\s*—)/g, (m) => normPrio(m));
 function templateBlock(type) {
   const t = S.cfg.tpl[type], info = tplInfo(type);
   const more = info.examples.slice(1, 3).map(plainDeep);
-  return `${t.rules ? `Правила оформления:\n${t.rules}\n\n` : ''}Образец тест-кейса. Повторяй точно его поля, вложенность, типы значений и стиль; значения пиши свои:
+  return `${t.rules ? `Правила оформления:\n${prioInText(t.rules)}\n\n` : ''}Образец тест-кейса. Повторяй точно его поля, вложенность, типы значений и стиль; значения пиши свои:
 ${fence}json
 ${JSON.stringify(plainDeep(info.structure))}
 ${fence}
