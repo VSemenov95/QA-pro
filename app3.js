@@ -2508,6 +2508,11 @@ function bind() {
   });
   // run
   $('#btn-run').addEventListener('click', runAgent);
+  const tn = $('#target-n');
+  if (tn) {
+    tn.value = S.settings.target || '';
+    tn.addEventListener('change', () => { const v = Math.round(Number(tn.value)); S.settings.target = v >= 1 && v <= 300 ? v : null; tn.value = S.settings.target || ''; saveSettings(); });
+  }
   $('#btn-review').addEventListener('click', startReview);
   $('#btn-regen').addEventListener('click', (e) => { if (armed(e.currentTarget, 'Заменить кейсы черновика?')) regenDrafts(); });
   $('#btn-reduce').addEventListener('click', openReduce);
@@ -2667,6 +2672,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

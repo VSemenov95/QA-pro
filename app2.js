@@ -867,7 +867,7 @@ function newRun() {
     source: upd ? { name: f.name, ext: f.ext, count: f.cases.length, note: f.note || '' } : null,
     srcCases: upd ? f.cases.map((c) => ({ ...c, reqIds: [], status: '', reason: '', instruction: '', mapped: false, done: false })) : [],
     docs: docs.map((d) => ({ name: d.name, chars: d.chars })), docIds: docs.map((d) => d.id),
-    settings: { outputs: upd ? { cases: true, checklist: !!S.settings.outputs.checklist } : { ...S.settings.outputs }, types: selectedTypes(), depth: S.settings.depth, genAI: S.settings.genAI, agentTools: S.settings.agentTools, skipExisting: S.settings.skipExisting },
+    settings: { outputs: upd ? { cases: true, checklist: !!S.settings.outputs.checklist } : { ...S.settings.outputs }, types: selectedTypes(), depth: S.settings.depth, genAI: S.settings.genAI, agentTools: S.settings.agentTools, skipExisting: S.settings.skipExisting, target: S.settings.target || null },
     findings: null, qaCtx: { ...S.qaCtx }, coveredExisting: [],
     requirements: [], reqById: {}, questions: [], plan: [], cases: [], failed: [], checklist: null, doneKeys: [],
     counters: { ...base }, baseCounters: { ...base },
@@ -1272,6 +1272,14 @@ async function stepChecklist(run) {
   if (items.length) slog(run, 'checklist', `Итого ${items.length} ${plural(items.length, 'пункт', 'пункта', 'пунктов')} в ${run.checklist.groups.length} ${plural(run.checklist.groups.length, 'группе', 'группах', 'группах')}, смоук: ${smoke}`, 'ok');
   send(run, 'checklist', items.length && results.filter(Boolean).length === chunks.length ? 'done' : 'error');
 }
+/* оставить не больше n проверок: сначала по одной из каждой группы (покрытие требований), затем остальные по порядку */
+function capChecks(items, n) {
+  const out = items.map((it) => ({ ...it, checks: [] }));
+  let left = n;
+  items.forEach((it, i) => { if (left > 0 && it.checks.length) { out[i].checks.push(it.checks[0]); left--; } });
+  items.forEach((it, i) => { for (let k = 1; k < it.checks.length && left > 0; k++) { out[i].checks.push(it.checks[k]); left--; } });
+  return out.filter((it) => it.checks.length);
+}
 async function stepPlan(run, types) {
   sstart(run, 'plan');
   const reqs = run.mode === 'update' ? uncovered(run) : run.requirements.filter((r) => r.inScope);
@@ -1309,6 +1317,12 @@ async function stepPlan(run, types) {
     if (items.length) slog(run, 'plan', `Не попали в план: ${miss.map((r) => r.id).join(', ')} — добавлены по критериям`, 'warn');
     else slog(run, 'plan', 'План построен по критериям приёмки требований', 'warn');
     items.push(...fallbackItems(miss, run.settings.types));
+  }
+  const target = run.mode !== 'update' ? run.settings.target : null;
+  if (target) {
+    const kept = capChecks(items, target), total = items.reduce((a, it) => a + it.checks.length, 0);
+    if (kept.length !== items.length || kept.reduce((a, it) => a + it.checks.length, 0) !== total) slog(run, 'plan', `План ограничен числом проверок: ${target} (было ${total})`, 'ok');
+    items.splice(0, items.length, ...kept);
   }
   items.forEach((it, i) => { it.id = 'P-' + pad(i + 1, 2); });
   run.plan = items;

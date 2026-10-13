@@ -159,6 +159,7 @@ const S = {
     skipExisting: saved.skipExisting !== false,
     mode: ['update', 'help'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
+    target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
     reuseAnalysis: saved.reuseAnalysis !== false,   // не анализировать заново те же документы
     kbAuto: saved.kbAuto !== false,                 // разбирать новые документы по разделам базы знаний автоматически
     stages: Object.fromEntries(STAGES.map((x) => [x.id, STAGE_TIER_VALUES.includes(saved.stages?.[x.id]) ? saved.stages[x.id] : 'same'])),   // модель по этапам: same | quick | default | complex
