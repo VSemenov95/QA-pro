@@ -5,7 +5,7 @@ function tplInfo(type) {
   const p = tryParse(t.example);
   if (!p.ok) return { ok: false, error: 'Пример тест-кейса — некорректный JSON (' + p.error + ')' };
   // старые сохранённые примеры содержат High/Medium/Low: в запросы к модели идут уже четыре значения приоритета
-  const examples = (Array.isArray(p.value) ? p.value : [p.value]).filter((x) => x && typeof x === 'object' && !Array.isArray(x)).map((x) => (typeof x.priority === 'string' ? { ...x, priority: normPrio(x.priority) } : x));
+  const examples = (Array.isArray(p.value) ? p.value : [p.value]).filter((x) => x && typeof x === 'object' && !Array.isArray(x)).map((x) => { const { request, ...rest } = x; return typeof rest.priority === 'string' ? { ...rest, priority: normPrio(rest.priority) } : rest; });   // блока request в кейсе больше нет
   if (!examples.length) return { ok: false, error: 'Пример должен быть JSON-объектом или массивом объектов' };
   const structure = examples[0];
   return { ok: true, examples, structure, idField: ID_KEYS.find((k) => k in structure) || null, fields: Object.keys(structure) };

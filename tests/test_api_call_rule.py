@@ -18,3 +18,10 @@ def test_service_state_rule_is_in_generation_prompt(app):
     app.add_sample()
     app.generate()
     assert 'Не пиши в шагах и предусловиях, что сервис или потребитель запущен' in app.model.prompts_of('promptGenerate')[0]
+
+
+def test_generated_api_case_has_no_request_block(app):
+    app.add_sample()
+    app.generate()
+    keys = app.state("S.run.cases.filter((c) => c.type === 'api').map((c) => Object.keys(c.testCase))")
+    assert keys and all('request' not in k for k in keys), keys

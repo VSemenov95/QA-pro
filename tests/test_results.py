@@ -206,20 +206,19 @@ def full(app):
 
 def test_form_edits_nested_object_as_json(full):
     form_of(full)
-    req = full.state("S.run.cases.find((c) => c.dispId === 'API-001').testCase.request")
-    req['endpoint'] = '/api/v2/password-reset'
-    full.page.fill('.case-form textarea[data-fp="request"]', json.dumps(req, ensure_ascii=False))
+    steps = full.state("S.run.cases.find((c) => c.dispId === 'API-001').testCase.steps")
+    steps[0]['expected'] = 'Код ответа 202 Accepted, тело {"status": "sent"}'
+    full.page.fill('.case-form textarea[data-fp="steps"]', json.dumps(steps, ensure_ascii=False))
     full.page.click('[data-act=ff-save]')
-    assert case_state(full, 'API-001', 'c.testCase.request.endpoint') == '/api/v2/password-reset'
-    assert case_state(full, 'API-001', 'c.testCase.request.headers') == {'Content-Type': 'application/json'}
+    assert case_state(full, 'API-001', 'c.testCase.steps[0].expected') == 'Код ответа 202 Accepted, тело {"status": "sent"}'
 
 
 def test_form_json_error_names_the_field_and_blocks_saving(full):
     form_of(full)
     full.page.fill('.case-form input[data-fp="title"]', '[BE] Не сохранится')
-    full.page.fill('.case-form textarea[data-fp="request"]', '{"method": ')
+    full.page.fill('.case-form textarea[data-fp="steps"]', '[{"step": ')
     full.page.click('[data-act=ff-save]')
-    assert full.text('#case-list .case-note.err').startswith('Поле «Запрос»: ошибка JSON')
+    assert full.text('#case-list .case-note.err').startswith('Поле «Шаги»: ошибка JSON')
     assert case_state(full, 'API-001', 'c.testCase.title').startswith('[BE] Кейс для')
 
 
@@ -235,7 +234,7 @@ def test_form_keeps_field_order_of_template(full):
     form_of(full)
     full.page.fill('.case-form input[data-fp="title"]', '[BE] Новый заголовок')
     full.page.click('[data-act=ff-save]')
-    assert case_state(full, 'API-001', 'Object.keys(c.testCase)') == ['id', 'title', 'priority', 'preconditions', 'request', 'steps', 'expectedResult', 'tags']
+    assert case_state(full, 'API-001', 'Object.keys(c.testCase)') == ['id', 'title', 'priority', 'preconditions', 'steps', 'expectedResult', 'tags']
 
 
 def test_json_edit_requires_an_object(results):
@@ -291,7 +290,7 @@ def test_cancelled_manual_case_releases_its_number(results):
 def test_manual_case_form_follows_template_fields(results):
     results.page.click('.cases-foot [data-act=add-case][data-t=api]')
     fields = results.page.eval_on_selector_all('.case-form [data-fp]', 'els => [...new Set(els.map((e) => e.dataset.fp.split("|")[0]))]')
-    assert fields[:3] == ['title', 'priority', 'preconditions'] and 'steps' in fields and 'request' in fields
+    assert fields[:3] == ['title', 'priority', 'preconditions'] and 'steps' in fields and 'request' not in fields
 
 
 def test_delete_case_needs_second_click(results):
