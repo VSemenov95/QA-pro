@@ -1569,6 +1569,13 @@ async function coverageAudit(run) {
   if (S.ctl.signal.aborted) throw abortErr();
   if (ok === packs.length) run.auditDone = true;
   if (!found.length) { if (ok) slog(run, 'coverage', 'Критерии всех требований покрыты кейсами', 'ok'); return; }
+  // строгое число тестов: сверка не добавляет кейсы, а предупреждает о требованиях без проверок
+  if (run.settings.target && run.mode !== 'update') {
+    const gaps = [...new Set(found.map((x) => x.requirementId))];
+    slog(run, 'coverage', `Строгое число проверок (${run.settings.target}): без проверок остались требования ${gaps.join(', ')}. Увеличьте число тестов или сгенерируйте недостающие отдельно`, 'warn');
+    run.coverageGaps = found;
+    return;
+  }
   const items = [];
   for (const x of found) {
     const r = run.reqById[x.requirementId];

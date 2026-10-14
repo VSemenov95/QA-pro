@@ -43,3 +43,18 @@ def test_each_group_keeps_one_check_first(app):
     """При малом числе сохраняем по одной проверке из каждой группы плана."""
     assert app.call("a.capChecks([{ type: 'ui', checks: ['a', 'b'] }, { type: 'api', checks: ['c', 'd'] }, { type: 'e2e', checks: ['e'] }], 3).map((it) => it.checks)") == [['a'], ['c'], ['e']]
     assert app.call("a.capChecks([{ type: 'ui', checks: ['a', 'b'] }, { type: 'api', checks: ['c'] }], 2).map((it) => it.checks)") == [['a'], ['c']]
+
+
+def test_strict_target_does_not_add_cases_and_warns(app):
+    """Строгое число: сверка покрытия не добавляет кейсы, а предупреждает о требованиях без проверок."""
+    import re
+    app.page.fill('#target-n', '1')
+    app.page.dispatch_event('#target-n', 'change')
+    app.model.on('promptCoverageAudit', lambda call: {'gaps': [{'requirementId': 'R-001', 'type': 'ui', 'checks': ['Ссылка ведёт на /password-reset']}]})
+    app.add_sample()
+    app.generate()
+    log = [l['text'] for l in app.state("S.run.steps.coverage.log")]
+    assert any('Строгое число проверок (1)' in t and 'R-001' in t for t in log), log
+    assert not any('Дописываю' in t for t in log)
+    assert app.state("S.run.plan.filter((p) => p.id.startsWith('C-')).length") == 0
+    assert app.state('S.run.coverageGaps.length') == 1

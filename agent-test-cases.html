@@ -1019,7 +1019,7 @@ tr.req-row:hover td{background:var(--hover)}
 
     <section class="panel run-panel" data-modes="generate,update">
       <div class="panel-h"><span class="step-n">04</span><h2>Запуск</h2></div>
-      <div class="field target-field" data-modes="generate"><label class="lbl" for="target-n">Тестов всего (необязательно)</label><input type="number" id="target-n" min="1" max="300" inputmode="numeric" placeholder="без ограничения" aria-describedby="target-hint"><p class="hint" id="target-hint">План ограничивается этим числом проверок; один кейс получается из одной проверки. Не влияет на актуализацию.</p></div>
+      <div class="field target-field" data-modes="generate"><label class="lbl" for="target-n">Тестов всего (необязательно)</label><input type="number" id="target-n" min="1" max="300" inputmode="numeric" placeholder="без ограничения" aria-describedby="target-hint"><p class="hint" id="target-hint">Строгое число: план ограничивается этим количеством проверок (один кейс — одна проверка), сверка покрытия кейсы сверх числа не добавляет. Если требования останутся без проверок, будет предупреждение. Не влияет на актуализацию.</p></div>
       <button class="btn-primary" id="btn-run" type="button">Сгенерировать</button>
       <button class="btn-secondary" id="btn-regen" type="button" hidden title="Удалить кейсы черновика и сгенерировать заново с текущими правилами">Перегенерировать по правилам</button>
       <button class="btn-secondary" id="btn-reduce" type="button" hidden title="Оставить в черновике самые важные кейсы, сохранив покрытие требований">Сократить количество тестов</button>
