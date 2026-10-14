@@ -1961,6 +1961,15 @@ function findingHTML(r, f) {
     <p>${esc(f.message)}</p>${f.suggestion ? `<p class="fd-s">${esc(f.suggestion)}</p>` : ''}${f.reason ? `<p class="fd-s">Причина отклонения: ${esc(f.reason)}</p>` : ''}${acts}</div>`;
 }
 const logHTML = (log) => (log.length ? `<ul class="log" style="margin:10px 0">${log.slice(-40).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : '');
+/* итоги правил команды: сколько нарушений по каждому правилу, открыто и закрыто; видно, включён ли строгий режим */
+function ruleCardHTML(F) {
+  const rules = F.filter((f) => f.category === 'Правило');
+  if (!rules.length && !S.settings.strictRules) return '';
+  const byRule = {};
+  for (const f of rules) { const k = byRule[f.rule] || (byRule[f.rule] = { open: 0, closed: 0 }); k[f.status === 'open' ? 'open' : 'closed']++; }
+  const chips = Object.entries(byRule).map(([id, k]) => `<span class="chip">${esc(RULE_LABEL[id] || id)}: открыто ${k.open}, закрыто ${k.closed}</span>`).join('');
+  return `<div class="exp-card"><div class="exp-row"><b>Правила команды</b><span class="muted small">${S.settings.strictRules ? 'строгий режим: нарушения исправляет модель' : 'строгий режим выключен: нарушения только в замечаниях'}</span></div>${rules.length ? `<div class="exp-row">${chips}</div>` : '<p class="hint">Нарушений правил не найдено.</p>'}</div>`;
+}
 function reviewTab() {
   const r = S.run;
   if (!r || (!r.cases.length && !checklistItems(r).length)) return emptyHTML('Ревью появится после генерации', 'Сначала сгенерируйте чек-лист или тест-кейсы.');
@@ -1976,7 +1985,7 @@ function reviewTab() {
   const cur = filters.find((x) => x[0] === S.fdFilter) || filters[0];
   const open = F.filter((f) => f.status === 'open');
   const list = F.filter(cur[2]).sort((a, b) => ['critical', 'major', 'minor'].indexOf(a.severity) - ['critical', 'major', 'minor'].indexOf(b.severity));
-  return head + `<div class="toolbar">${filters.map(([id, name, fn]) => `<button class="fchip" type="button" data-act="fd-filter" data-f="${id}" aria-pressed="${S.fdFilter === id}">${name}<span class="n">${n(fn)}</span></button>`).join('')}
+  return head + ruleCardHTML(F) + `<div class="toolbar">${filters.map(([id, name, fn]) => `<button class="fchip" type="button" data-act="fd-filter" data-f="${id}" aria-pressed="${S.fdFilter === id}">${name}<span class="n">${n(fn)}</span></button>`).join('')}
       <span style="margin-left:auto"><button class="btn accent" type="button" data-act="fd-fixall" ${open.length && !S.running ? '' : 'disabled'}>Исправить все открытые${open.length ? ` (${open.length})` : ''}</button></span></div>
     ${list.length ? `<div class="fd-list">${list.map((f) => findingHTML(r, f)).join('')}</div>` : emptyHTML(F.length ? 'В этом фильтре пусто' : 'Замечаний нет', F.length ? '' : 'Ревьюер не нашёл проблем.')}`;
 }

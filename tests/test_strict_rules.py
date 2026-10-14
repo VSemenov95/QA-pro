@@ -47,3 +47,21 @@ def test_without_strict_mode_violation_becomes_finding(app, violating):
     review(app)
     assert not app.model.prompts_of('promptReviseBatch'), 'без строгого режима модель на исправление не зовут'
     assert rule_findings(app) >= 1
+
+
+def rules_card(app):
+    return app.page.locator('.exp-card:has-text("Правила команды")').inner_text()
+
+
+def test_review_tab_counts_rule_violations(app, violating):
+    review(app)
+    card = rules_card(app)
+    assert 'состояние сервисов: открыто 1' in card and 'строгий режим выключен' in card
+
+
+def test_review_tab_shows_strict_mode_result(app, violating):
+    app.model.on('promptReviseBatch', fix_first_case)
+    app.call('(() => { S.settings.strictRules = true; return true; })()')
+    review(app)
+    card = rules_card(app)
+    assert 'строгий режим: нарушения исправляет модель' in card and 'Нарушений правил не найдено' in card

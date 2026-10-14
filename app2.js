@@ -276,6 +276,7 @@ const RULE_TEXT = {
   'scope': 'Кейс выходит за объём тестирования: исследовательская проверка, проверка только в БД или ручная подготовка данных в БД.',
   'priority': 'Приоритет не из четырёх значений: P1_LOW, P2_MEDIUM, P3_HIGH, P4_CRITICAL.',
 };
+const RULE_LABEL = { 'service-state': 'состояние сервисов', 'kafka-method': 'HTTP-метод в Kafka', 'kafka-steps': 'шаги подготовки Kafka', 'api-call': 'форма вызова API', 'req-refs': 'ссылки на R-NNN', 'scope': 'вне объёма', 'priority': 'приоритет' };
 const allStrings = (v, out = []) => {
   if (typeof v === 'string') out.push(v);
   else if (Array.isArray(v)) v.forEach((x) => allStrings(x, out));
