@@ -1098,7 +1098,8 @@ async function runAgent() {
 /* шаги, которые уже выполнены, при продолжении пропускаются */
 const MAIN_STEPS = ['parse', 'analyze', 'checklist', 'map', 'actualize', 'plan', 'generate', 'coverage'];
 const srcPending = (run, flag) => (run.srcCases || []).some((c) => !c[flag]);
-const stepComplete = (run, id) => { const st = run.steps[id]; return st.status === 'done' || st.status === 'error' || (st.status === 'skipped' && st.note === 'не выбрано'); };
+/* шаг в статусе error не завершён: при «Продолжить» он запускается заново, уже готовые части (кэш анализа, готовые пачки) не повторяются */
+const stepComplete = (run, id) => { const st = run.steps[id]; return st.status === 'done' || (st.status === 'skipped' && st.note === 'не выбрано'); };
 function pendingParts(run, prefix) {
   const done = new Set(run.doneKeys || []);
   return makeBatches(run.plan.filter((p) => !prefix || p.id.startsWith(prefix)), done, new Set(run.doneChecks || [])).reduce((a, b) => a + b.items.length, 0);
@@ -2367,7 +2368,7 @@ function dropDraftCase(uid) {
   if (!c || draftLocked(run)) return;
   run.cases = run.cases.filter((x) => x !== c);
   if (run.findings) run.findings = run.findings.filter((f) => !(f.kind === 'case' && f.targetId === c.dispId));
-  S.caseUI.delete(uid); queueSave(run); renderTabs(); renderTab();
+  S.caseUI.delete(uid); queueSave(run); renderTabs(); renderTab(); renderRunControls();
   toast(`${c.dispId} убран из черновика`);
 }
 function clearDraft() {
@@ -2378,7 +2379,7 @@ function clearDraft() {
   if (run.findings) run.findings = run.findings.filter((f) => f.kind !== 'case');
   // номера кейсов не заняты: следующая генерация начнёт с тех же
   if (isDraft(run)) for (const t of TYPES) run.counters[t] = run.baseCounters?.[t] || 0;
-  queueSave(run); renderTabs(); renderTab();
+  queueSave(run); renderTabs(); renderTab(); renderRunControls();
   toast(`Черновик очищен: ${n} ${plural(n, 'кейс', 'кейса', 'кейсов')} удалено`);
 }
 /* перегенерировать черновик по текущим правилам: кейсы черновика и шаги плана, генерации и покрытия пересоздаются;
@@ -2534,9 +2535,9 @@ async function addDraftToProduct() {
     if (ren.size) toast(`Номера заняли другие запуски — ${ren.size} ${plural(ren.size, 'кейс получил', 'кейса получили', 'кейсов получили')} следующие свободные номера`);
   }
   run.stage = 'added'; run.addedAt = Date.now();
-  queueSave(run);
+  queueSave(run); renderRunControls();
   await productSync(run);
-  renderTabs(); renderTab(); renderProduct();
+  renderTabs(); renderTab(); renderProduct(); renderRunControls();
   const n = run.cases.length;
   toast(run.productId ? `${n} ${plural(n, 'кейс добавлен', 'кейса добавлены', 'кейсов добавлены')} в продукт «${productById(run.productId)?.name || 'Продукт'}»` : 'Кейсы отмечены как принятые');
 }
@@ -3664,6 +3665,8 @@ async function deleteProduct(pid) {
     try { for (const d of (await db.collection(`${prodPath(pid)}/meta`).get()).docs) if (/^kb_\d+$/.test(d.id)) await db.doc(`${prodPath(pid)}/meta/${d.id}`).delete(); } catch { /* страниц нет */ }
     try { for (const d of (await db.collection(`${prodPath(pid)}/kb`).get()).docs) await db.doc(`${prodPath(pid)}/kb/${d.id}`).delete(); } catch { /* разделов нет */ }
     try { for (const d of (await db.collection(`${prodPath(pid)}/cache`).get()).docs) await db.doc(`${prodPath(pid)}/cache/${d.id}`).delete(); } catch { /* кэша нет */ }
+    // история вопросов к базе знаний хранится у пользователя, а не в продукте: удаляем вместе с продуктом
+    if (S.caps.uid) { try { await db.doc(`data/users/${S.caps.uid}/help_${pid}`).delete(); } catch { /* истории не было */ } }
     await db.doc(prodPath(pid)).delete();
     S.products = S.products.filter((x) => x.id !== pid);
     const next = S.products[0]?.id || await createProduct('Мой продукт');
@@ -4317,7 +4320,7 @@ async function loadKb(pid = S.productId) {
   try {
     const d = await kbIdxRead(pid);
     if (S.kb.pid !== pid) return;
-    S.kb.index = { blocks: d.blocks, docs: d.docs };
+    S.kb.index = { blocks: d.blocks, docs: d.docs }; S.kb.missing = {};
     S.kb.stamp = d.updatedAt;
   } catch { /* разделов ещё нет */ }
   S.kb.loaded = true;
@@ -4348,6 +4351,8 @@ async function kbBlock(id, pid = S.productId) {
   if (S.kb.cache[id] && S.kb.pid === pid) return S.kb.cache[id];
   const d = await kbRead(pid, id);
   if (d && S.kb.pid === pid) S.kb.cache[id] = d;
+  // раздел есть в оглавлении, но записи нет (удалили в другом окне): запоминаем, иначе экран будет читать базу по кругу
+  if (!d && S.kb.pid === pid) S.kb.missing = { ...(S.kb.missing || {}), [id]: true };
   return d;
 }
 let kbChain = Promise.resolve();
@@ -5501,11 +5506,16 @@ async function vidRun(job) {
   const text = vidDocText({ base, job, lines, screens, sum, notes: [audioNote, screenNote, sumNote].filter(Boolean), asrInfo });
   if (S.productId !== job.pid) throw { message: 'Продукт сменился во время разбора — расшифровка не сохранена.' };
   const d = { id: rid('d'), pid: job.pid, name, ext: 'md', size: text.length * 2, status: 'ready', text, chars: text.length, error: '', warn: '', preview: false, addedAt: Date.now(), source: 'video', video };
-  S.docs.push(d);
-  invalidateIndex(); renderDocs(); renderRunControls(); renderProduct();
+  addVideoDoc(d);
   await persistDocText(d);
   if (d.savedParts && !S.settings.kbAuto) kbQueue(d); // расшифровка всегда идёт в базу знаний
   toast(`«${job.name}»: расшифровка добавлена в документы продукта и базу знаний`);
+}
+/* расшифровка видео — документ продукта; в генерации и актуализации она сразу идёт в запуск, как загруженный файл */
+function addVideoDoc(d) {
+  S.docs.push(d);
+  if (forRun()) S.runDocs.add(d.id);
+  saveRunDocs(); invalidateIndex(); renderDocs(); renderRunControls(); renderProduct();
 }
 function promptVidFrames(name, part, from, ctxText) {
   return renderPrompt("promptVidFrames", { "name": name, "part_length": part.length, "e3": part.map((f, i) => `кадр ${i + 1} — [${fmtTs(f.t)}]`).join('\n'), "e4": ctxText ? `\nДля контекста — начало расшифровки речи (может содержать ошибки распознавания):\n${ctxText}\n` : '' });

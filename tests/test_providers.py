@@ -137,7 +137,6 @@ def test_status_pill_names_provider_after_reload(sa):
     assert sa.text('#st-claude') == 'Автономная версия · Иннокод'
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: после выбора провайдера в шапке остаётся прежняя подпись «Автономная версия · Claude · стандартная» (обновляется только после перезагрузки или другого действия)')
 def test_status_pill_follows_selection(sa):
     set_key(sa, 'innocode', 'inno-key')
     assert sa.text('#st-claude') == 'Автономная версия · Иннокод'

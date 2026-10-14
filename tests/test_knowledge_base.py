@@ -526,7 +526,6 @@ def test_fold_state_of_the_list_survives_reload(listed):
     assert fold_expanded(listed) == 'false'
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: раздел, который есть в оглавлении, но записи которого в базе нет (например, коллега удалил его в другом окне), открывается бесконечной «Загружаю раздел…»: страница в цикле читает базу (сотни чтений в секунду) и не сообщает об ошибке')
 def test_section_without_a_record_reports_an_error(listed):
     listed.page.click('#kb-rows .kb-row:has-text("Ёлка-проверка")')
     listed.page.wait_for_function("() => !/Загружаю раздел/.test(document.querySelector('#kb-body').textContent)", timeout=4000)

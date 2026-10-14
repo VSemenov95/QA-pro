@@ -121,8 +121,6 @@ def test_case_after_suite_toggle_is_found_by_the_filter(results):
     assert len(visible_ids(results)) == 4
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: после переключения набора «Смоук» у кейса числа на кнопках фильтров («Смоук 3», «Регресс 4») '
-                   'остаются прежними, пока не перерисуется вкладка: перерисовывается только список кейсов')
 def test_suite_filter_counts_follow_the_toggle(results):
     open_case(results, 'API-002')
     results.page.click('#case-list [data-act=case-suite][data-s=smoke]')

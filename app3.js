@@ -365,7 +365,7 @@ function runLabel() {
 }
 /* «Сократить количество тестов»: спрашиваем, сколько оставить, и сокращаем черновик */
 function openReduce() {
-  const n = S.run?.cases.length || 0, inp = $('#reduce-n'), hint = $('#reduce-hint');
+  const n = S.run ? activeCases(S.run).length : 0, inp = $('#reduce-n'), hint = $('#reduce-hint'); // устаревшие кейсы не считаются: их не сократить
   if (!isDraft(S.run) || n < 2) return;
   $('#reduce-form').hidden = false;
   inp.max = String(n - 1); inp.value = String(Math.max(1, Math.floor(n / 2)));
@@ -377,7 +377,7 @@ function resetReduceWarn() { reduceWarned = false; reducePending = null; const g
 function closeReduce() { resetReduceWarn(); $('#reduce-form').hidden = true; }
 async function reduceGo() {
   const inp = $('#reduce-n'), hint = $('#reduce-hint'), go = $('#reduce-go');
-  const n = S.run?.cases.length || 0, v = Number(inp.value);
+  const n = S.run ? activeCases(S.run).length : 0, v = Number(inp.value);
   if (!Number.isInteger(v) || v < 1 || v >= n) { resetReduceWarn(); hint.className = 'hint err'; hint.textContent = `Введите целое число от 1 до ${n - 1}.`; return; }
   const confirmed = reduceWarned;
   go.disabled = true; hint.className = 'hint'; hint.textContent = confirmed ? 'Сокращаю…' : 'Выбираю самые важные кейсы…';
@@ -405,7 +405,7 @@ function renderRunControls() {
   }
   const red = $('#btn-reduce'), form = $('#reduce-form');
   if (red) {
-    const dr = isDraft(S.run) && S.run.cases.length > 1;
+    const dr = isDraft(S.run) && activeCases(S.run).length > 1;
     red.hidden = S.running || !dr;
     red.disabled = draftLocked(S.run) || reducing || !aiReady(S.run?.settings?.genAI || S.settings.genAI);
     if (form && (S.running || !dr)) form.hidden = true;
@@ -1335,6 +1335,7 @@ function renderKbArticle(el, force) {
   const meta = S.kb.index.blocks.find((b) => b.id === id);
   const blk = S.kb.cache[id];
   if (!meta && !blk) { S.kb.open = null; return renderKbPane(force); }
+  if (!blk && S.kb.missing?.[id]) { el.innerHTML = emptyHTML('Раздел не найден в базе', 'Его записи нет — возможно, его удалили в другом окне. Обновите базу знаний или выберите другой раздел.'); return; }
   if (!blk) {
     el.innerHTML = emptyHTML('Загружаю раздел…');
     kbBlock(id).then(() => { if (S.kb.open === id) renderHelp(true); }).catch(() => { el.innerHTML = emptyHTML('Не удалось загрузить раздел'); });
@@ -1552,7 +1553,7 @@ function renderProviders(force) {
   const lg = $('#prov-legacy'), legacy = !cur ? parseAI(S.settings.genAI) : null;
   if (lg) { lg.hidden = !legacy; lg.textContent = legacy ? `Сейчас выбрано прежнее подключение «${legacy.kind === 'conn' ? aiAbbrName(legacy.conn) : aiLabel(S.settings.genAI)}». Выберите один из вариантов выше.` : ''; }
 }
-function afterAIChange() { saveSettings(); renderAIHint(); renderRunControls(); renderParams(); if (S.tab === 'review' || S.tab === 'agent') renderTab(); }
+function afterAIChange() { saveSettings(); renderStatus(); renderAIHint(); renderRunControls(); renderParams(); if (S.tab === 'review' || S.tab === 'agent') renderTab(); }
 function selectProv(pid) {
   if (inClaude && pid !== 'claude') return;
   if (pid === 'claude' && inClaude) { const t = parseAI(S.settings.genAI); S.settings.genAI = 'claude:' + (t?.kind === 'claude' ? t.tier : 'default'); }
@@ -2135,7 +2136,7 @@ function onTabClick(e) {
     case 'expand-all': for (const x of filteredCases()) caseUI(x.uid).open = true; renderCaseList(); break;
     case 'collapse-all': for (const x of filteredCases()) { const u = caseUI(x.uid); if (u.mode === 'view' && !u.busy) u.open = false; } renderCaseList(); break;
     case 'toggle-case': if (ui.mode === 'view' || !ui.open) { ui.open = !ui.open; ui.note = ''; renderCaseList(); } break;
-    case 'case-suite': c.suites = toggleSuite(c.suites || [], el.dataset.s); renderCaseList(); renderTabs(); queueSave(r); break;
+    case 'case-suite': c.suites = toggleSuite(c.suites || [], el.dataset.s); renderTab(); renderTabs(); queueSave(r); break; // перерисовка вкладки обновляет и счётчики фильтров
     case 'add-case': addManualCase(el.dataset.t); break;
     case 'form-case': enterForm(c); renderCaseList(); break;
     case 'ff-row': {
@@ -2300,6 +2301,7 @@ function onTabClick(e) {
     }
     case 'pass-prev': if (armed(el, 'Вернуть прежнюю версию?')) restorePrevPassport(); break;
   }
+  renderRunControls(); // любое действие могло изменить черновик: кнопки «Перегенерировать» и «Сократить» пересчитываются
 }
 let qSaveT = null;
 function onAISelect(e) {
@@ -2688,6 +2690,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, addVideoDoc, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

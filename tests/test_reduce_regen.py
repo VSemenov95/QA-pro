@@ -78,13 +78,11 @@ def test_buttons_are_hidden_when_added_run_is_opened_again(draft):
     assert draft.state('S.run.stage') == 'added' and hidden(draft, '#btn-regen') and hidden(draft, '#btn-reduce')
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: после «Добавить в проект» кнопки «Перегенерировать по правилам» и «Сократить количество тестов» остаются на экране (до следующей перерисовки), хотя кейсы уже не черновик; нажатие ничего не делает')
 def test_buttons_are_hidden_right_after_adding_to_project(draft):
     md.add_to_project(draft)
     assert hidden(draft, '#btn-regen') and hidden(draft, '#btn-reduce')
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: после «Очистить» кнопки «Перегенерировать по правилам» и «Сократить количество тестов» остаются на экране при пустом черновике; нажатие ничего не делает')
 def test_buttons_are_hidden_right_after_clearing_draft(draft):
     draft.page.click('[data-act=draft-clear]')
     draft.page.click('[data-act=draft-clear].armed')
@@ -105,7 +103,6 @@ def test_reduce_is_visible_for_two_cases(draft):
     assert draft.state('S.run.cases.length') == 2 and not hidden(draft, '#btn-reduce')
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: после «Убрать» последних кейсов до одного кнопка «Сократить количество тестов» остаётся на экране (сократить можно от двух кейсов); нажатие ничего не делает')
 def test_reduce_is_hidden_right_after_dropping_to_one_case(draft):
     drop_cases(draft, 'API-001', 'API-002', 'UI-001')
     assert draft.state('S.run.cases.length') == 1 and hidden(draft, '#btn-reduce')
@@ -360,7 +357,6 @@ def test_two_cases_can_be_reduced_to_one(draft):
     assert draft.state("[document.querySelector('#reduce-n').value, document.querySelector('#reduce-n').max]") == ['1', '1']
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: в черновике актуализации с устаревшим кейсом подсказка формы говорит «Оставить можно от 1 до 3» (считает и устаревший), а число 3 отвергается сообщением «Оставить можно от 1 до 2»')
 def test_form_hint_matches_validation_with_obsolete_cases(app, tmp_path):
     cases = [seed.case(f'u{i}', 'ui', f'UI-00{i}', f'[FE] Кейс {i}', [f'R-00{i}']) for i in (1, 2, 3)]
     cases.append(seed.case('u4', 'ui', 'UI-004', '[FE] Устаревший', ['R-004'], status='obsolete'))

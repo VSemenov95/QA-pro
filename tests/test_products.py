@@ -198,7 +198,6 @@ def test_deleting_the_only_product_creates_a_fresh_one(app):
     assert select_text(app) == 'Мой продукт' and [k for k in app.db.store if old in k] == []
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: «Удалить продукт» не удаляет историю вопросов к базе знаний этого продукта: запись data/users/<пользователь>/help_<id продукта> остаётся в базе навсегда')
 def test_delete_product_removes_question_history(app):
     model_kb.install(app.model)
     first = pid_of(app)

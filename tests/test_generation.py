@@ -263,8 +263,6 @@ def test_rate_limit_in_analysis_stops_the_run(app):
     assert app.state('S.run.cases.length') == 0 and len(app.model.calls_of('promptPlan')) == 0
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: «Продолжить с места остановки» после лимита запросов в анализе считает шаг «Анализ» выполненным '
-                   '(статус error) и заканчивает запуск как «Готово» с нулём требований и кейсов; анализ не повторяется')
 def test_resume_after_rate_limit_in_analysis_repeats_analysis(app):
     app.model.on('promptAnalyze', ModelError('rate_limited'))
     app.generate()
@@ -275,8 +273,6 @@ def test_resume_after_rate_limit_in_analysis_repeats_analysis(app):
     assert app.state('S.run.requirements.length') == 4 and app.state('S.run.cases.length') == 4
 
 
-@pytest.mark.xfail(strict=True, reason='БАГ: «Продолжить с места остановки» после лимита запросов на шаге «Чек-лист» не повторяет чек-лист: '
-                   'шаг в статусе error считается выполненным, запуск завершается «Готово» без чек-листа, хотя он выбран')
 def test_resume_after_rate_limit_in_checklist_repeats_checklist(app):
     app.model.on('promptChecklist', ModelError('rate_limited'))
     app.generate()
