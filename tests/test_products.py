@@ -521,3 +521,10 @@ def test_product_panel_fits_a_phone_screen(make_app):
 
 def test_document_counter_shows_count_and_size(app):
     assert app.text('#docs-total') == '1 документ · 2,5 тыс. знаков'
+
+
+def test_product_options_are_readable_in_dark_theme(app):
+    """Список продуктов в тёмной теме: фон и текст вариантов из палитры темы, а не системная белая панель."""
+    app.page.emulate_media(color_scheme='dark')
+    style = app.page.eval_on_selector('#prod-select option', "e => { const s = getComputedStyle(e); return [s.backgroundColor, s.color]; }")
+    assert style == ['rgb(21, 24, 30)', 'rgb(236, 238, 242)']

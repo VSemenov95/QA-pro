@@ -695,6 +695,8 @@ body{font-family:var(--f-body)}
 .ps-main{display:flex;flex-direction:column;min-width:0;line-height:1.25}
 .prod-switch select{border:0;background-color:transparent;padding:0 4px 0 0;font-weight:600;font-size:14px;color:var(--ink);min-width:150px;max-width:260px;box-shadow:none;cursor:pointer;border-radius:4px}
 .prod-switch select:focus{box-shadow:none;outline:0}
+/* список вариантов: в тёмной теме собственный фон и цвет текста, иначе системная белая панель с белым текстом */
+select option{background:var(--surface);color:var(--ink)}
 .ps-sub{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* шапка в две строки: логотип и продукт — сверху, действия и статусы — под ними, по левому краю */
 .topbar-in{row-gap:10px}
