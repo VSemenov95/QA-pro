@@ -1157,7 +1157,7 @@ function renderHelp(force) {
   $('#help-head').innerHTML = `<div class="sec-h"><h3>База знаний</h3>${p ? `<span class="muted small">продукт «${esc(p.name)}»</span>` : ''}
       <div class="help-views" role="tablist" aria-label="Разделы базы знаний">${[['blocks', 'Разделы', st.blocks], ['qa', 'Вопросы', H.items.length], ['mat', 'Материалы', vidDocs().length]].map(([id, n, c]) => `<button type="button" role="tab" aria-selected="${view === id}" data-act="help-view" data-v="${id}">${n}${c ? `<span class="cnt">${c}</span>` : ''}</button>`).join('')}</div>
       ${view === 'qa' && H.items.length ? '<span class="sp"><button class="link" type="button" data-act="help-clear">Очистить историю</button></span>' : ''}</div>
-    <p class="hint">${view === 'mat' ? 'Записи созвонов и демо продукта. Видео не сохраняется: речь распознаётся на вашем компьютере (мост qa-pro-bridge), экраны описывает модель, а расшифровка становится документом продукта — агент учитывает её в базе знаний, ответах и генерации чек-листов и тест-кейсов.' : view === 'qa' ? 'Агент отвечает только по базе знаний продукта и указывает источники. Чего в базе нет, он не придумывает — так и скажет. История вопросов видна только вам.' : 'При загрузке документа агент разбирает его по функциональным разделам и сводит сведения из всех документов раздела в одну сводку — с источниками и расхождениями между документами. Сводки учитываются в ответах и при генерации чек-листов и тест-кейсов. Разделы общие для команды.'}</p>
+    <p class="hint">${view === 'mat' ? 'Расшифровки созвонов и демо, которые уже были добавлены в продукт. Новые видео не загружаются; расшифровка, как и любой документ, учитывается в базе знаний, ответах и генерации.' : view === 'qa' ? 'Агент отвечает только по базе знаний продукта и указывает источники. Чего в базе нет, он не придумывает — так и скажет. История вопросов видна только вам.' : 'При загрузке документа агент разбирает его по функциональным разделам и сводит сведения из всех документов раздела в одну сводку — с источниками и расхождениями между документами. Сводки учитываются в ответах и при генерации чек-листов и тест-кейсов. Разделы общие для команды.'}</p>
     <p class="kb-line"><b>В базе знаний:</b> ${esc(kb)}</p>`;
   $('#kb-pane').hidden = view !== 'blocks';
   $('#qa-pane').hidden = view !== 'qa';
@@ -1189,14 +1189,8 @@ function renderMat() {
   if (!S.productId || !S.caps.db) { el.innerHTML = emptyHTML('Материалы доступны внутри продукта', 'Выберите или создайте продукт: расшифровки видео сохраняются в его документах и идут в базу знаний и генерацию.'); return; }
   if (!$('#mat-asr')) {
     el.innerHTML = `<div class="mat-widget">
-      <div class="mat-h"><span class="mat-ic">${ICON.video}</span><div><b>Материалы</b><span class="muted small">Видео .mp4 → расшифровка речи и экранов → документы продукта, база знаний и генерация</span></div></div>
+      <div class="mat-h"><span class="mat-ic">${ICON.video}</span><div><b>Материалы</b><span class="muted small">Расшифровки видео, созданные раньше. Новые видео не загружаются.</span></div></div>
       <div id="mat-asr"></div>
-      <label class="drop mat-drop" id="mat-drop" for="mat-file" tabindex="0" role="button" aria-label="Выбрать видео .mp4 для расшифровки">
-        <input type="file" id="mat-file" accept=".mp4,video/mp4" multiple hidden>
-        ${ICON.video}
-        <span class="drop-t">Перетащите видео или <u>выберите</u></span>
-        <span class="drop-f">MP4 · ДО 3 ЧАСОВ · ВИДЕО НЕ СОХРАНЯЕТСЯ</span>
-      </label>
       <div id="mat-jobs"></div>
     </div>
     <div id="mat-list"></div>`;
@@ -2552,9 +2546,6 @@ function bind() {
     } else return;
     if (S.tab === 'cases') renderCaseList(); else renderTab();
   });
-  ['dragenter', 'dragover'].forEach((ev) => body.addEventListener(ev, (e) => { const d = e.target.closest?.('#mat-drop'); if (d) { e.preventDefault(); d.classList.add('over'); } }));
-  body.addEventListener('dragleave', (e) => { const d = e.target.closest?.('#mat-drop'); if (d && !d.contains(e.relatedTarget)) d.classList.remove('over'); });
-  body.addEventListener('drop', (e) => { const d = e.target.closest?.('#mat-drop'); if (!d) return; e.preventDefault(); d.classList.remove('over'); const f = [...(e.dataTransfer?.files || [])]; if (f.length) vidAdd(f); });
   initTheme();
   migrateProviders();
   const tb = document.querySelector('.topbar');
@@ -2568,13 +2559,12 @@ function bind() {
     if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'help-input') { e.preventDefault(); sendHelp(); }
     if (e.key === 'Enter' && e.target.id === 'kb-title-input') { e.preventDefault(); body.querySelector('[data-act="kb-rename-save"]')?.click(); }
     if (e.key === 'Escape' && e.target.id === 'kb-title-input') { S.kb.edit = null; renderHelp(true); }
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.id === 'mat-drop') { e.preventDefault(); $('#mat-file')?.click(); }
     if (e.key === 'Enter' && e.target.dataset.helpAns != null) { e.preventDefault(); body.querySelector(`[data-act="help-ans-save"][data-i="${e.target.dataset.helpAns}"]`)?.click(); }
     if (e.key === 'Escape' && (e.target.id === 'cl-input' || e.target.id === 'clg-input')) { S.clEdit = null; S.clGroupEdit = null; renderTab(); }
   });
   body.addEventListener('toggle', (e) => { if (e.target.matches?.('.kb-parts')) S.kb.partsOpen = e.target.open ? S.kb.open : null; }, true);
   $('#prod-import-file').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importProduct(f); e.target.value = ''; });
-  body.addEventListener('change', (e) => { if (e.target.id === 'mat-file') { const f = [...e.target.files]; e.target.value = ''; if (f.length) vidAdd(f); return; } if (e.target.id === 'mat-model' || e.target.id === 'mat-lang') { S.mat[e.target.id === 'mat-model' ? 'model' : 'lang'] = e.target.value; lsSet(e.target.id === 'mat-model' ? 'qapro.asrModel' : 'qapro.asrLang', e.target.value); e.target.blur(); renderMatAsr(); return; } if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+  body.addEventListener('change', (e) => { if (e.target.id === 'mat-model' || e.target.id === 'mat-lang') { S.mat[e.target.id === 'mat-model' ? 'model' : 'lang'] = e.target.value; lsSet(e.target.id === 'mat-model' ? 'qapro.asrModel' : 'qapro.asrLang', e.target.value); e.target.blur(); renderMatAsr(); return; } if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
   body.addEventListener('keydown', (e) => {
     if (e.target.id === 'sec-in') { if (e.key === 'Enter') { e.preventDefault(); body.querySelector('[data-act="sec-save"]')?.click(); } else if (e.key === 'Escape') { e.preventDefault(); S.secEdit = null; renderTab(); } }
     else if (e.target.classList?.contains('pc-row') && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.target.click(); }

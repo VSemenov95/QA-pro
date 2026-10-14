@@ -456,10 +456,9 @@ async function parseFile(file) {
 }
 function addFiles(files) {
   const vids = files.filter((f) => /\.mp4$/i.test(f.name));
-  if (vids.length) { // видео разбирается в «Базе знаний → Материалы»: расшифровка станет документом продукта
+  if (vids.length) { // видео не загружаем: такие файлы пропускаем
     files = files.filter((f) => !vids.includes(f));
-    if (S.productId && S.caps.db) { vidAdd(vids); toast('Видео разбирается в «База знаний → Материалы» — расшифровка появится в документах продукта'); }
-    else toast('Видео .mp4 разбирается внутри продукта: выберите или создайте продукт.', 'err');
+    toast(`Видео не загружаются: ${vids.map((f) => f.name).join(', ')}`, 'err');
   }
   for (const f of files) {
     const ext = (f.name.split('.').pop() || '').toLowerCase();

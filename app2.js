@@ -5367,15 +5367,6 @@ async function asrPrepareNow() {
 /* ---------- конвейер: звук → речь → кадры → итоги → документ продукта ---------- */
 const vidDocs = () => S.docs.filter((d) => d.source === 'video' && d.pid === S.productId).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
 const VID_STAGES = [['audio', 'Звук'], ['speech', 'Речь'], ['frames', 'Кадры'], ['screen', 'Экран'], ['summary', 'Итоги'], ['save', 'Сохранение']];
-function vidAdd(files) {
-  if (!S.productId || !S.caps.db) return toast('Видео разбирается внутри продукта: выберите или создайте продукт.', 'err');
-  for (const file of files) {
-    if (!/\.mp4$/i.test(file.name) && file.type !== 'video/mp4') { toast(`«${file.name}» — не .mp4. Материалы принимают видео .mp4.`, 'err'); continue; }
-    S.mat.jobs.push({ id: rid('vj'), file, pid: S.productId, name: file.name, size: file.size, stage: 'queue', pct: 0, note: 'в очереди', error: '', ctl: new AbortController(), log: [] });
-  }
-  renderMatJobs();
-  vidNext();
-}
 async function vidNext() {
   if (S.mat.busy) return;
   const job = S.mat.jobs.find((j) => j.stage === 'queue');
