@@ -123,3 +123,30 @@ def pdf_file(tmp_path, name='спецификация.pdf'):
     c.drawString(72, 740, 'Ошибка валидации — 400 Bad Request')
     c.save()
     return p
+
+
+def openapi_spec(tmp_path, name='auth-api.json', yaml=False):
+    """Спецификация OpenAPI 3: два эндпоинта (с $ref в теле и ответах) и один не относящийся к восстановлению."""
+    import json as _json
+    spec = {
+        'openapi': '3.0.3', 'info': {'title': 'Auth API', 'version': '2.1'}, 'servers': [{'url': 'https://api.example.ru'}],
+        'paths': {
+            '/api/v1/password-reset': {'post': {
+                'tags': ['auth'], 'operationId': 'requestPasswordReset', 'summary': 'Запрос ссылки для сброса пароля',
+                'requestBody': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ResetRequest'}}}},
+                'responses': {'202': {'description': 'Ссылка отправлена', 'content': {'application/json': {'schema': {'type': 'object', 'properties': {'status': {'type': 'string', 'enum': ['sent']}}}}}},
+                              '400': {'description': 'Неверный формат email', 'content': {'application/json': {'schema': {'$ref': '#/components/schemas/Error'}}}}}}},
+            '/api/v1/users/{id}': {'get': {'tags': ['users'], 'summary': 'Карточка пользователя',
+                'parameters': [{'name': 'id', 'in': 'path', 'required': True, 'schema': {'type': 'integer'}}],
+                'responses': {'200': {'description': 'OK'}}}},
+        },
+        'components': {'schemas': {
+            'ResetRequest': {'type': 'object', 'required': ['email'], 'properties': {'email': {'type': 'string', 'format': 'email', 'maxLength': 254, 'example': 'user@example.ru', 'description': 'Email, указанный при регистрации'}}},
+            'Error': {'type': 'object', 'properties': {'code': {'type': 'string', 'example': 'INVALID_EMAIL'}, 'message': {'type': 'string'}}},
+        }},
+    }
+    if yaml:
+        import json as j
+        text = '# OpenAPI\n' + j.dumps(spec, ensure_ascii=False, indent=2)   # JSON — корректный YAML
+        return write(os.path.join(str(tmp_path), name.replace('.json', '.yaml')), text)
+    return write(os.path.join(str(tmp_path), name), _json.dumps(spec, ensure_ascii=False, indent=1))

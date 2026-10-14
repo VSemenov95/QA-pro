@@ -2508,6 +2508,11 @@ function bind() {
   });
   // run
   $('#btn-run').addEventListener('click', runAgent);
+  const af = $('#api-filter');
+  if (af) {
+    af.value = S.settings.apiFilter || '';
+    af.addEventListener('input', () => { S.settings.apiFilter = af.value.slice(0, 300); saveSettings(); });
+  }
   const tn = $('#target-n');
   if (tn) {
     tn.value = S.settings.target || '';

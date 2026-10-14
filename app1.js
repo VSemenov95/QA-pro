@@ -60,6 +60,7 @@ const LIBS = {
   pdf: ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'],
   pdfWorker: ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
   xlsx: ['https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
+  yaml: ['https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js', 'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js'],
 };
 
 /* ================= default templates (заменяются шаблонами команды) ================= */
@@ -160,6 +161,7 @@ const S = {
     mode: ['update', 'help'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
     target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
+    apiFilter: typeof saved.apiFilter === 'string' ? saved.apiFilter.slice(0, 300) : '',   // для OpenAPI/Swagger: какие эндпоинты брать
     reuseAnalysis: saved.reuseAnalysis !== false,   // не анализировать заново те же документы
     kbAuto: saved.kbAuto !== false,                 // разбирать новые документы по разделам базы знаний автоматически
     stages: Object.fromEntries(STAGES.map((x) => [x.id, STAGE_TIER_VALUES.includes(saved.stages?.[x.id]) ? saved.stages[x.id] : 'same'])),   // модель по этапам: same | quick | default | complex
@@ -353,10 +355,90 @@ async function parseSheet(buf) {
     return `### Лист «${n}»\n` + lines.join('\n');
   }).join('\n\n');
 }
+/* OpenAPI / Swagger → текст для анализа: эндпоинты, подходящие под поле «API» (путь, метод, тег, operationId, summary), с параметрами, телом и ответами.
+   Дальше документ идёт по тем же правилам, что и обычный текст: анализ, план, генерация, сверка. */
+const OPENAPI_MAX_DEPTH = 6;
+function openApiToText(spec, filter) {
+  const terms = String(filter || '').toLowerCase().split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+  const ref = (node, depth = 0) => {
+    if (!node || typeof node !== 'object' || depth > OPENAPI_MAX_DEPTH) return node || {};
+    if (typeof node.$ref === 'string' && node.$ref.startsWith('#/')) {
+      const target = node.$ref.slice(2).split('/').reduce((o, k) => (o ? o[k.replace(/~1/g, '/').replace(/~0/g, '~')] : undefined), spec);
+      return target ? ref(target, depth + 1) : {};
+    }
+    return node;
+  };
+  const typeOf = (s0) => {
+    const s = ref(s0);
+    if (s.enum) return `${s.type || 'значение'}: ${s.enum.join(' | ')}`;
+    if (s.type === 'array') return `массив из ${typeOf(s.items)}`;
+    return s.type || (s.properties ? 'объект' : 'значение');
+  };
+  const props = (schema, indent, depth) => {
+    const s = ref(schema), out = [];
+    if (depth > OPENAPI_MAX_DEPTH) return out;
+    if (s.type === 'array') return [indent + 'элементы массива:', ...props(s.items, indent + '  ', depth + 1)];
+    const req = new Set(s.required || []);
+    for (const [name, p0] of Object.entries(s.properties || {})) {
+      const p = ref(p0);
+      const meta = [typeOf(p), req.has(name) ? 'обязательное' : 'необязательное', p.format ? `формат ${p.format}` : '', p.maxLength ? `до ${p.maxLength} символов` : '',
+        p.minimum != null ? `от ${p.minimum}` : '', p.maximum != null ? `до ${p.maximum}` : '', p.example !== undefined ? `пример: ${JSON.stringify(p.example)}` : ''].filter(Boolean).join(', ');
+      out.push(`${indent}- ${name} (${meta})${p.description ? ' — ' + String(p.description).replace(/\s+/g, ' ') : ''}`);
+      if (p.properties || p.type === 'array') out.push(...props(p, indent + '  ', depth + 1));
+    }
+    return out;
+  };
+  const where = { path: 'пути', query: 'запросе', header: 'заголовке', cookie: 'cookie' };
+  const paramsOf = (op, item) => [...arrOf(item.parameters), ...arrOf(op.parameters)].map(ref).filter((p) => p.in !== 'body' && p.name).map((p) =>
+    `- ${p.name} (в ${where[p.in] || p.in}, ${typeOf(p.schema || p)}, ${p.required || p.in === 'path' ? 'обязательный' : 'необязательный'})${p.description ? ' — ' + String(p.description).replace(/\s+/g, ' ') : ''}`);
+  const bodyOf = (op, item) => {
+    const rb = ref(op.requestBody);
+    if (rb.content) return Object.entries(rb.content).flatMap(([mt, c]) => [`Тело запроса (${mt}):`, ...props(c.schema, '  ', 0)]);
+    const bp = [...arrOf(item.parameters), ...arrOf(op.parameters)].map(ref).find((p) => p.in === 'body');
+    return bp ? ['Тело запроса:', ...props(bp.schema, '  ', 0)] : [];
+  };
+  const responsesOf = (op) => Object.entries(op.responses || {}).flatMap(([code, r0]) => {
+    const r = ref(r0), sch = r.content ? Object.values(r.content)[0]?.schema : r.schema;
+    return [`- ${code}${r.description ? ' — ' + String(r.description).replace(/\s+/g, ' ') : ''}`, ...(sch ? props(sch, '  ', 0) : [])];
+  });
+  const blocks = [];
+  for (const [path, item0] of Object.entries(spec.paths || {})) {
+    const item = ref(item0);
+    for (const m of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
+      const op = item[m];
+      if (!op || typeof op !== 'object') continue;
+      const hay = `${m} ${path} ${op.operationId || ''} ${arrOf(op.tags).join(' ')} ${op.summary || ''}`.toLowerCase();
+      if (terms.length && !terms.some((t) => hay.includes(t))) continue;
+      const head = [`## ${m.toUpperCase()} ${path}`];
+      const about = [op.summary, op.description].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim();
+      if (about) head.push(about);
+      const pr = paramsOf(op, item); if (pr.length) head.push('Параметры:', ...pr);
+      const bd = bodyOf(op, item); if (bd.length) head.push(...bd);
+      const rs = responsesOf(op); if (rs.length) head.push('Ответы:', ...rs);
+      blocks.push(head.join('\n'));
+    }
+  }
+  if (!blocks.length) throw new Error(terms.length ? `В спецификации нет эндпоинтов, подходящих под «${String(filter).trim()}»` : 'В спецификации нет эндпоинтов');
+  const info = spec.info || {}, base = spec.servers?.[0]?.url || spec.basePath || '';
+  return [`# ${info.title || 'API'}${info.version ? ' ' + info.version : ''}`, base ? `Базовый адрес: ${base}` : '', ...blocks].filter(Boolean).join('\n\n');
+}
+async function parseSpec(ext, buf) {
+  const raw = decodeText(buf);
+  let spec = null;
+  if (ext === 'json') { const p = tryParse(raw); spec = p.ok ? p.value : null; }
+  else { await lib('yaml'); try { spec = window.jsyaml.load(raw); } catch (e) { throw new Error('Не удалось разобрать YAML: ' + (e.message || e)); } }
+  if (spec && typeof spec === 'object' && (spec.openapi || spec.swagger)) {
+    const filter = S.settings.apiFilter || '';
+    return { text: openApiToText(spec, filter), warn: filter.trim() ? '' : 'Поле «API» не заполнено — взяты все эндпоинты спецификации' };
+  }
+  if (ext === 'json' && spec !== null) return { text: raw };   // обычный JSON без OpenAPI — как текст
+  throw new Error('Это не спецификация OpenAPI или Swagger: в файле нет поля openapi или swagger');
+}
 async function parseFile(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   const buf = await file.arrayBuffer();
   if (['txt', 'md', 'markdown', 'csv'].includes(ext)) return { text: decodeText(buf) };
+  if (['json', 'yaml', 'yml'].includes(ext)) return parseSpec(ext === 'yml' ? 'yaml' : ext, buf);
   if (ext === 'docx') {
     await lib('mammoth');
     const r = await window.mammoth.convertToHtml({ arrayBuffer: buf });

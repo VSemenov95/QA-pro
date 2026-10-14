@@ -17,6 +17,8 @@ LIBS = {
     'pdf.js/3.11.174/pdf.min.js': ('pdfjs-dist@3.11.174', 'build/pdf.min.js'),
     'pdf.js/3.11.174/pdf.worker.min.js': ('pdfjs-dist@3.11.174', 'build/pdf.worker.min.js'),
     'xlsx@0.18.5/dist/xlsx.full.min.js': ('xlsx@0.18.5', 'dist/xlsx.full.min.js'),
+    'js-yaml/4.1.0/js-yaml.min.js': ('js-yaml@4.1.0', 'dist/js-yaml.min.js'),
+    'js-yaml@4.1.0/dist/js-yaml.min.js': ('js-yaml@4.1.0', 'dist/js-yaml.min.js'),
     'xlsx/0.18.5/xlsx.full.min.js': ('xlsx@0.18.5', 'dist/xlsx.full.min.js'),
 }
 
