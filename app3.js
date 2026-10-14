@@ -288,6 +288,7 @@ function renderMode() {
   const m = S.settings.mode;
   $('#mode-seg').innerHTML = MODES.map(([id, n, t]) => `<button type="button" role="radio" aria-checked="${m === id}" data-mode="${id}" title="${t}">${n}</button>`).join('');
   $('#upd-panel').hidden = m !== 'update';
+  const newRun = $('#btn-newses'); if (newRun) { newRun.disabled = m === 'help'; newRun.title = m === 'help' ? 'Новый запуск — в режимах «Генерация» и «Актуализация»' : 'Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте'; }
   for (const el of document.querySelectorAll('[data-modes]')) el.hidden = !el.dataset.modes.split(',').includes(m);
   let k = 0;
   for (const el of document.querySelectorAll('.rail > .panel')) if (!el.hidden) { const n = el.querySelector('.step-n'); if (n) n.textContent = String(++k).padStart(2, '0'); }

@@ -63,7 +63,7 @@ def qa(app):
 def test_help_mode_hides_generation_panels(app):
     app.mode('help')
     hidden = app.page.evaluate("() => ({ tabs: document.querySelector('#tabs').hidden, run: document.querySelector('.run-panel').hidden, rules: document.querySelector('#rules-panel').hidden, params: document.querySelector('#outs').closest('.field').hidden, newses: document.querySelector('#btn-newses').hidden, docs: document.querySelector('#docs-panel').hidden })")
-    assert hidden == {'tabs': True, 'run': True, 'rules': True, 'params': True, 'newses': True, 'docs': False}
+    assert hidden == {'tabs': True, 'run': True, 'rules': True, 'params': True, 'newses': False, 'docs': False}  # «Новый запуск» видна, но неактивна
 
 
 def test_leaving_help_mode_returns_generation_panels(app):
