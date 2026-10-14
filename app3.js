@@ -283,7 +283,7 @@ function openKbSection(id) {
   $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 /* ---------- режим: генерация или актуализация ---------- */
-const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация кейсов', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта']];
+const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта']];
 function renderMode() {
   const m = S.settings.mode;
   $('#mode-seg').innerHTML = MODES.map(([id, n, t]) => `<button type="button" role="radio" aria-checked="${m === id}" data-mode="${id}" title="${t}">${n}</button>`).join('');
