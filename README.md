@@ -168,7 +168,9 @@ cd bridge/qa-pro-bridge && zip -r ../qa-pro-bridge.mcpb . && cd ../..
 python3 build.py                  # собрать app.js, tc-agent.html, qa-pro.html
 ```
 
-Тесты на pytest и Playwright лежат в `tests/`, подробности — в `tests/README.md`. Запуск: `python3 -m pytest tests`.
+Тесты на pytest и Playwright лежат в `tests/`, подробности — в `tests/README.md`. Запуск: `python3 -m pytest tests`; если приложение уже собрано, добавьте `QA_PRO_NO_BUILD=1`, чтобы не пересобирать.
+
+Старые скрипты проверок из папки `t/` удалены: их проверки перенесены в `tests/`. Их содержимое сохранилось в истории git.
 
 ---
 
