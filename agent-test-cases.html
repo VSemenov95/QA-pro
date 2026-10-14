@@ -63,21 +63,21 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 /* top bar */
 .topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
-.topbar-in{max-width:1480px;margin:0 auto;padding-block:12px;padding-inline:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.topbar-in{max-width:none;margin:0 auto;padding-block:12px;padding-inline:20px;display:flex;flex-direction:column;align-items:stretch;gap:10px}
 .mark{width:38px;height:38px;border:2px solid var(--stamp);border-radius:7px;display:grid;place-items:center;transform:rotate(-5deg);color:var(--stamp-text);font:600 13px/1 var(--f-display);letter-spacing:.02em;flex:none}
 .brand{display:flex;flex-direction:column;min-width:0}
 .brand h1{font:600 17px/1.2 var(--f-display);letter-spacing:-.01em}
 .brand span{font-size:12.5px;color:var(--ink-3)}
 .reduce-form{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:var(--r-sm);padding:12px}.reduce-acts{display:flex;gap:8px;flex-wrap:wrap}.reduce-form .hint.err{color:var(--fail)}.reduce-form .hint.warn-hint{color:var(--warn);font-weight:600}
-.top-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.top-tools{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;border:1px solid var(--line);background:var(--sunken);color:var(--ink-2);white-space:nowrap}
 .pill i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);display:inline-block}
 .pill.ok i{background:var(--pass)} .pill.bad i{background:var(--fail)} .pill.wait i{background:var(--warn)}
 
 /* layout */
-.app{max-width:1480px;margin:0 auto;padding-block:20px 56px;padding-inline:20px;display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:20px;align-items:start}
+.app{max-width:none;margin:0 auto;padding-block:20px 56px;padding-inline:20px;display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);gap:20px;align-items:start}
 @media (max-width:960px){.app{grid-template-columns:minmax(0,1fr);padding-inline:16px}.topbar-in{padding-inline:16px}}
-@media (max-width:700px){.topbar{position:static}.brand span{display:none}.top-right{margin-left:0}}
+@media (max-width:700px){.topbar{position:static}.brand span{display:none}.top-tools{margin-left:0}}
 .rail{display:flex;flex-direction:column;gap:14px;min-width:0}
 @media (min-width:961px){.rail{position:sticky;top:calc(var(--top-h,62px) + 20px);max-height:calc(100vh - var(--top-h,62px) - 40px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 4px 2px 0;margin-right:-4px}}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
@@ -677,7 +677,7 @@ body{font-family:var(--f-body)}
 .mark{width:36px;height:36px;border:0;border-radius:10px;background:var(--inv);color:var(--on-inv);transform:none;font:600 13px/1 var(--f-mono);letter-spacing:0}
 .brand h1{font:700 17px/1.2 var(--f-body);letter-spacing:-.01em}
 .brand span{font-size:12px}
-.top-right{gap:10px}
+.top-tools{gap:10px}
 .pill{height:32px;padding:0 12px;border:0;background:var(--sunken);color:var(--ink-2);font-weight:500}
 .pill.ok{background:var(--pass-soft);color:var(--pass-text)}
 .pill.bad{background:var(--fail-soft);color:var(--fail)}
@@ -700,14 +700,19 @@ select option{background:var(--surface);color:var(--ink)}
 .ps-sub{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* шапка в две строки: логотип и продукт — сверху, действия и статусы — под ними, по левому краю */
 .topbar-in{row-gap:10px}
-.top-right{flex:1 1 100%;margin-left:0;justify-content:flex-start}
-.top-right .pill{margin-left:0}
-.top-right #st-claude{margin-left:auto}
+.top-tools{margin-left:auto;justify-content:flex-end}
 /* название продукта и строка под ним — с одного края: без системного отступа выпадающего списка */
 .prod-switch select{-webkit-appearance:none;appearance:none;text-indent:0;padding:0 20px 0 0;margin:0;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23667085' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 2px center/12px}
 .prod-switch select::-ms-expand{display:none}
-@media (max-width:700px){.top-right #st-claude{margin-left:0}}
 @media (max-width:700px){.prod-switch{border:1px solid var(--line);padding-left:6px}}
+
+/* шапка: строка 1 — логотип, статусы подключения, инструменты; строка 2 — продукт, «Новый запуск», режимы */
+.topbar-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+.brand span{display:none}
+.topbar .mode-seg{display:inline-grid;grid-template-columns:repeat(3,auto);gap:4px;width:auto;padding:4px;border-radius:14px;background:var(--track)}
+.topbar .mode-seg button{min-height:40px;padding:8px 18px;font-size:14px;white-space:nowrap}
+@media (max-width:700px){.topbar .mode-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.topbar .mode-seg button{padding:8px 6px;font-size:13px}}
+@media (max-width:960px){.app{padding-inline:16px}.topbar-in{padding-inline:16px}}
 
 /* раскладка и карточки */
 .app{gap:24px;padding-block:24px 56px;padding-inline:24px}
@@ -919,17 +924,23 @@ tr.req-row:hover td{background:var(--hover)}
 
 <header class="topbar">
   <div class="topbar-in">
-    <div class="mark" aria-hidden="true">QA</div>
-    <div class="brand"><h1>QA pro</h1><span>ТЗ и спецификации → требования → чек-лист и тест-кейсы → экспорт</span></div>
-    <div class="prod-switch" id="prod-switch" hidden><span class="ps-av" id="ps-av" aria-hidden="true"></span><div class="ps-main"><label for="prod-select" class="sr">Продукт</label><select id="prod-select"></select><span class="ps-sub" id="ps-sub"></span></div></div>
-    <div class="top-right"><button class="btn sm" type="button" data-modes="generate,update" id="btn-newses" title="Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Новый запуск</button><button class="icon-btn" type="button" id="btn-theme" aria-label="Тёмная тема" title="Тёмная тема"></button><button class="icon-btn gear" type="button" id="btn-settings" aria-label="Настройки" title="Настройки: модель, шаблоны, формат экспорта, правила ревью"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><i class="gear-dot" aria-hidden="true"></i></button><span class="pill wait" id="st-claude"><i></i>Claude: проверка…</span><span class="pill" id="st-store" hidden><i></i>Хранилище</span></div>
+    <div class="topbar-row">
+      <div class="mark" aria-hidden="true">QA</div>
+      <div class="brand"><h1>QA pro</h1><span>ТЗ и спецификации → требования → чек-лист и тест-кейсы → экспорт</span></div>
+      <span class="pill wait" id="st-claude"><i></i>Claude: проверка…</span><span class="pill" id="st-store" hidden><i></i>Хранилище</span>
+      <div class="top-tools"><button class="icon-btn" type="button" id="btn-theme" aria-label="Тёмная тема" title="Тёмная тема"></button><button class="icon-btn gear" type="button" id="btn-settings" aria-label="Настройки" title="Настройки: модель, шаблоны, формат экспорта, правила ревью"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><i class="gear-dot" aria-hidden="true"></i></button></div>
+    </div>
+    <div class="topbar-row">
+      <div class="prod-switch" id="prod-switch" hidden><span class="ps-av" id="ps-av" aria-hidden="true"></span><div class="ps-main"><label for="prod-select" class="sr">Продукт</label><select id="prod-select"></select><span class="ps-sub" id="ps-sub"></span></div></div>
+      <button class="btn sm" type="button" data-modes="generate,update" id="btn-newses" title="Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Новый запуск</button>
+      <div class="mode-seg" id="mode-seg" role="radiogroup" aria-label="Режим работы"></div>
+    </div>
   </div>
 </header>
 
 <div class="app">
   <aside class="rail">
     <section class="panel prod-panel" id="prod-panel" aria-labelledby="h-prod" hidden><div id="prod-info"></div></section>
-    <div class="mode-seg" id="mode-seg" role="radiogroup" aria-label="Режим работы"></div>
     <section class="panel" id="upd-panel" aria-labelledby="h-upd" hidden>
       <div class="panel-h"><span class="step-n">01</span><h2 id="h-upd">Тест-кейсы для актуализации</h2></div>
       <label class="drop" id="upd-drop" for="upd-input" tabindex="0" role="button" aria-label="Загрузить файл с тест-кейсами">
