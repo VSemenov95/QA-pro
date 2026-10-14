@@ -2,10 +2,13 @@
 
 Приложение Claude — отдельный браузер без расширений с UA Electron; вызовы mcp уходят в настоящий Node-процесс моста.
 """
+import json
+import os
 from types import SimpleNamespace
 
 import pytest
 
+from tests.support.bridge import BRIDGE_SRC
 from tests.support.extension import case_marks, manifest, wait_window_ready
 from tests.uploader.test_uploader_flow import pick_section_from_tab, run_upload, wait_log
 from tests.uploader.test_uploader_relay import upload_click, wait_until
@@ -51,8 +54,13 @@ def done(new_host):
     return f
 
 
+def bridge_version():
+    with open(os.path.join(BRIDGE_SRC, 'manifest.json'), encoding='utf-8') as f:
+        return json.load(f)['version']
+
+
 def test_uploader_connects_to_the_bridge_by_itself(done):
-    assert done.ext_state['connected'] is True and done.ext_state['version'] == '1.2.0'
+    assert done.ext_state['connected'] is True and done.ext_state['version'] == bridge_version()
 
 
 def test_app_bar_says_upload_goes_through_the_bridge(done):
@@ -60,12 +68,12 @@ def test_app_bar_says_upload_goes_through_the_bridge(done):
 
 
 def test_settings_show_bridge_and_uploader(done):
-    assert 'Мост: работает · версия 1.2.0' in done.banner
+    assert f'Мост: работает · версия {bridge_version()}' in done.banner
     assert f'Загрузчик в Chrome: подключён · версия {manifest()["version"]}' in done.banner
 
 
 def test_connection_check(done):
-    assert done.check == f'Мост работает (1.2.0), загрузчик в Chrome подключён ({manifest()["version"]}). Можно загружать.'
+    assert done.check == f'Мост работает ({bridge_version()}), загрузчик в Chrome подключён ({manifest()["version"]}). Можно загружать.'
 
 
 def test_window_opens_in_chrome_with_the_apps_cases(done):

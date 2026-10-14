@@ -11,7 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const PORT = Number(process.env.QA_PRO_BRIDGE_PORT) || 47321;
 const DIR = process.env.QA_PRO_BRIDGE_DIR || path.join(os.homedir(), '.qa-pro-bridge');
 const MAX_WAIT = 25000;            // долгий опрос sfera_job — меньше лимита ответа приложения
