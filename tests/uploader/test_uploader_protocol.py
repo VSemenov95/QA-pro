@@ -160,24 +160,3 @@ def test_uploader_wakes_qa_pro_tabs_with_a_tick(page, env):
 
 
 # ---------- вызовы моста через загрузчик ----------
-def rpc(page, tool, args=None):
-    page.evaluate("([tool, args]) => __post({ id: 'rpc1', type: 'SFERA_RPC', tool, args })", [tool, args or {}])
-    return wait_for(page, 'rpc1', 'SFERA_RPC_RESULT')
-
-
-def test_rpc_without_a_running_bridge_is_explained(page, env):
-    from tests.support.bridge import free_port
-    env.ext.settings(bridgePort=free_port())
-    r = rpc(page, 'asr_status')
-    assert r['ok'] is False and r['code'] == 'no_bridge' and 'Мост qa-pro-bridge не запущен' in r['error']
-
-
-def test_rpc_with_bridge_switched_off(page, env):
-    env.ext.settings(desktopBridge=False)
-    r = rpc(page, 'asr_status')
-    assert r['ok'] is False and r['code'] == 'no_bridge' and 'выключена в настройках загрузчика' in r['error']
-
-
-def test_rpc_other_tools_are_not_forwarded(page):
-    r = rpc(page, 'sfera_upload', {'cases': []})
-    assert r['ok'] is False and 'Недоступно' in r['error']

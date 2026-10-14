@@ -24,8 +24,6 @@ function start({ mode = 'standalone' } = {}) {
   const log = (...a) => { const line = `[qa-pro-bridge ${mode}] ${a.join(' ')}\n`; if (mode === 'inprocess') process.stderr.write(line); else { try { fs.appendFileSync(path.join(DIR, 'bridge.log'), new Date().toISOString() + ' ' + line); } catch { /* без журнала */ } } };
   try { fs.mkdirSync(DIR, { recursive: true, mode: 0o700 }); } catch { /* ниже станет ясно */ }
 
-  const asr = require('./asr.js')({ dir: DIR, log });
-  const EXT_TOOLS = new Set(['ping', 'asr_prepare', 'asr_status', 'asr_transcribe']); // что загрузчик может вызвать за страницу в Chrome
 
   /* ---------- секрет для обёртки MCP ---------- */
   const tokenFile = path.join(DIR, 'token');
@@ -120,14 +118,6 @@ function start({ mode = 'standalone' } = {}) {
     conn.lastSeen = Date.now();
     if (m.t === 'hello') { conn.version = String(m.version || '').slice(0, 20); conn.baseUrl = String(m.baseUrl || '').slice(0, 200); flushQueued(); return; }
     if (m.t === 'hb') return;
-    if (m.t === 'rpc' && m.rid) { // вызов от страницы QA pro в Chrome через загрузчик (распознавание речи)
-      const tool = String(m.tool || '');
-      if (!EXT_TOOLS.has(tool)) { wsSend(conn, { t: 'rpc_result', rid: m.rid, ok: false, error: 'Недоступно из браузера: ' + tool }); return; }
-      callTool(tool, m.args || {}, { fromExt: true })
-        .then((result) => wsSend(conn, { t: 'rpc_result', rid: m.rid, ok: true, result }))
-        .catch((e) => wsSend(conn, { t: 'rpc_result', rid: m.rid, ok: false, error: String(e?.message || e), code: e?.code || '' }));
-      return;
-    }
     const job = jobs.get(String(m.id || ''));
     if (m.id) wsSend(conn, { t: 'ack', id: m.id, kind: m.t }); // загрузчик убирает сообщение из своей очереди
     if (!job || TERMINAL.has(job.status)) return;
@@ -144,10 +134,7 @@ function start({ mode = 'standalone' } = {}) {
   const str = (v, n) => String(v ?? '').slice(0, n);
   async function callTool(name, args = {}, { fromExt = false } = {}) {
     if (!fromExt) lastMcp = Date.now();
-    if (name === 'ping') return { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, port: PORT, listening, error: listenError, extension: extInfo(), pending: [...jobs.values()].filter((j) => !TERMINAL.has(j.status)).length, asr: asr.status() };
-    if (name === 'asr_prepare') return asr.prepare(String(args.model || 'small'));
-    if (name === 'asr_status') return asr.status();
-    if (name === 'asr_transcribe') return asr.transcribe(args);
+    if (name === 'ping') return { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, port: PORT, listening, error: listenError, extension: extInfo(), pending: [...jobs.values()].filter((j) => !TERMINAL.has(j.status)).length };
     if (name === 'sfera_upload') {
       if (!listening) throw new Error(listenError || 'Мост не слушает порт — перезапустите приложение Claude.');
       const cases = Array.isArray(args.cases) ? args.cases.slice(0, 2000) : [];

@@ -38,9 +38,6 @@
       const r = await ask({ type: 'UPLOAD_REQUEST', requestId: d.id, cases: d.cases, title: d.title });
       if (!r?.ok) reply(d.id, 'SFERA_ERROR', { error: r?.error || 'Расширение не ответило.' });
       else reply(d.id, 'SFERA_OPENED', { jobId: r.jobId });
-    } else if (d.type === 'SFERA_RPC') { // вызов моста qa-pro-bridge (распознавание речи на этом компьютере)
-      const r = await ask({ type: 'BRIDGE_RPC', tool: d.tool, args: d.args });
-      reply(d.id, 'SFERA_RPC_RESULT', r?.ok ? { ok: true, result: r.result } : { ok: false, error: r?.error || 'Расширение не ответило.', code: r?.code || '' });
     }
   }
 

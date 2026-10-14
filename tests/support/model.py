@@ -75,8 +75,6 @@ def classify(prompt):
         return 'promptPassportFull'
     if 'Проверка связи' in prompt:
         return 'ping'
-    if 'Ты — аналитик QA-команды. Это' in head:
-        return 'vidSummary'
     return 'unknown'
 
 

@@ -22,7 +22,7 @@ CONF_HEAD = 'Расхождения между документами'
 GENERAL = 'Общие сведения'
 
 KINDS = ['promptKbSplit', 'promptKbSynth', 'promptKbSynthPart', 'promptKbCondense', 'promptHelp', 'promptHelpExpand',
-         'promptPassportFull', 'promptPassportDelta', 'promptVidFrames']
+         'promptPassportFull', 'promptPassportDelta']
 
 
 def _norm(s):
@@ -135,7 +135,6 @@ class KbMock:
         self.synth_calls = self.part_calls = self.cond_calls = self.expand_calls = 0
         self.trunc_hits = 0
         self.passport_full_calls = self.passport_delta_calls = 0
-        self.vid_skip = {1}            # номера кадров (с нуля), которые модель считает «не экраном продукта»
 
     # ----- разбор документа на разделы -----
     def split(self, call):
@@ -281,12 +280,6 @@ class KbMock:
                         {'op': 'remove', 'old': 'Что происходит при 4-м запросе через UI?'},
                         {'op': 'add', 'section': 'Термины', 'text': '- Токен сброса — одноразовая ссылка на 30 минут'}]}
 
-    # ----- видео -----
-    def vid_frames(self, call):
-        return {'frames': [{'n': int(m.group(1)), 'skip': k in self.vid_skip, 'screen': 'Экран в ' + m.group(2), 'details': 'Описание кадра ' + m.group(1)}
-                           for k, m in enumerate(re.finditer(r'кадр (\d+) — \[([\d:]+)\]', call.prompt))]}
-
-
 def install(model, **opts):
     """Подключает мок к модели страницы: разбор документов, сводки, справка, паспорт. Возвращает KbMock для настройки и счётчиков."""
     kb = KbMock(model)
@@ -294,7 +287,7 @@ def install(model, **opts):
         setattr(kb, k, v)
     model.on('promptKbSplit', kb.split).on('promptKbSynth', kb.synth).on('promptKbSynthPart', kb.synth_part).on('promptKbCondense', kb.condense)
     model.on('promptHelp', kb.help).on('promptHelpExpand', kb.expand)
-    model.on('promptPassportFull', kb.passport_full).on('promptPassportDelta', kb.passport_delta).on('promptVidFrames', kb.vid_frames)
+    model.on('promptPassportFull', kb.passport_full).on('promptPassportDelta', kb.passport_delta)
     model.kb = kb
     return kb
 

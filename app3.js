@@ -70,7 +70,6 @@ function caseUI(uid) {
 }
 const anyEditing = () => [...S.caseUI.values()].some((u) => u.mode !== 'view' || u.busy);
 const ICON = {
-  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>',
   x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   eye: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
@@ -237,7 +236,6 @@ function renderDocs() {
     : (!list.length ? `Загрузите ТЗ и другие документы для этого запуска — ${what.toLowerCase()} пойдёт по ним.` : `${what} идёт по этим документам.`) + (prod ? ' ' + kbRunInfo() : '');
   const kbLink = !help && prod && S.kb.loaded ? ' <button class="link" type="button" data-docs-act="kb">Открыть базу знаний</button>' : '';
   $('#docs-note').innerHTML = esc(text + kbN) + kbLink;
-  if (help) { renderMatList(); renderHelpCount(); }
 }
 /* ---------- расхождения документа с другими документами продукта ---------- */
 // Расхождения хранятся в сводках разделов. Документ участвует, если его имя есть в строке расхождения;
@@ -1146,23 +1144,22 @@ function renderHelp(force) {
           <textarea id="help-input" rows="2" placeholder="Например: как пользователь попадает на экран «Новый пароль»? Enter — отправить, Shift+Enter — новая строка"></textarea>
           <div class="help-acts"><span class="hint" id="help-note"></span><button class="btn accent" type="button" id="help-send" data-act="help-send">Спросить</button></div></div>
         <div id="help-open"></div></div>
-      <div id="mat-pane" hidden></div></div>`;
+      </div>`;
     $('#help-input').value = H.draft || '';
     $('#kb-q').value = S.kb.q || '';
   }
-  const view = ['qa', 'mat'].includes(S.helpView) ? S.helpView : 'blocks';
+  const view = S.helpView === 'qa' ? 'qa' : 'blocks';
   const p = curProduct(), st = kbStats();
   const conf = S.kb.index.blocks.reduce((a, b) => a + (b.conf || 0), 0);
   const kb = [st.blocks ? `разделов ${st.blocks}` : '', conf ? `расхождений между документами ${conf}` : '', st.passport ? `знания о продукте ${fmtKChars(st.passport)}` : 'знаний о продукте пока нет', `документов ${st.docs}`, st.cases ? `тест-кейсов ${st.cases}` : '', st.checklist ? `пунктов чек-листа ${st.checklist}` : '', st.ctx ? 'доп. контекст QA' : ''].filter(Boolean).join(' · ');
   $('#help-head').innerHTML = `<div class="sec-h"><h3>База знаний</h3>${p ? `<span class="muted small">продукт «${esc(p.name)}»</span>` : ''}
-      <div class="help-views" role="tablist" aria-label="Разделы базы знаний">${[['blocks', 'Разделы', st.blocks], ['qa', 'Вопросы', H.items.length], ['mat', 'Материалы', vidDocs().length]].map(([id, n, c]) => `<button type="button" role="tab" aria-selected="${view === id}" data-act="help-view" data-v="${id}">${n}${c ? `<span class="cnt">${c}</span>` : ''}</button>`).join('')}</div>
+      <div class="help-views" role="tablist" aria-label="Разделы базы знаний">${[['blocks', 'Разделы', st.blocks], ['qa', 'Вопросы', H.items.length], ].map(([id, n, c]) => `<button type="button" role="tab" aria-selected="${view === id}" data-act="help-view" data-v="${id}">${n}${c ? `<span class="cnt">${c}</span>` : ''}</button>`).join('')}</div>
       ${view === 'qa' && H.items.length ? '<span class="sp"><button class="link" type="button" data-act="help-clear">Очистить историю</button></span>' : ''}</div>
-    <p class="hint">${view === 'mat' ? 'Расшифровки созвонов и демо, которые уже были добавлены в продукт. Новые видео не загружаются; расшифровка, как и любой документ, учитывается в базе знаний, ответах и генерации.' : view === 'qa' ? 'Агент отвечает только по базе знаний продукта и указывает источники. Чего в базе нет, он не придумывает — так и скажет. История вопросов видна только вам.' : 'При загрузке документа агент разбирает его по функциональным разделам и сводит сведения из всех документов раздела в одну сводку — с источниками и расхождениями между документами. Сводки учитываются в ответах и при генерации чек-листов и тест-кейсов. Разделы общие для команды.'}</p>
+    <p class="hint">${view === 'qa' ? 'Агент отвечает только по базе знаний продукта и указывает источники. Чего в базе нет, он не придумывает — так и скажет. История вопросов видна только вам.' : 'При загрузке документа агент разбирает его по функциональным разделам и сводит сведения из всех документов раздела в одну сводку — с источниками и расхождениями между документами. Сводки учитываются в ответах и при генерации чек-листов и тест-кейсов. Разделы общие для команды.'}</p>
     <p class="kb-line"><b>В базе знаний:</b> ${esc(kb)}</p>`;
   $('#kb-pane').hidden = view !== 'blocks';
   $('#qa-pane').hidden = view !== 'qa';
-  $('#mat-pane').hidden = view !== 'mat';
-  if (view === 'blocks') renderKbPane(force); else if (view === 'mat') renderMat(); else renderQaPane(force);
+  if (view === 'blocks') renderKbPane(force); else renderQaPane(force);
 }
 function renderQaPane(force) {
   const H = S.help;
@@ -1180,90 +1177,6 @@ function renderQaPane(force) {
   $('#help-open').innerHTML = oq.length ? `<div class="exp-card"><div class="exp-row"><b>Открытые вопросы продукта · ${oq.length}</b><span class="muted small">общие для команды</span></div>
     <p class="hint">Ответ попадёт в знания о продукте (раздел «Уточнения команды»), и агент начнёт учитывать его в ответах.</p>
     <ul class="open-q">${oq.map((o, i) => `<li><p>${esc(o.text)}</p>${H.ans[o.line] != null ? `<div class="oq-ans"><input type="text" data-help-ans="${i}" value="${esc(H.ans[o.line])}" placeholder="Ответ аналитика или решение команды" aria-label="Ответ на открытый вопрос"><button class="btn accent sm" type="button" data-act="help-ans-save" data-i="${i}">Сохранить</button><button class="btn sm" type="button" data-act="help-ans-cancel" data-i="${i}">Отмена</button></div>` : `<button class="link" type="button" data-act="help-ans-open" data-i="${i}">Ответить</button>`}</li>`).join('')}</ul></div>` : '';
-}
-/* ---------- материалы базы знаний: видео → расшифровка (документ продукта) ---------- */
-function renderMat() {
-  const el = $('#mat-pane');
-  if (!el || el.hidden || S.settings.mode !== 'help') { if (S.settings.mode === 'help' && $('#help-head')) renderHelpCount(); return; }
-  renderHelpCount();
-  if (!S.productId || !S.caps.db) { el.innerHTML = emptyHTML('Материалы доступны внутри продукта', 'Выберите или создайте продукт: расшифровки видео сохраняются в его документах и идут в базу знаний и генерацию.'); return; }
-  if (!$('#mat-asr')) {
-    el.innerHTML = `<div class="mat-widget">
-      <div class="mat-h"><span class="mat-ic">${ICON.video}</span><div><b>Материалы</b><span class="muted small">Расшифровки видео, созданные раньше. Новые видео не загружаются.</span></div></div>
-      <div id="mat-asr"></div>
-      <div id="mat-jobs"></div>
-    </div>
-    <div id="mat-list"></div>`;
-  }
-  if (!S.mat.checked && !S.mat.checking) asrDetect();
-  renderMatAsr(); renderMatJobs(); renderMatList();
-}
-function renderMatAsr() {
-  const el = $('#mat-asr');
-  if (!el) return;
-  if (isTyping(el)) return;
-  const M = S.mat, st = M.asr, m = ASR_MODELS[M.model] || ASR_MODELS.small;
-  const via = M.route === 'ext' ? 'через загрузчик в этом браузере' : 'через приложение Claude';
-  let kind = 'warn', line = '';
-  if (M.checking) line = 'Проверяю мост qa-pro-bridge…';
-  else if (!M.route) { kind = 'err'; line = M.routeErr || 'Мост qa-pro-bridge не найден.'; }
-  else if (st?.state === 'loading') line = `${st.step === 'runtime' ? 'Скачиваю распознаватель (≈ 36 МБ)' : `Скачиваю модель ${st.title || m.title} (${st.size || m.size})`}${st.pct ? `: ${st.pct}%` : '…'} Это нужно только один раз.`;
-  else if (st?.state === 'error') { kind = 'err'; line = st.error || 'Распознаватель не запустился.'; }
-  else if (st?.state === 'ready' && st.model === M.model) { kind = 'ok'; line = `${m.title} готова · мост ${M.bridgeVer} ${via}.`; }
-  else line = `Модель ${m.title} (${m.size}) скачается при первом видео — или нажмите «Скачать модель». Мост ${M.bridgeVer} ${via}.`;
-  const busy = M.checking || st?.state === 'loading';
-  el.innerHTML = `<div class="mat-asr ${kind}">
-      <div class="mat-asr-row"><span class="mat-dot" aria-hidden="true"></span><div><b>Распознавание речи — на этом компьютере</b><span class="small">${esc(line)}</span></div>
-        <button class="link" type="button" data-act="mat-check" ${M.checking ? 'disabled' : ''}>Проверить</button></div>
-      ${st?.state === 'loading' && st.pct ? `<div class="mat-bar"><i style="width:${Math.max(3, st.pct)}%"></i></div>` : ''}
-      <div class="mat-opts">
-        <label><span class="small muted">Модель</span><select id="mat-model">${Object.entries(ASR_MODELS).map(([k, x]) => `<option value="${k}" ${M.model === k ? 'selected' : ''}>${x.title} — ${x.note}, ${x.size}</option>`).join('')}</select></label>
-        <label><span class="small muted">Язык речи</span><select id="mat-lang">${Object.entries(ASR_LANGS).map(([k, x]) => `<option value="${k}" ${M.lang === k ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
-        ${M.route && !(st?.state === 'ready' && st.model === M.model) ? `<button class="btn sm" type="button" data-act="mat-prepare" ${busy || M.busy ? 'disabled' : ''}>Скачать модель</button>` : ''}
-      </div>
-      ${!M.route && !M.checking ? `<div class="mat-opts"><button class="btn sm" type="button" data-act="bridge-mcpb">Скачать мост (.mcpb)</button>${inDesktopApp ? '' : '<button class="btn sm" type="button" data-act="sfera-zip">Скачать загрузчик (.zip)</button>'}<span class="small muted">${inDesktopApp ? 'Откройте скачанный файл — приложение Claude предложит установить мост; затем перезапустите приложение.' : 'Мост устанавливается в приложение Claude для компьютера (откройте скачанный файл), загрузчик — в этот браузер: chrome://extensions → «Загрузить распакованное».'}</span></div>` : ''}
-    </div>`;
-}
-function renderMatJobs() {
-  const el = $('#mat-jobs');
-  if (!el) return;
-  const J = S.mat.jobs;
-  const order = VID_STAGES.map((x) => x[0]);
-  el.innerHTML = J.map((j) => {
-    const cur = order.indexOf(j.stage);
-    const steps = j.stage === 'error' ? '' : `<ol class="mat-steps">${VID_STAGES.map(([k, n], i) => `<li class="${cur > i ? 'done' : cur === i ? 'cur' : ''}">${n}</li>`).join('')}</ol>`;
-    return `<div class="mat-up${j.stage === 'error' ? ' err' : ''}"><div class="mat-up-row"><b title="${esc(j.name)}">${esc(j.name)}</b><span class="muted small">${fmtBytes(j.size)}${j.duration ? ' · ' + fmtVidDur(j.duration) : ''}</span>
-        <button class="link" type="button" data-act="mat-cancel" data-id="${j.id}">${j.stage === 'error' ? 'Скрыть' : j.stage === 'queue' ? 'Убрать' : 'Остановить'}</button></div>
-      ${steps}
-      ${j.stage === 'error' ? `<span class="small">${esc(j.error)}</span>` : `${j.stage !== 'queue' ? `<div class="mat-bar"><i style="width:${Math.max(3, Math.min(100, ((Math.max(cur, 0) + (j.pct || 0) / 100) / order.length) * 100)).toFixed(1)}%"></i></div>` : ''}<span class="small muted">${esc(j.note || '')}</span>`}</div>`;
-  }).join('') + (J.some((j) => j.stage !== 'error' && j.stage !== 'queue') ? '<p class="hint warn-hint">Не закрывайте и не перезагружайте окно QA pro, пока идёт разбор: видео не сохраняется и обрабатывается прямо здесь.</p>' : '');
-}
-function renderMatList() {
-  const el = $('#mat-list');
-  if (!el) return;
-  const list = vidDocs();
-  if (!list.length) { el.innerHTML = emptyHTML('Расшифровок пока нет', 'Загрузите запись созвона с аналитиком или демо продукта: агент распознает речь, опишет экраны и добавит расшифровку в документы продукта.'); return; }
-  const kbState = (d) => (S.kb.index.docs?.[d.id] ? 'в базе знаний' : S.kb.queue.some((x) => x.id === d.id) || (S.kb.job.busy && S.kb.job.doc === d.name) ? 'разбирается в базу знаний…' : 'ещё не в базе знаний');
-  el.innerHTML = `<div class="mat-list"><div class="mat-list-h"><b>Расшифровки</b><span class="cnt">${list.length}</span><span class="muted small">— документы продукта: идут в генерацию и в базу знаний</span></div>
-    ${list.map((d) => { const v = d.video || {}; const inKb = !!S.kb.index.docs?.[d.id]; return `<article class="mat-row">
-      <span class="mat-ic sm" aria-hidden="true">${ICON.video}</span>
-      <div class="mat-meta"><b class="mat-title" title="${esc(d.name)}">${esc(d.name.replace(/^Видео — /, '').replace(/\.md$/, ''))}</b>
-        <span class="muted small">${[v.duration ? fmtVidDur(v.duration) : '', d.status === 'loading' ? 'загрузка…' : fmtKChars(d.chars), v.screens ? `экранов ${v.screens}` : '', d.addedAt ? fmtDate(d.addedAt) : '', kbState(d)].filter(Boolean).join(' · ')}</span></div>
-      <div class="mat-acts"><button class="link" type="button" data-act="mat-open" data-id="${esc(d.id)}" ${d.status === 'ready' ? '' : 'disabled'}>Открыть</button>${!inKb && d.status === 'ready' && !S.kb.queue.some((x) => x.id === d.id) ? `<button class="link" type="button" data-act="mat-kb" data-id="${esc(d.id)}">В базу знаний</button>` : ''}<button class="link danger" type="button" data-act="mat-del" data-id="${esc(d.id)}">Удалить</button></div>
-    </article>`; }).join('')}</div>`;
-}
-function renderHelpCount() {
-  const b = document.querySelector('#help-head [data-act="help-view"][data-v="mat"]');
-  const n = vidDocs().length;
-  if (b) b.innerHTML = 'Материалы' + (n ? `<span class="cnt">${n}</span>` : '');
-}
-function matOpen(id) {
-  const d = S.docs.find((x) => x.id === id);
-  if (!d || d.status !== 'ready') return;
-  S.mat.open = id;
-  $('#mat-title').textContent = d.name.replace(/\.md$/, '');
-  $('#mat-body').innerHTML = `<div class="md mat-doc">${mdHTML(d.text)}</div>`;
-  openDialog('mat-ov');
 }
 /* ---------- разделы базы знаний ---------- */
 function kbRelatedCases(blk) {
@@ -1651,7 +1564,7 @@ function downloadStandalone() {
 }
 const STANDALONE_NOTE = (what) => `<div class="banner info"><div><b>${what} работают в автономной версии.</b> На claude.ai страница изолирована от интернета, поэтому внешние сервисы отсюда недоступны. Автономная версия QA pro — один HTML-файл: откройте его у себя или разместите на внутреннем веб-сервере. Настройки и ключи там вводятся заново — они не покидают браузер.<div style="margin-top:8px"><button class="btn accent" type="button" data-act="standalone">Скачать автономную версию</button></div></div></div>`;
 function openDialog(id) { $('#' + id).hidden = false; $('#' + id + ' .ov-card')?.focus(); }
-function closeDialog(id) { $('#' + id).hidden = true; if (id === 'mat-ov') S.mat.open = null; }
+function closeDialog(id) { $('#' + id).hidden = true; }
 
 /* ================= продукт: создание и переименование ================= */
 function openProdDialog(mode) {
@@ -2056,12 +1969,6 @@ function onTabClick(e) {
     case 'go-tab': if (S.settings.mode === 'help') leaveHelp(); S.tab = el.dataset.tab; renderTabs(); renderTab(); saveSession(); break;
     case 'pp-toggle': S.prodOpen = !S.prodOpen; lsSet('qapro.prodOpen', S.prodOpen); renderProduct(true); break;
     case 'help-send': sendHelp(); break;
-    case 'mat-open': matOpen(el.dataset.id); break;
-    case 'mat-check': S.mat.checked = false; asrDetect(); break;
-    case 'mat-prepare': asrPrepareNow(); break;
-    case 'mat-cancel': vidCancel(el.dataset.id); break;
-    case 'mat-kb': { const d = S.docs.find((x) => x.id === el.dataset.id); if (d) { kbQueue(d); renderMatList(); } break; }
-    case 'mat-del': { const d = S.docs.find((x) => x.id === el.dataset.id); if (d && armed(el, 'Удалить из продукта?')) vidDelete(d); break; }
     case 'help-view': S.helpView = el.dataset.v; lsSet('qapro.kbView', S.helpView); renderHelp(true); if (S.helpView === 'qa') $('#help-input')?.focus(); break;
     case 'kb-fold': S.kbFold = !S.kbFold; lsSet('qapro.kbFold', S.kbFold); renderKbPane(true); $('.kb-list-h .fold-btn')?.focus(); break;
     case 'kb-open': S.kb.open = el.dataset.id; S.kb.edit = null; S.helpView = 'blocks'; lsSet('qapro.kbView', 'blocks'); renderHelp(true); $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
@@ -2564,7 +2471,7 @@ function bind() {
   });
   body.addEventListener('toggle', (e) => { if (e.target.matches?.('.kb-parts')) S.kb.partsOpen = e.target.open ? S.kb.open : null; }, true);
   $('#prod-import-file').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importProduct(f); e.target.value = ''; });
-  body.addEventListener('change', (e) => { if (e.target.id === 'mat-model' || e.target.id === 'mat-lang') { S.mat[e.target.id === 'mat-model' ? 'model' : 'lang'] = e.target.value; lsSet(e.target.id === 'mat-model' ? 'qapro.asrModel' : 'qapro.asrLang', e.target.value); e.target.blur(); renderMatAsr(); return; } if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+  body.addEventListener('change', (e) => { if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
   body.addEventListener('keydown', (e) => {
     if (e.target.id === 'sec-in') { if (e.key === 'Enter') { e.preventDefault(); body.querySelector('[data-act="sec-save"]')?.click(); } else if (e.key === 'Escape') { e.preventDefault(); S.secEdit = null; renderTab(); } }
     else if (e.target.classList?.contains('pc-row') && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.target.click(); }
@@ -2680,6 +2587,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, addVideoDoc, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

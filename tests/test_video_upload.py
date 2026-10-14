@@ -1,4 +1,4 @@
-"""Видео не загружается в QA pro: ни через общую загрузку, ни через «Материалы»."""
+"""Видео не загружается в QA pro: ни через общую загрузку, ни через вкладку «Материалы» (её больше нет)."""
 
 
 def test_upload_picker_does_not_accept_video(app):
@@ -13,8 +13,6 @@ def test_dropped_video_is_rejected_with_a_message(app, tmp_path):
     assert not app.state("S.docs.some((d) => d.name === 'demo.mp4')")
 
 
-def test_materials_tab_has_no_upload_zone(app):
+def test_materials_tab_is_gone(app):
     app.mode('help')
-    app.page.click('[data-act=help-view][data-v=mat]')
-    app.wait_idle()
-    assert app.count('#mat-drop') == 0 and app.count('#mat-file') == 0
+    assert app.count('[data-act=help-view][data-v=mat]') == 0 and app.count('#mat-drop') == 0

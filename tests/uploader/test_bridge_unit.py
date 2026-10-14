@@ -1,7 +1,7 @@
 """Мост qa-pro-bridge без браузера: настоящие Node-процессы (обёртка MCP и фоновое ядро), «загрузчик» — WebSocket-клиент из тестов.
 
 Что проверяется: список инструментов, задания (очередь, доставка, результат, отмена, хранение на диске), переживание выхода из приложения Claude,
-защита порта (секрет, Origin, только 127.0.0.1), вызовы страницы через загрузчик, ошибки распознавания речи без модели.
+защита порта (секрет, Origin, только 127.0.0.1), переход на новое ядро.
 """
 import json
 import os
@@ -34,14 +34,14 @@ def job_msg(ws):
 
 # ---------- инструменты и манифест ----------
 def test_tool_names(bridge):
-    assert {t['name'] for t in bridge.tools()} == {'ping', 'sfera_upload', 'sfera_job', 'sfera_cancel', 'asr_prepare', 'asr_status', 'asr_transcribe'}
+    assert {t['name'] for t in bridge.tools()} == {'ping', 'sfera_upload', 'sfera_job', 'sfera_cancel'}
 
 
 def test_manifest_lists_the_same_tools(bridge):
     assert {t['name'] for t in MANIFEST['tools']} == {t['name'] for t in bridge.tools()}
 
 
-@pytest.mark.parametrize('name,ro', [('ping', True), ('sfera_job', True), ('asr_status', True), ('sfera_upload', False), ('sfera_cancel', False), ('asr_prepare', False)])
+@pytest.mark.parametrize('name,ro', [('ping', True), ('sfera_job', True), ('sfera_upload', False), ('sfera_cancel', False)])
 def test_only_reading_tools_are_marked_read_only(bridge, name, ro):
     """Приложение Claude не спрашивает подтверждение только у инструментов чтения (ping, sfera_job)."""
     t = next(t for t in bridge.tools() if t['name'] == name)
@@ -66,16 +66,6 @@ def test_unknown_method_is_an_error(bridge):
 def test_unknown_tool_is_a_tool_error(bridge):
     r = bridge.call('no_such_tool')
     assert r['isError'] and 'Неизвестный инструмент' in r['content'][0]['text']
-
-
-def test_page_requirements_are_met_by_shipped_versions():
-    """QA pro требует мост 1.2.0+ и загрузчик 1.5.0+ (README): поставляемые версии не ниже."""
-    need_bridge = re.search(r"VID_MIN_BRIDGE = '([\d.]+)'", APP2).group(1)
-    need_up = re.search(r"VID_MIN_UPLOADER = '([\d.]+)'", APP2).group(1)
-    ver = lambda s: tuple(int(x) for x in s.split('.'))  # noqa: E731
-    with open(os.path.join(ROOT, 'uploader', 'qa-pro-sfera-uploader', 'manifest.json'), encoding='utf-8') as f:
-        up = json.load(f)['version']
-    assert ver(MANIFEST['version']) >= ver(need_bridge) and ver(up) >= ver(need_up)
 
 
 def test_host_name_is_built_from_display_name():
@@ -424,35 +414,6 @@ def test_garbage_secret_gets_403_not_a_hang(bridge):
     assert head.startswith(b'HTTP/1.1 403')
 
 
-# ---------- вызовы страницы через загрузчик ----------
-def rpc_via_ext(ws, tool, args=None, rid='r1'):
-    ws.send({'t': 'rpc', 'rid': rid, 'tool': tool, 'args': args or {}})
-    return ws.wait(lambda m: m['t'] == 'rpc_result' and m['rid'] == rid)
-
-
-def test_page_can_ping_through_uploader(bridge):
-    r = rpc_via_ext(bridge.ws(), 'ping')
-    assert r['ok'] and r['result']['name'] == 'qa-pro-bridge'
-
-
-def test_page_can_ask_speech_status_through_uploader(bridge):
-    r = rpc_via_ext(bridge.ws(), 'asr_status')
-    assert r['ok'] and r['result']['state'] == 'idle'
-
-
-@pytest.mark.parametrize('tool', ['sfera_upload', 'sfera_job', 'sfera_cancel', 'no_such'])
-def test_page_cannot_call_other_tools_through_uploader(bridge, tool):
-    """Из браузера пускаются только ping и asr_*: задания Сферы страница ведёт через загрузчик, а не через мост."""
-    r = rpc_via_ext(bridge.ws(), tool, {'cases': cases()})
-    assert r['ok'] is False and 'Недоступно из браузера' in r['error']
-    assert bridge.tool('ping')['pending'] == 0
-
-
-def test_page_call_errors_come_back_with_code(bridge):
-    r = rpc_via_ext(bridge.ws(), 'asr_transcribe', {'audio': 'AAAA'})
-    assert r['ok'] is False and r['code'] == 'not_ready'
-
-
 # ---------- порт занят / старое ядро ----------
 class _Foreign(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -512,86 +473,6 @@ def test_old_background_core_is_replaced(make_bridge):
     assert seen['token'] == token
     p = b.tool('ping')
     assert p['version'] == MANIFEST['version'] and p['core'] == 'background'
-
-
-# ---------- распознавание речи: то, что проверяется без модели ----------
-def asr_wait_error(br):
-    return until(lambda: (lambda s: s if s['state'] != 'loading' else None)(br.tool('asr_status')), timeout=20, what='конец подготовки распознавателя')
-
-
-class _Registry(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
-
-    def do_GET(self):
-        self.server.hits.append(self.path)
-        body = 'это не пакет npm'.encode()
-        self.send_response(200)
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-@pytest.fixture
-def fake_registry():
-    srv = HTTPServer(('127.0.0.1', 0), _Registry)
-    srv.hits = []
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    yield srv
-    srv.shutdown()
-    srv.server_close()
-
-
-def test_speech_is_idle_until_prepared(bridge):
-    s = bridge.tool('asr_status')
-    assert s['state'] == 'idle' and s['models']['small']['size'] == '≈ 250 МБ' and s['models']['base']['size'] == '≈ 80 МБ'
-
-
-def test_transcribe_before_prepare_asks_to_prepare(bridge):
-    r = bridge.call('asr_transcribe', {'audio': 'AAAA'})
-    assert r['isError'] and 'asr_prepare' in r['content'][0]['text']
-
-
-@pytest.mark.parametrize('model,title', [('base', 'Whisper base'), ('small', 'Whisper small'), ('huge', 'Whisper small')])
-def test_prepare_chooses_model_and_falls_back_to_small(make_bridge, fake_registry, model, title):
-    b = make_bridge(env={'QA_PRO_BRIDGE_NPM': f'http://127.0.0.1:{fake_registry.server_address[1]}'})
-    s = b.tool('asr_prepare', {'model': model})
-    assert s['state'] == 'loading' and s['title'] == title
-
-
-def test_speech_runtime_with_wrong_hash_is_rejected(make_bridge, fake_registry):
-    """Распознаватель из npm ставится только с проверкой хэша: подменённый пакет не принимается."""
-    b = make_bridge(env={'QA_PRO_BRIDGE_NPM': f'http://127.0.0.1:{fake_registry.server_address[1]}'})
-    b.tool('asr_prepare', {'model': 'base'})
-    s = asr_wait_error(b)
-    assert s['state'] == 'error' and 'не прошёл проверку подлинности' in s['error']
-    assert fake_registry.hits and not os.path.exists(os.path.join(b.dir, 'runtime', 'tf-4.3.0_ort-1.31.0-dev_r2', '.ready'))
-
-
-def test_speech_registry_unreachable_is_explained(make_bridge):
-    b = make_bridge(env={'QA_PRO_BRIDGE_NPM': f'http://127.0.0.1:{free_port()}'})
-    b.tool('asr_prepare')
-    s = asr_wait_error(b)
-    assert s['state'] == 'error' and 'Не удалось скачать распознаватель' in s['error'] and 'зеркало' in s['error']
-
-
-def test_transcribe_after_failed_prepare_reports_the_reason(make_bridge):
-    b = make_bridge(env={'QA_PRO_BRIDGE_NPM': f'http://127.0.0.1:{free_port()}'})
-    b.tool('asr_prepare')
-    err = asr_wait_error(b)['error']
-    r = b.call('asr_transcribe', {'audio': 'AAAA'})
-    assert r['isError'] and r['content'][0]['text'] == err
-
-
-def test_ping_tells_speech_state(bridge):
-    asr = bridge.tool('ping')['asr']
-    assert asr['state'] == 'idle' and asr['transcribed'] == {'chunks': 0, 'seconds': 0}
-
-
-@pytest.mark.skip(reason='распознавание речи по-настоящему: нужны распознаватель из npm (≈36 МБ), модель Whisper (≈80 МБ, Hugging Face) и звуковые файлы — в окружении и репозитории их нет (старый t/bridge_asr.js брал их из /tmp)')
-def test_real_whisper_transcribes_speech(bridge):
-    pass
-
 
 def test_wrapper_ignores_notifications_and_bad_lines(bridge):
     bridge.raw('{"jsonrpc":"2.0","method":"notifications/initialized"}')

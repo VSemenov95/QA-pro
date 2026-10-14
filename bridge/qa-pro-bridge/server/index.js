@@ -69,7 +69,7 @@ async function coreCall(tool, args) {
   if (mode === 'busy') throw new Error(`Порт ${PORT} занят другой программой. Укажите другой порт в настройках расширения «QA pro — мост» в приложении Claude и тот же порт в настройках загрузчика.`);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await request('POST', '/rpc', { tool, args }, { token: readToken(), timeout: tool === 'asr_transcribe' ? 170000 : 30000 });
+      const r = await request('POST', '/rpc', { tool, args }, { token: readToken(), timeout: 30000 });
       if (r.status === 403) throw Object.assign(new Error('Фоновое ядро моста не приняло секрет — перезапустите приложение Claude.'), { fatal: true });
       if (!r.json) throw new Error('Ядро моста ответило непонятно.');
       if (!r.json.ok) throw Object.assign(new Error(r.json.error || 'Ошибка моста'), { fatal: true });
@@ -120,24 +120,6 @@ const TOOLS = [
       required: ['jobId'], additionalProperties: false,
     },
     annotations: { title: 'Состояние задания', readOnlyHint: true, openWorldHint: false },
-  },
-  {
-    name: 'asr_prepare', title: 'Подготовить распознавание речи',
-    description: 'Подготовить распознавание речи на этом компьютере (Whisper): при первом запуске скачать распознаватель и модель. Возвращает состояние; дальше — asr_status.',
-    inputSchema: { type: 'object', properties: { model: { type: 'string', enum: ['small', 'base'], description: 'small — точнее (≈250 МБ), base — быстрее (≈80 МБ)' } }, additionalProperties: false },
-    annotations: { title: 'Подготовить распознавание речи', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-  },
-  {
-    name: 'asr_status', title: 'Состояние распознавания речи',
-    description: 'Состояние распознавателя: idle, loading (скачивание и запуск, с прогрессом), ready, error.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { title: 'Состояние распознавания речи', readOnlyHint: true, openWorldHint: false },
-  },
-  {
-    name: 'asr_transcribe', title: 'Распознать речь',
-    description: 'Распознать фрагмент речи до минуты: звук 16 кГц моно в кодировке G.711 μ-law (base64). Возвращает текст. Звук обрабатывается на этом компьютере и никуда не отправляется.',
-    inputSchema: { type: 'object', properties: { audio: { type: 'string', description: 'base64, μ-law 8 бит, 16000 Гц, моно' }, language: { type: 'string', description: 'russian (по умолчанию), english или auto' } }, required: ['audio'], additionalProperties: false },
-    annotations: { title: 'Распознать речь', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'sfera_cancel', title: 'Отменить задание',

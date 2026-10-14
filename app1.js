@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', video: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -170,7 +170,6 @@ const S = {
   upd: { file: null },   // актуализация: файл с тест-кейсами
   help: { pid: null, items: [], loaded: false, busy: false, draft: '', ctl: null, error: '', ans: {} },   // база знаний: вопросы и ответы
   helpView: lsGet('qapro.kbView', 'blocks'),    // база знаний: «Разделы», «Вопросы» или «Материалы»
-  mat: { jobs: [], busy: false, route: '', routeErr: '', bridgeVer: '', checking: false, checked: false, asr: null, model: lsGet('qapro.asrModel', 'small'), lang: lsGet('qapro.asrLang', 'russian'), open: null },   // материалы базы знаний: видео .mp4 → расшифровка
   kb: { pid: null, index: { blocks: [], docs: {} }, loaded: false, cache: {}, open: null, q: '', queue: [], synthQ: [], job: { busy: false, log: [], error: '', ctl: null, doc: '' }, edit: null },
   // указания агенту: правила, шаблоны API/UI/E2E, формат экспорта
   cfg: { rules: '', tpl: { api: { ...DEFAULT_TPL.api }, ui: { ...DEFAULT_TPL.ui }, e2e: { ...DEFAULT_TPL.e2e } }, exportFormat: '', reviewRules: '' },

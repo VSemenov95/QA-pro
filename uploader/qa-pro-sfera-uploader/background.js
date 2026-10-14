@@ -245,7 +245,6 @@ async function bridgeConnect() {
   w.onclose = () => {
     if (bws === w) bws = null;
     if (bwsState.connected) bwsState = { connected: false, at: Date.now(), version: '', error: '' };
-    for (const [rid, cb] of rpcWaits) { rpcWaits.delete(rid); cb({ ok: false, error: 'Связь с мостом прервалась — повторите.', code: 'bridge_lost' }); }
   };
   w.onerror = () => { bwsState = { ...bwsState, connected: false, at: Date.now(), error: 'Мост не отвечает' }; };
 }
@@ -271,35 +270,8 @@ async function tickQaPro() {
   try { tabs = await chrome.tabs.query({ url: patterns }); } catch { return; }
   for (const t of tabs) chrome.tabs.sendMessage(t.id, { type: 'QA_TICK' }).catch(() => {});
 }
-// Вызовы моста за страницу QA pro в Chrome (распознавание речи из видео): страница → bridge.js → сюда → мост.
-// Звук идёт только на этот компьютер (127.0.0.1), в очередь не кладётся: ответ нужен сейчас или никогда.
-const RPC_TOOLS = new Set(['ping', 'asr_prepare', 'asr_status', 'asr_transcribe']);
-const rpcWaits = new Map();
-async function bridgeRpc(tool, args) {
-  if (!RPC_TOOLS.has(tool)) return { ok: false, error: 'Недоступно: ' + tool };
-  if ((await getSettings()).desktopBridge === false) return { ok: false, error: 'Связь с мостом выключена в настройках загрузчика.', code: 'no_bridge' };
-  for (let i = 0; i < 25 && !(bws && bws.readyState === WebSocket.OPEN); i++) {
-    if (!bws || bws.readyState !== WebSocket.CONNECTING) await bridgeConnect();
-    if (bws && bws.readyState === WebSocket.OPEN) break;
-    if (!bws && !bwsProbing) break; // моста нет
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  if (!bws || bws.readyState !== WebSocket.OPEN) return { ok: false, error: 'Мост qa-pro-bridge не запущен: откройте приложение Claude с установленным мостом.', code: 'no_bridge' };
-  const rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  return new Promise((resolve) => {
-    const t = setTimeout(() => { rpcWaits.delete(rid); resolve({ ok: false, error: 'Мост не ответил вовремя.', code: 'timeout' }); }, tool === 'asr_transcribe' ? 170000 : 30000);
-    rpcWaits.set(rid, (r) => { clearTimeout(t); resolve(r); });
-    try { bws.send(JSON.stringify({ t: 'rpc', rid, tool, args: args || {} })); }
-    catch (e) { rpcWaits.delete(rid); clearTimeout(t); resolve({ ok: false, error: 'Мост недоступен: ' + (e?.message || e), code: 'no_bridge' }); }
-  });
-}
 async function onBridgeMessage(m) {
   if (m.t === 'hb') { bridgeSend({ t: 'hb' }); tickQaPro(); return; }
-  if (m.t === 'rpc_result' && m.rid) {
-    const cb = rpcWaits.get(m.rid);
-    if (cb) { rpcWaits.delete(m.rid); cb(m.ok ? { ok: true, result: m.result } : { ok: false, error: String(m.error || 'Ошибка моста'), code: m.code || '' }); }
-    return;
-  }
   if (m.t === 'ack' && m.id) { outboxEdit((list) => list.filter((x) => !(x.id === m.id && x.t === m.kind))); return; }
   if (m.t === 'job' && m.id && Array.isArray(m.cases)) {
     const key = 'bridge:' + m.id;
@@ -350,7 +322,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (job) await setJob(id, { ...job, windowId });
           return sendResponse({ ok: true, jobId: id });
         }
-        case 'BRIDGE_RPC': return sendResponse(await bridgeRpc(String(msg.tool || ''), msg.args));
         case 'GET_JOB': return sendResponse({ ok: true, job: msg.jobId ? await getJob(msg.jobId) : null });
         case 'STATUS': {
           const { base, token, settings } = await sfera();

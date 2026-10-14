@@ -141,7 +141,7 @@ def test_follow_up_generation_steps_belong_to_cases_stage(claude_key_app):
     """fix (исправление после ревью), coverage (дописывание кейсов) и answers — это написание кейсов, а не служебные шаги."""
     api = Api(claude_key_app)
     set_stages(claude_key_app, generate='quick', aux='complex')
-    ask_steps(claude_key_app, ['fix', 'answers', 'coverage', 'video'])
+    ask_steps(claude_key_app, ['fix', 'answers', 'coverage', 'help'])
     assert models(api) == ['claude-haiku-5-5'] * 3 + ['claude-opus-5-5']
 
 
@@ -187,7 +187,7 @@ def test_chatgpt_selects_are_disabled_with_explanation(openai_app):
 
 
 # ---------- аккаунт Claude (возможность sample приложения) ----------
-def tiers(app, steps=('analyze', 'generate', 'review', 'help', 'coverage', 'fix', 'video'), **stage_kw):
+def tiers(app, steps=('analyze', 'generate', 'review', 'help', 'coverage', 'fix'), **stage_kw):
     set_stages(app, **stage_kw)
     app.model.reset()
     app.call("(async () => { for (const s of arg) await a.ask('x', { step: s, role: s === 'review' ? 'rev' : 'gen', tier: s === 'help' ? 'quick' : undefined, stage: s === 'coverage' ? 'aux' : undefined }); })()", list(steps))
@@ -200,14 +200,14 @@ def account_app(make_app):
 
 
 def test_account_main_tier_unless_step_has_its_own(account_app):
-    assert tiers(account_app, analyze='same', generate='same', review='same', aux='same') == ['default', 'default', 'default', 'quick', 'default', 'default', 'default']
+    assert tiers(account_app, analyze='same', generate='same', review='same', aux='same') == ['default', 'default', 'default', 'quick', 'default', 'default']
 
 
 def test_account_recommended_layout(account_app):
-    assert tiers(account_app, **RECOMMENDED) == ['default', 'default', 'quick', 'quick', 'quick', 'default', 'quick']
+    assert tiers(account_app, **RECOMMENDED) == ['default', 'default', 'quick', 'quick', 'quick', 'default']
 
 
 def test_account_stage_choice_beats_step_tier_and_economy_mode(account_app):
-    assert tiers(account_app, analyze='complex', generate='complex', review='complex', aux='complex') == ['complex'] * 7
+    assert tiers(account_app, analyze='complex', generate='complex', review='complex', aux='complex') == ['complex'] * 6
     account_app.call('S.settings.economy = true')
     assert tiers(account_app, analyze='default', generate='default', review='same', aux='same')[:2] == ['default', 'default']

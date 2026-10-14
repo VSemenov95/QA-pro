@@ -38,10 +38,7 @@ def uploader_zip(app, tmp_path):
 
 @pytest.fixture
 def bridge_mcpb(app, tmp_path):
-    app.mode('help')
-    app.page.click('#help-head [data-act=help-view][data-v=mat]')
-    app.page.wait_for_selector('#mat-asr [data-act=bridge-mcpb]')
-    name, path = save_download(app, lambda: app.page.click('#mat-asr [data-act=bridge-mcpb]'), tmp_path)
+    name, path = save_download(app, lambda: app.call('a.downloadBridge()'), tmp_path)
     return name, path
 
 
