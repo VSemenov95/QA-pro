@@ -137,7 +137,7 @@ def test_findings_of_missing_template_fields_are_found_without_model(app):
     app.page.click('[data-act=draft-review]')
     app.wait_idle()
     auto = app.state("S.run.findings.filter((f) => f.source === 'auto' && f.category === 'Шаблон').length")
-    assert auto == 4 and 'Нет полей шаблона' in app.text('.draft-list')
+    assert auto == 2 and 'Нет полей шаблона' in app.text('.draft-list')
 
 
 def test_second_review_checks_only_changed_cases(reviewed):

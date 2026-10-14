@@ -76,9 +76,8 @@ def test_fixes_apply_in_place(app):
     c = case('api', 'POST /x', steps=[('Вызвать POST /x с телом:', 'ok')], priority='High', request={'method': 'POST'})
     c['suites'] = []
     n, x = fixed(app, c)
-    assert n >= 3
+    assert n == 2  # блок request и приоритет; название и наборы здесь не меняются
     assert x['testCase']['priority'] == 'P3_HIGH' and 'request' not in x['testCase']
-    assert x['testCase']['title'].startswith('[BE] ')
 
 
 def test_critical_gets_smoke_in_fixes(app):

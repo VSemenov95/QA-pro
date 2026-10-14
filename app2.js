@@ -282,13 +282,13 @@ const allStrings = (v, out = []) => {
   else if (v && typeof v === 'object') Object.values(v).forEach((x) => allStrings(x, out));
   return out;
 };
-/* безопасные исправления: приоритет, метка, наборы, блок request у API; возвращает число исправлений */
+/* безопасные исправления: приоритет, наборы, блок request у API; возвращает число исправлений.
+   Метку в названии ревью не дописывает: вручную правленое название остаётся с предупреждением */
 function applyRuleFixes(c) {
   const tc = c.testCase || {};
   let n = 0;
   if (c.type === 'api' && 'request' in tc) { delete tc.request; n++; }
   if (typeof tc.priority === 'string' && tc.priority !== normPrio(tc.priority)) { tc.priority = normPrio(tc.priority); n++; }
-  if (!titleTagOk(c)) { tagTitle(tc, c.type); n++; }
   const suites = withCritical(tc.priority, c.suites || []);
   if (suites.length !== (c.suites || []).length) { c.suites = suites; n++; }
   return n;
