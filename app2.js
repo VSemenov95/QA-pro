@@ -257,6 +257,55 @@ const SCOPE_RX_DB = /\bSQL\b|\bSELECT\b[\s\S]{0,80}\bFROM\b|(^|[^а-яё])(БД|
 const SCOPE_RX_IFACE = /\b(GET|POST|PUT|PATCH|DELETE)\s+\/|\/api\b|\bAPI\b|запрос|ответ|экран|форм[а-яё]*|кнопк|страниц|интерфейс|\bUI\b|пользовател|через\s+(UI|API)/i;
 // проверка вне объёма: исследовательская, ручная подготовка данных в БД или отдельная проверка только БД (без действия через UI или API)
 const outOfScope = (t) => { const x = String(t || ''); return SCOPE_RX_EXPL.test(x) || SCOPE_RX_DBW.test(x) || (SCOPE_RX_DB.test(x) && !SCOPE_RX_IFACE.test(x)); };
+/* ---------- правила команды, которые проверяет код: модель может их не соблюсти ----------
+   applyRuleFixes — безопасные исправления на месте (без обращения к модели);
+   ruleViolations — нарушения, которые исправляет модель (замечание ревью, кнопка «Исправить»). */
+const SERVICE_STATE_RX = /(сервис|служб|консьюмер|потребител|обработчик|брокер|топик)[^.;\n]{0,80}?(?<![а-яёa-z])(запущен\w*|работа(ет|ют)|подписан\w*|подключ[её]н\w*|развёрнут\w*|развернут\w*|поднят\w*)|подписан\w*\s+на\s+(топик|очеред|канал)/i;
+const KAFKA_RX = /kafka|кафк|топик|topic/i;
+const HTTP_RX = /\b(GET|POST|PUT|PATCH|DELETE)\b/;
+const KAFKA_BANNED_RX = /подготовь(те)?\s+сообщение|отправить\s+подготовленное\s+сообщение/i;
+const API_CALL_FORM_RX = /^Вызвать (GET|POST|PUT|PATCH|DELETE) \S+/;
+const API_CALL_VERB_RX = /^(отправить|выполнить|сделать|вызвать)(\s|$)/i;
+const REQ_REF_RX = /\bR-\d{3}\b/;
+const RULE_TEXT = {
+  'service-state': 'В предусловиях или шагах описано состояние сервиса или подписки (запущен, подписан, подключён). Это окружение, оставьте только действия и проверки.',
+  'kafka-method': 'Сообщение в Kafka описано с HTTP-методом. Укажите только топик, ключ и тело сообщения.',
+  'kafka-steps': 'Шаги «Подготовь сообщение» и «Отправить подготовленное сообщение» не используются: сообщение указывается в шаге «Отправить сообщение:» с блоком кода.',
+  'api-call': 'Шаг вызова API не в форме «Вызвать МЕТОД ЭНДПОИНТ с телом:» с блоком кода для тела.',
+  'req-refs': 'В тексте кейса указаны идентификаторы требований (R-NNN). Связь с требованиями хранится отдельно.',
+  'scope': 'Кейс выходит за объём тестирования: исследовательская проверка, проверка только в БД или ручная подготовка данных в БД.',
+  'priority': 'Приоритет не из четырёх значений: P1_LOW, P2_MEDIUM, P3_HIGH, P4_CRITICAL.',
+};
+const allStrings = (v, out = []) => {
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) v.forEach((x) => allStrings(x, out));
+  else if (v && typeof v === 'object') Object.values(v).forEach((x) => allStrings(x, out));
+  return out;
+};
+/* безопасные исправления: приоритет, метка, наборы, блок request у API; возвращает число исправлений */
+function applyRuleFixes(c) {
+  const tc = c.testCase || {};
+  let n = 0;
+  if (c.type === 'api' && 'request' in tc) { delete tc.request; n++; }
+  if (typeof tc.priority === 'string' && tc.priority !== normPrio(tc.priority)) { tc.priority = normPrio(tc.priority); n++; }
+  if (!titleTagOk(c)) { tagTitle(tc, c.type); n++; }
+  const suites = withCritical(tc.priority, c.suites || []);
+  if (suites.length !== (c.suites || []).length) { c.suites = suites; n++; }
+  return n;
+}
+/* нарушения, которые код не исправляет: id правила и текст */
+function ruleViolations(c) {
+  const tc = c.testCase || {}, texts = allStrings(tc), out = [];
+  const add = (id) => out.push({ id, text: RULE_TEXT[id] });
+  if (texts.some((t) => SERVICE_STATE_RX.test(t))) add('service-state');
+  if (texts.some((t) => KAFKA_RX.test(t) && HTTP_RX.test(t))) add('kafka-method');
+  if (texts.some((t) => KAFKA_BANNED_RX.test(t))) add('kafka-steps');
+  if (c.type === 'api' && arrOf(tc.steps).some((s) => { const a = String(s?.action || ''); return API_CALL_VERB_RX.test(a) && HTTP_RX.test(a) && !API_CALL_FORM_RX.test(a); })) add('api-call');
+  if (texts.some((t) => REQ_REF_RX.test(t))) add('req-refs');
+  if (texts.some((t) => outOfScope(t))) add('scope');
+  if (typeof tc.priority === 'string' && !PRIOS.includes(tc.priority)) add('priority');
+  return out;
+}
 /* в тексте кейса нет отсылок к требованиям QA pro: связь с требованиями хранится отдельно (requirementIds) */
 const REQ_REF_RULE = /*@md:rules/req-refs.md*/'';
 const TITLE_TAG_RULE = /*@md:rules/title-tags.md*/'';
@@ -602,7 +651,7 @@ const stageTier = (stage) => { const v = S.settings.stages?.[stage]; return v ==
 const stageOf = (step, stage) => stage || STAGE_OF_STEP[step] || 'aux';
 // у подключения по ключу Claude уровень задаёт модель; у ChatGPT и Иннокода одна модель — уровень ничего не меняет
 const stageModel = (conn, tier) => { const pv = provOfConn(conn.id); return (tier && pv && PROVIDERS[pv].tiers?.[tier]) || ''; };
-async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other', stage } = {}) {
+async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other', stage, schema } = {}) {
   const v = ai || (role === 'gen' ? (S.run?.settings.genAI || S.settings.genAI) : aiValue('review'));
   const t = parseAI(v);
   const problem = aiProblem(v);
@@ -621,7 +670,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
     return res;
   }
   let usage = null;
-  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; }, model: stageModel(t.conn, stageTier(stageOf(step, stage))) });
+  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; }, model: stageModel(t.conn, stageTier(stageOf(step, stage))), schema });
   if (usage) meterAdd(step, usage.in, usage.out, usage.cached || 0);
   else meterAdd(step, estTok(full), estTok(JSON.stringify(res)));
   return res;
@@ -726,11 +775,17 @@ async function openaiCall(conn, messages, { tools, signal, onText, model }) {
   if (j.usage) Object.defineProperty(m, '__usage', { value: j.usage, enumerable: false });
   return m;
 }
-async function anthropicCall(conn, messages, { tools, signal, model }) {
+const SCHEMA_TOOL = 'submit_result';
+async function anthropicCall(conn, messages, { tools, signal, model, schema }) {
   const body = { model: model || conn.model, max_tokens: Number(conn.maxTokens) || 16000, system: SYS_JSON, messages };
   // Claude 5.x и новее не принимают нестандартную температуру (ответ 400); прежние поколения и чужие шлюзы — принимают
   if (!/^claude-[a-z]+-(?:[5-9]|\d\d)(?:\D|$)/.test(body.model)) body.temperature = 0.2;
   if (tools) body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema || { type: 'object', properties: {} } }));
+  // схема ответа: модель обязана вернуть результат через инструмент с этой схемой, свободного текста не будет
+  if (schema && !tools) {
+    body.tools = [{ name: SCHEMA_TOOL, description: 'Передай результат в структурированном виде.', input_schema: schema }];
+    body.tool_choice = { type: 'tool', name: SCHEMA_TOOL };
+  }
   const res = await httpJSON((conn.baseUrl || 'https://api.anthropic.com').replace(/\/+$/, '') + '/v1/messages', { headers: connHeaders(conn), body, signal, what: 'ИИ' });
   return res.json();
 }
@@ -739,15 +794,17 @@ async function runTool(tools, name, input, signal) {
   if (!t) return 'Error: unknown tool';
   try { const r = await t.execute(input || {}, { signal }); return typeof r === 'string' ? r : JSON.stringify(r); } catch (e) { return 'Error: ' + (e?.message || e); }
 }
-async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage, model }) {
+async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage, model, schema }) {
   const u = { in: 0, out: 0, cached: 0 }, report = () => onUsage?.(u);
   if (conn.kind === 'anthropic') {
     const k = prompt.indexOf(CACHE_MARK);
     const content = k > 0 ? [{ type: 'text', text: prompt.slice(0, k), cache_control: { type: 'ephemeral' } }, { type: 'text', text: prompt.slice(k + CACHE_MARK.length) }] : prompt;
     const messages = [{ role: 'user', content }];
     for (let round = 0; round < 6; round++) {
-      const j = await anthropicCall(conn, messages, { tools: tools && round < 5 ? tools : null, signal, model });
+      const j = await anthropicCall(conn, messages, { tools: tools && round < 5 ? tools : null, signal, model, schema: schema && round === 0 ? schema : null });
       if (j.usage) { u.in += (j.usage.input_tokens || 0) + (j.usage.cache_creation_input_tokens || 0) + (j.usage.cache_read_input_tokens || 0); u.cached += j.usage.cache_read_input_tokens || 0; u.out += j.usage.output_tokens || 0; report(); }
+      const forced = (j.content || []).find((b) => b.type === 'tool_use' && b.name === SCHEMA_TOOL);
+      if (forced?.input) { onProgress?.(JSON.stringify(forced.input).length); return forced.input; }
       const uses = (j.content || []).filter((b) => b.type === 'tool_use');
       if (uses.length && j.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: j.content });
@@ -983,6 +1040,7 @@ function orderLikeTemplate(tc, info, type) {
   tc = noReqDeep(cleanCase(tc)); // без <p>, HTML и буквальных «\n» и без отсылок к требованиям QA pro
   if (type) tagTitle(tc, type);
   if (typeof tc.priority === 'string') tc.priority = normPrio(tc.priority);
+  if (type === 'api') delete tc.request;
   if (!info.ok) return tc;
   const ordered = {};
   for (const k of info.fields) if (k in tc) ordered[k] = tc[k];
@@ -1472,6 +1530,19 @@ function splitBatch(b) {
   const k = Math.ceil(it.checks.length / 2);
   return [{ ...b, items: [{ ...it, checks: it.checks.slice(0, k) }] }, { ...b, items: [{ ...it, checks: it.checks.slice(k) }] }];
 }
+/* схема ответа генерации (Anthropic по ключу): приоритет и набор — только допустимые значения, остальное проверяет код */
+const CASES_SCHEMA = {
+  type: 'object',
+  properties: {
+    cases: { type: 'array', items: { type: 'object', properties: {
+      planItem: { type: 'string' },
+      requirementIds: { type: 'array', items: { type: 'string' } },
+      suites: { type: 'array', items: { type: 'string', enum: ['smoke', 'regression'] } },
+      testCase: { type: 'object', properties: { priority: { type: 'string', enum: PRIOS } } },
+    }, required: ['testCase'] } },
+  },
+  required: ['cases'],
+};
 async function genBatch(run, b, stepId, mode, depth = 0) {
   const label = `${TL[b.type]} · ${[...new Set(b.items.map((i) => i.id))].join(', ')}${depth ? ` (часть, ${b.items.reduce((a, i) => a + i.checks.length, 0)} ${plural(b.items.reduce((a, i) => a + i.checks.length, 0), 'проверка', 'проверки', 'проверок')})` : ''}`;
   const line = slog(run, stepId, `${label}: модель думает…`);
@@ -1483,7 +1554,7 @@ async function genBatch(run, b, stepId, mode, depth = 0) {
   };
   try {
     const res = await ask(promptGenerate(run, b, { tools: useTools }), { step: stepId,
-      tools: useTools ? makeTools(run, stepId) : undefined, cache: false,
+      tools: useTools ? makeTools(run, stepId) : undefined, cache: false, schema: useTools ? undefined : CASES_SCHEMA,
       onProgress: (n) => { line.text = `${label}: пишет кейсы — ${fmtKChars(n)}`; scheduleRender(); },
     });
     const added = acceptCases(run, b, res);
@@ -1685,6 +1756,22 @@ function applyAnswers() {
     toast('Ответы учтены в тест-кейсах');
     if (run.productId) await stepKnowledge(run);
   });
+}
+/* строгий режим: нарушения правил, которые код не исправил, — запросом к модели по кейсам; один проход, потом проверка снова */
+async function repairRules(run) {
+  const ups = [];
+  for (const c of activeCases(run)) {
+    applyRuleFixes(c);
+    const v = ruleViolations(c);
+    if (v.length) ups.push({ c, instruction: 'Исправь по правилам команды, сохранив остальное: ' + v.map((x) => x.text).join(' ') });
+  }
+  if (!ups.length) return 0;
+  slog(run, 'review', `Строгий режим: исправляю нарушения правил в кейсах ${ups.map((u) => u.c.dispId).join(', ')}`, 'warn');
+  await reviseCases(run, ups);
+  let left = 0;
+  for (const c of activeCases(run)) { applyRuleFixes(c); left += ruleViolations(c).length; }
+  slog(run, 'review', left ? `После исправления осталось нарушений: ${left}` : 'После исправления нарушений правил не осталось', left ? 'warn' : 'ok');
+  return left;
 }
 async function reviseCases(run, updates) {
   const batches = [];
@@ -2139,6 +2226,7 @@ function startReview(full = false, tab = 'review') {
   S.tab = tab; S.fdFilter = 'open';
   runTask('review', async (run) => {
     run.steps.review.log = [];
+    if (S.settings.strictRules) await repairRules(run);
     const prev = run.findings || [];
     const dismissed = prev.filter((f) => f.status === 'dismissed').map((f) => normKey(f.targetId + ' ' + f.message));
     const sig = reviewSig();
@@ -2153,6 +2241,18 @@ function startReview(full = false, tab = 'review') {
     if (keepCase.size + keepItem.size) slog(run, 'review', `Не менялись с прошлого ревью: ${keepCase.size ? `кейсов ${keepCase.size}` : ''}${keepCase.size && keepItem.size ? ', ' : ''}${keepItem.size ? `пунктов чек-листа ${keepItem.size}` : ''} — их замечания сохранены, повторно не проверяю`, 'ok');
     // проверки без модели
     if (run.cases.length) for (const r of uncovered(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'major', category: 'Покрытие', message: `Требование ${r.id} «${r.title}» не покрыто тест-кейсами.`, suggestion: 'Дописать тест-кейсы для этого требования.', source: 'auto' });
+    // правила команды: безопасные исправления — на месте, остальное — замечаниями с кнопкой «Исправить»
+    let fixed = 0; const byRule = {};
+    for (const c of activeCases(run)) {
+      fixed += applyRuleFixes(c);
+      for (const v of ruleViolations(c)) {
+        byRule[v.id] = (byRule[v.id] || 0) + 1;
+        addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'major', category: 'Правило', message: v.text, suggestion: 'Исправить кейс по правилу команды (кнопка «Исправить» или «Исправить все открытые»).', source: 'auto', rule: v.id });
+      }
+    }
+    if (fixed) slog(run, 'review', `Исправлено сразу по правилам: ${fixed}`, 'ok');
+    const broken = Object.entries(byRule);
+    if (broken.length) slog(run, 'review', `Нарушения правил: ${broken.map(([id, n]) => `${id} ×${n}`).join(', ')}`, 'warn');
     for (const c of activeCases(run)) {
       const info = tplInfo(c.type);
       const miss = info.ok ? info.fields.filter((k) => !(k in (c.testCase || {}))) : [];

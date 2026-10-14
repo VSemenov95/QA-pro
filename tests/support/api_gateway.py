@@ -58,7 +58,11 @@ class Gateway:
         if '__error' in out:
             return route.fulfill(status=500, body=out['__error'].get('message', 'error'), headers=cors)
         text = json.dumps(out['json'], ensure_ascii=False)
-        if '/v1/messages' in req.url:
+        if '/v1/messages' in req.url and r.body.get('tool_choice'):
+            # принудительный инструмент (схема ответа): JSON приходит в input инструмента
+            tool = r.body['tool_choice']['name']
+            res = {'content': [{'type': 'tool_use', 'id': 'tu_1', 'name': tool, 'input': out['json']}], 'stop_reason': 'tool_use', 'usage': {'input_tokens': 10, 'output_tokens': 5}}
+        elif '/v1/messages' in req.url:
             res = {'content': [{'type': 'text', 'text': text}], 'stop_reason': 'end_turn', 'usage': {'input_tokens': 10, 'output_tokens': 5}}
         else:
             res = {'choices': [{'message': {'role': 'assistant', 'content': text}}], 'usage': {'prompt_tokens': 10, 'completion_tokens': 5}}

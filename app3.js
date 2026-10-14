@@ -348,6 +348,7 @@ function renderParams() {
   renderAIHint();
   $('#agent-tools').checked = S.settings.agentTools;
   $('#skip-existing').checked = S.settings.skipExisting;
+  $('#strict-rules').checked = !!S.settings.strictRules;
   $('#economy').checked = S.settings.economy;
   $('#reuse-analysis').checked = S.settings.reuseAnalysis;
   const claudeAI = parseAI(S.settings.genAI)?.kind === 'claude';
@@ -2418,6 +2419,7 @@ function bind() {
   $('#prov-list').addEventListener('input', (e) => { if (e.target.matches('[data-pk],[data-pm],[data-pu]')) onProvInput(e); });
   $('#prov-list').addEventListener('click', onProvClick);
   $('#agent-tools').addEventListener('change', (e) => { S.settings.agentTools = e.target.checked; saveSettings(); });
+  $('#strict-rules').addEventListener('change', (e) => { S.settings.strictRules = e.target.checked; saveSettings(); });
   $('#skip-existing').addEventListener('change', (e) => { S.settings.skipExisting = e.target.checked; saveSettings(); renderProduct(); });
   $('#economy').addEventListener('change', (e) => { S.settings.economy = e.target.checked; saveSettings(); renderParams(); });
   $('#reuse-analysis').addEventListener('change', (e) => { S.settings.reuseAnalysis = e.target.checked; saveSettings(); });
@@ -2677,6 +2679,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, vidDocs, docsFor, mp4Info, vidSink, vidAudioWC, vidAudioDecode, vidSegments, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
 initCaps();
 })();

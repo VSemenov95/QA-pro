@@ -1010,6 +1010,7 @@ tr.req-row:hover td{background:var(--hover)}
       <div class="field" data-modes="generate,update"><span class="lbl">Виды тестов</span><div class="types" id="types"></div><p class="hint" id="types-hint" hidden></p></div>
       <div class="field" data-modes="generate,update"><span class="lbl" id="lbl-depth">Глубина покрытия</span><div class="seg" id="depth" role="radiogroup" aria-labelledby="lbl-depth"></div><p class="hint" id="depth-hint"></p></div>
       <label class="switch" data-modes="generate,update"><input type="checkbox" id="agent-tools"><span class="sw"></span><span>Агент сам ищет детали в документах запуска и базе знаний</span></label>
+      <label class="switch" data-modes="generate,update"><input type="checkbox" id="strict-rules"><span class="sw"></span><span>Строгий режим: при ревью исправлять нарушения правил командой (тратит запросы модели)</span></label>
       <label class="switch" data-modes="generate,update"><input type="checkbox" id="skip-existing"><span class="sw"></span><span>Не повторять проверки, которые уже есть в продукте</span></label>
       <label class="switch"><input type="checkbox" id="reuse-analysis"><span class="sw"></span><span>Не анализировать заново те же документы</span></label>
     </section>

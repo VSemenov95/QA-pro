@@ -161,6 +161,7 @@ const S = {
     mode: ['update', 'help'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
     target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
+    strictRules: saved.strictRules === true,   // строгий режим: при ревью исправлять нарушения правил запросом к модели (тратит запросы)
     apiFilter: typeof saved.apiFilter === 'string' ? saved.apiFilter.slice(0, 300) : '',   // для OpenAPI/Swagger: какие эндпоинты брать
     reuseAnalysis: saved.reuseAnalysis !== false,   // не анализировать заново те же документы
     kbAuto: saved.kbAuto !== false,                 // разбирать новые документы по разделам базы знаний автоматически
