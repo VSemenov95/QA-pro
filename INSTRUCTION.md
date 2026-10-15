@@ -1,6 +1,6 @@
 # QA pro — руководство пользователя
 
-Краткое обучающее видео с русской озвучкой: [training-video/qa-pro-training.mp4](training-video/qa-pro-training.mp4). Текст диктора — в [training-video/narration.md](training-video/narration.md).
+Краткое обучающее видео без звука, с титрами: [training-video/qa-pro-training.mp4](training-video/qa-pro-training.mp4). Тексты сцен — в [training-video/narration.md](training-video/narration.md).
 
 QA pro превращает документацию (ТЗ, требования, спецификации API) в чек-лист и тест-кейсы по шаблонам вашей команды, проверяет их ревьюером и передаёт в проект или в систему управления тестированием.
 
