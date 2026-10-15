@@ -1367,6 +1367,8 @@ async function stepChecklist(run) {
   send(run, 'checklist', items.length && results.filter(Boolean).length === chunks.length ? 'done' : 'error');
 }
 /* оставить не больше n проверок: сначала по одной из каждой группы (покрытие требований), затем остальные по порядку */
+// строгое число проверок действует для генерации и сверки; актуализация его не использует
+const strictTarget = (run) => !!run.settings.target && run.mode !== 'update';
 function capChecks(items, n) {
   const out = items.map((it) => ({ ...it, checks: [] }));
   let left = n;
@@ -1412,7 +1414,7 @@ async function stepPlan(run, types) {
     else slog(run, 'plan', 'План построен по критериям приёмки требований', 'warn');
     items.push(...fallbackItems(miss, run.settings.types));
   }
-  const target = run.mode !== 'update' ? run.settings.target : null;
+  const target = strictTarget(run) ? run.settings.target : null;
   if (target) {
     const kept = capChecks(items, target), total = items.reduce((a, it) => a + it.checks.length, 0);
     if (kept.length !== items.length || kept.reduce((a, it) => a + it.checks.length, 0) !== total) slog(run, 'plan', `План ограничен числом проверок: ${target} (было ${total})`, 'ok');
@@ -1628,6 +1630,10 @@ async function stepCoverage(run) {
   let gaps = uncovered(run);
   if (existing.length) {
     if (pendingParts(run, 'G-')) { slog(run, 'coverage', 'Дописываю кейсы для оставшихся требований'); await generateItems(run, existing, 'coverage'); }
+  } else if (gaps.length && strictTarget(run)) {
+    // строгое число: дополнительные проверки не добавляем, требования без кейсов только называем
+    slog(run, 'coverage', `Строгое число проверок (${run.settings.target}): без кейсов остались требования ${gaps.map((r) => r.id).join(', ')}. Увеличьте число тестов или сгенерируйте недостающие отдельно`, 'warn');
+    run.coverageGaps = gaps.map((r) => ({ requirementId: r.id, type: '', checks: [] }));
   } else if (gaps.length) {
     slog(run, 'coverage', `Без кейсов: ${gaps.map((r) => r.id).join(', ')} — дописываю`, 'warn');
     const items = fallbackItems(gaps, run.settings.types);
@@ -1677,7 +1683,7 @@ async function coverageAudit(run) {
   if (ok === packs.length) run.auditDone = true;
   if (!found.length) { if (ok) slog(run, 'coverage', 'Критерии всех требований покрыты кейсами', 'ok'); return; }
   // строгое число тестов: сверка не добавляет кейсы, а предупреждает о требованиях без проверок
-  if (run.settings.target && run.mode !== 'update') {
+  if (strictTarget(run)) {
     const gaps = [...new Set(found.map((x) => x.requirementId))];
     slog(run, 'coverage', `Строгое число проверок (${run.settings.target}): без проверок остались требования ${gaps.join(', ')}. Увеличьте число тестов или сгенерируйте недостающие отдельно`, 'warn');
     run.coverageGaps = found;

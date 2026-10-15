@@ -58,3 +58,47 @@ def test_strict_target_does_not_add_cases_and_warns(app):
     assert not any('Дописываю' in t for t in log)
     assert app.state("S.run.plan.filter((p) => p.id.startsWith('C-')).length") == 0
     assert app.state('S.run.coverageGaps.length') == 1
+
+
+def cases_count(app):
+    return app.state('S.run.cases.length')
+
+
+def coverage_log(app):
+    return [l['text'] for l in app.state("S.run.steps.coverage.log")]
+
+
+def test_target_one_gives_one_case(app):
+    """Регрессия: при «Тестов всего = 1» запуск давал десятки кейсов — требования без кейсов дописывались отдельно."""
+    app.page.fill('#target-n', '1')
+    app.page.dispatch_event('#target-n', 'change')
+    app.add_sample()
+    app.generate()
+    assert cases_count(app) == 1, plan_log(app)
+
+
+@pytest.mark.parametrize('n', [1, 2, 3])
+def test_target_caps_cases_to_the_number(app, n):
+    app.page.fill('#target-n', str(n))
+    app.page.dispatch_event('#target-n', 'change')
+    app.add_sample()
+    app.generate()
+    assert cases_count(app) == n
+
+
+def test_uncovered_requirements_are_reported_not_filled(app):
+    app.page.fill('#target-n', '1')
+    app.page.dispatch_event('#target-n', 'change')
+    app.add_sample()
+    app.generate()
+    log = coverage_log(app)
+    assert not any('дописываю' in t.lower() for t in log), log
+    assert any('Строгое число проверок (1)' in t and 'без кейсов остались требования' in t for t in log), log
+    assert not app.state("S.run.plan.some((p) => p.id.startsWith('G-'))")
+
+
+def test_without_target_there_is_no_limit(app):
+    app.add_sample()
+    app.generate()
+    assert cases_count(app) > 1
+    assert not any('Строгое число' in t for t in coverage_log(app))
