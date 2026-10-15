@@ -738,6 +738,27 @@ function agentTab() {
 }
 
 /* ---------- requirements ---------- */
+/* карточка требования: описание, критерии, покрытие тремя вариантами и правка */
+function reqDetailHTML(r, q, cases) {
+  const can = isDraft(r) && !draftLocked(r);
+  const why = !isDraft(r) ? 'Кейсы этого запуска уже добавлены в проект: покрытие добавляет кейсы в черновик текущего запуска' : S.running ? 'Дождитесь окончания текущей работы' : 'Кейсы попадут в черновик — их можно проверить ревью';
+  return `${q.description ? `<p>${esc(q.description)}</p>` : ''}
+    ${q.criteria.length ? `<ul>${q.criteria.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${q.quote ? `<blockquote>${esc(q.quote)}</blockquote>` : ''}
+    <div class="req-acts"><span class="lbl">Покрыть требование</span>
+      <div class="case-acts">${Object.entries(COVER_VARIANTS).map(([k, v]) => `<button class="btn" type="button" data-act="cover-req" data-id="${q.id}" data-variant="${k}" ${can ? '' : 'disabled'} title="${esc(why)}">${esc(v.title)}</button>`).join('')}</div>
+      <div class="case-acts"><button class="btn" type="button" data-act="req-edit" data-id="${q.id}" ${S.running ? 'disabled' : ''}>Редактировать требование</button></div>
+    </div>
+    ${cases.length ? `<div class="case-sub" style="margin-top:8px">${cases.map((c) => `<button class="btn" type="button" data-act="goto-case" data-uid="${c.uid}">${esc(c.dispId)}</button>`).join('')}</div>` : ''}`;
+}
+function reqEditHTML(q) {
+  return `<div class="case-form req-form">
+    <div class="field"><label class="lbl" for="req-ed-title">Название</label><input id="req-ed-title" type="text" value="${esc(q.title)}"></div>
+    <div class="field"><label class="lbl" for="req-ed-desc">Описание</label><textarea id="req-ed-desc" rows="3">${esc(q.description || '')}</textarea></div>
+    <div class="field"><label class="lbl" for="req-ed-crit">Критерии приёмки <span class="muted small">(каждый с новой строки)</span></label><textarea id="req-ed-crit" rows="5">${esc(q.criteria.join('\n'))}</textarea></div>
+    <div class="cl-edit"><button class="btn accent" type="button" data-act="req-save" data-id="${q.id}">Сохранить</button><button class="btn" type="button" data-act="req-cancel">Отмена</button></div>
+    <p class="hint">Уже созданные кейсы не меняются. Новое покрытие будет опираться на отредактированное требование.</p></div>`;
+}
 function reqsTab() {
   const r = S.run;
   if (!r || !r.requirements.length) return emptyHTML(S.running ? 'Агент анализирует документы…' : 'Требований пока нет', 'Они появятся после шага «Анализ требований».');
@@ -756,12 +777,7 @@ function reqsTab() {
       <td><span style="display:flex;gap:4px;flex-wrap:wrap">${q.types.map((t) => `<span class="chip ${t}">${TL[t]}</span>`).join('') || '<span class="muted">—</span>'}</span></td>
       <td><span class="chip ${prioClass(q.priority)}">${prioRu(q.priority)}</span></td>
       <td class="small muted">${esc(q.doc)}${q.section ? ' · ' + esc(q.section) : ''}</td><td>${covCell}</td></tr>
-      ${open ? `<tr class="req-detail"><td></td><td colspan="5">
-        ${q.description ? `<p>${esc(q.description)}</p>` : ''}
-        ${q.criteria.length ? `<ul>${q.criteria.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
-        ${q.quote ? `<blockquote>${esc(q.quote)}</blockquote>` : ''}
-        ${cases.length ? `<div class="case-sub" style="margin-top:8px">${cases.map((c) => `<button class="btn" type="button" data-act="goto-case" data-uid="${c.uid}">${esc(c.dispId)}</button>`).join('')}</div>` : ''}
-      </td></tr>` : ''}`;
+      ${open ? `<tr class="req-detail"><td></td><td colspan="5">${S.reqEdit === q.id ? reqEditHTML(q) : reqDetailHTML(r, q, cases)}</td></tr>` : ''}`;
   }).join('');
   return `<div class="sec-h"><h3>${r.requirements.length} ${plural(r.requirements.length, 'требование', 'требования', 'требований')}</h3><span class="muted small">покрыто ${cov} из ${scope.length}</span></div>
     <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Требование</th><th>Вид</th><th>Приоритет</th><th>Источник</th><th>Покрытие</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -2023,6 +2039,17 @@ function onTabClick(e) {
     case 'standalone': downloadStandalone(); break;
     case 'stop': S.ctl?.abort(); break;
     case 'toggle-req': { const id = el.dataset.id; S.reqOpen.has(id) ? S.reqOpen.delete(id) : S.reqOpen.add(id); renderTab(); break; }
+    case 'cover-req': runCover(el.dataset.id, el.dataset.variant); break;
+    case 'req-edit': { const q = S.run?.reqById[el.dataset.id]; if (!q) break; S.reqEdit = q.id; S.reqOpen.add(q.id); renderTab(); break; }
+    case 'req-cancel': S.reqEdit = null; renderTab(); break;
+    case 'req-save': {
+      const q = S.run?.reqById[el.dataset.id], title = $('#req-ed-title')?.value.trim();
+      if (!q) break;
+      if (!title) { toast('Введите название требования.', 'err'); break; }
+      q.title = title; q.description = $('#req-ed-desc').value.trim();
+      q.criteria = $('#req-ed-crit').value.split('\n').map((x) => x.trim()).filter(Boolean);
+      S.reqEdit = null; renderTabs(); renderTab(); queueSave(S.run); break;
+    }
     case 'goto-case': {
       S.tab = 'cases'; S.filter = { type: 'all', suite: 'all', q: '' }; caseUI(uid).open = true; renderTabs(); renderTab();
       document.getElementById('case-' + uid)?.scrollIntoView({ block: 'center' });

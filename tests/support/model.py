@@ -174,6 +174,10 @@ DEFAULTS = {
     'promptAnalyzeMore': lambda c: {'requirements': [], 'criteria': []},
     'promptTrace': lambda c: {'steps': [{'n': 1, 'title': 'Инициация действия (Frontend/UI)', 'layer': 'Frontend', 'details': ['Действие: пользователь отправляет форму']}, {'n': 2, 'title': 'Обработка на стороне сервиса', 'layer': 'Backend', 'details': ['Сервис получает JSON и десериализует тело']}], 'failure': {'error': 'ClassCastException', 'location': 'TimeBasedRuleDto', 'cause': 'тип поля не совпадает с данными'}, 'response': {'status': '500', 'body': 'Ошибка десериализации'}, 'result': 'Правило не создано', 'summary': 'Проверить тип поля в DTO', 'questions': ['Приложите стек трейс']},
     'promptCoverageAudit': lambda c: {'gaps': []},
+    'promptCoverRequirement': lambda c: {'checks': [
+        {'check': 'Основной сценарий: запрос на восстановление пароля отправлен', 'kind': 'positive', 'type': 'ui'},
+        {'check': 'Пустой email — ошибка «Введите адрес»', 'kind': 'negative', 'type': 'ui'},
+        {'check': 'Email длиной 254 символа принимается', 'kind': 'boundary', 'type': 'ui'}]},
     'promptChecklist': _checklist,
     'promptPlan': _plan,
     'promptGenerate': _generate,

@@ -354,6 +354,59 @@ ${r.description}${r.criteria.length ? `\nКритерии: ${r.criteria.map((c, 
 Кейсы:
 ${activeCases(run).filter((c) => c.requirementIds.includes(r.id)).map(caseLine).join('\n') || '  - нет'}`).join('\n\n') });
 }
+/* покрытие одного требования тремя вариантами; кейсы попадают в черновик запуска, их проверяют ревью и ручная правка */
+const COVER_VARIANTS = {
+  one: { title: 'Один тест (happy path)', kinds: ['positive'], one: true },
+  positive: { title: 'Только позитивные проверки', kinds: ['positive'] },
+  full: { title: 'Полное покрытие', kinds: ['positive', 'negative', 'boundary'] },
+};
+const COVER_MAX_CHECKS = 15;
+function promptCoverRequirement(q, types) {
+  return renderPrompt('promptCoverRequirement', {
+    e1: typesListText(types), SCOPE_RULE,
+    e2: `${q.id} «${q.title}» [${q.types.join(', ')}] [${q.priority}]\n${q.description}${q.criteria.length ? `\nКритерии: ${q.criteria.map((c, k) => `${k + 1}) ${c}`).join('; ')}` : ''}${q.quote ? `\nЦитата: «${q.quote}»` : ''}`,
+    e3: q.types.join(', '),
+  });
+}
+async function coverRequirement(run, q, variant) {
+  const V = COVER_VARIANTS[variant];
+  const types = run.settings.types || TYPES;
+  const res = await ask(promptCoverRequirement(q, types), { step: 'cover', onProgress: () => {} });
+  const kinds = new Set(V.kinds);
+  const text = (v) => String(v ?? '').trim();
+  let checks = arrOf(res?.checks).map((x) => ({ check: text(x?.check), kind: text(x?.kind).toLowerCase(), type: text(x?.type).toLowerCase() }))
+    .filter((x) => x.check && kinds.has(x.kind));
+  if (!checks.length) throw { message: `Модель не вернула подходящих проверок для ${q.id}. Попробуйте ещё раз.` };
+  checks = checks.slice(0, V.one ? 1 : COVER_MAX_CHECKS);
+  const primary = q.types.find((t) => types.includes(t)) || types[0];
+  const byType = new Map();
+  for (const x of checks) {
+    const t = q.types.includes(x.type) && types.includes(x.type) ? x.type : primary;
+    if (!byType.has(t)) byType.set(t, []);
+    byType.get(t).push(x.check);
+  }
+  // новые номера после уже написанных пунктов: повторное покрытие не пропускается как уже сделанное
+  const seqOf = (key) => Number((/^V-(\d+)#/.exec(key) || [])[1] || 0);
+  const seq = 1 + Math.max(0, ...(run.doneKeys || []).map(seqOf));
+  const items = [...byType].map(([type, list], k) => ({ id: `V-${pad(seq + k, 3)}`, type, title: `Покрытие: ${q.title}`, requirementIds: [q.id], checks: [...new Set(list)], variant }));
+  const before = run.cases.length;
+  await generateItems(run, items, 'cover');
+  // один кейс на проверку: лишние кейсы из ответа модели не оставляем
+  const limit = checks.length;
+  if (run.cases.length - before > limit) run.cases.splice(before + limit);
+  const added = run.cases.length - before;
+  slog(run, 'cover', `${V.title} · ${q.id}: в черновик добавлено ${added} ${plural(added, 'кейс', 'кейса', 'кейсов')}`, added ? 'ok' : 'warn');
+  return added;
+}
+function runCover(id, variant) {
+  const run = S.run, q = run?.reqById[id];
+  if (!q || !COVER_VARIANTS[variant]) return;
+  if (!isDraft(run) || draftLocked(run)) return toast('Покрытие добавляет кейсы в черновик текущего запуска. Если запуск уже добавлен в проект, начните новый запуск.', 'err');
+  return runTask('cover', async (r) => {
+    const added = await coverRequirement(r, q, variant);
+    toast(added ? `В черновик добавлено ${added} ${plural(added, 'кейс', 'кейса', 'кейсов')} для ${q.id}` : `Для ${q.id} кейсы не добавлены`, added ? 'ok' : 'warn');
+  }, 'gen');
+}
 function reqCompact(r) { return `${r.id} [${r.types.join(', ')}] [${r.priority}] ${r.title}: ${r.description}${r.criteria.length ? ' Критерии: ' + r.criteria.join('; ') : ''}`; }
 function promptChecklist(run, reqs, types, depth) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
@@ -672,7 +725,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { cover: 'покрытие требования', trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -1089,8 +1142,8 @@ function acceptCases(run, b, res) {
   let added = 0;
   for (const c of arr) {
     if (!c || typeof c !== 'object') continue;
-    // строгое число тестов: модель могла вернуть больше кейсов, чем проверок — лишние не добавляем
-    if (strictTarget(run) && run.cases.length >= run.settings.target) break;
+    // строгое число тестов: модель могла вернуть больше кейсов, чем проверок — лишние не добавляем (покрытие требования считает свой лимит)
+    if (strictTarget(run) && !b.items.some((it) => it.variant) && run.cases.length >= run.settings.target) break;
     let tc = c.testCase && typeof c.testCase === 'object' && !Array.isArray(c.testCase) ? c.testCase : null;
     if (!tc) { tc = { ...c }; delete tc.planItem; delete tc.requirementIds; delete tc.suites; }
     const planItem = itemIds.includes(c.planItem) ? c.planItem : itemIds[0];

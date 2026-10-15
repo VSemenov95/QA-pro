@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -48,6 +48,7 @@ const STEPS = [
   { id: 'answers', title: 'Учёт ответов на вопросы', desc: 'Агент определяет, какие кейсы затрагивают ответы, исправляет их и дописывает недостающие проверки.', optional: true },
   { id: 'review', title: 'Ревью', desc: 'Субагент-ревьюер проверяет чек-лист и кейсы по документации, шаблонам и правилам ревью.', optional: true },
   { id: 'fix', title: 'Исправление замечаний', desc: 'Агент исправляет кейсы и пункты по замечаниям ревьюера.', optional: true },
+  { id: 'cover', mode: 'cover', title: 'Покрытие требования', desc: 'Кейсы по одному требованию из вкладки «Требования». Попадают в черновик.' },
 ];
 const stepsOf = (mode) => STEPS.filter((s) => !s.mode || s.mode === mode);
 const stepTitle = (s, mode) => (mode === 'update' && s.titleUpd ? s.titleUpd : s.title);
@@ -198,7 +199,7 @@ const S = {
   caps: { ready: false, sample: null, tools: false, db: null, user: null, downloads: null, uid: null, canEdit: false },
   history: [], historyState: 'idle',
   caseUI: new Map(),
-  reqOpen: new Set(),
+  reqOpen: new Set(), reqEdit: null,
   filter: { type: 'all', suite: 'all', q: '' },
   casesScope: 'run',     // вкладка «Тест-кейсы»: 'run' — кейсы открытого запуска, 'product' — все кейсы продукта
   pc: freshPc(),         // кейсы продукта: фильтры и прочитанные запуски
