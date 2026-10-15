@@ -21,6 +21,8 @@
 
 ## Документация
 
+**Обучающее видео** — [training-video/qa-pro-training.mp4](training-video/qa-pro-training.mp4): работа с приложением за 2,5 минуты с русской озвучкой. Текст диктора — в [training-video/narration.md](training-video/narration.md). Пересоздать видео: `python3 training-video/record.py` (нужны Chromium для Playwright, espeak-ng с голосом ru и ffmpeg).
+
 - [INSTRUCTION.md](INSTRUCTION.md) — руководство пользователя: экран, продукт, документы, режимы, параметры, ход запуска, ревью, экспорт, настройки.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — устройство приложения: слои, состояние, поток запуска, ревью, документы, продукты, база знаний, интерфейс, мост и загрузчик, каталог всех функций.
 
@@ -59,6 +61,7 @@
 | `docs/` | Подробные описания отдельных частей |
 | `INSTRUCTION.md` | Руководство пользователя |
 | `ARCHITECTURE.md` | Архитектура и каталог функций |
+| `training-video/` | Обучающее видео (`qa-pro-training.mp4`), текст диктора и скрипт записи `record.py` |
 | `tests/` | Тесты на pytest и Playwright |
 
 Тексты промптов и правил лежат отдельными `.md` файлами. Меняете их — пересоберите приложение (`python3 build.py`).
