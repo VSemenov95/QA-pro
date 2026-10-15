@@ -2,6 +2,8 @@
 
 Два окна с общей базой: «Chrome» (расширение, QA pro во вкладке, вкладка Сферы) и «приложение Claude» (другой браузер без расширений).
 """
+import json
+import os
 import time
 from types import SimpleNamespace
 
@@ -9,6 +11,13 @@ import pytest
 
 from tests.support.extension import case_marks, wait_window_ready
 from tests.uploader.test_uploader_flow import pick_section_from_tab, run_upload, wait_log
+
+UPLOADER_MANIFEST = os.path.join(os.path.dirname(__file__), '..', '..', 'uploader', 'qa-pro-sfera-uploader', 'manifest.json')
+
+
+def uploader_version():
+    with open(UPLOADER_MANIFEST, encoding='utf-8') as f:
+        return json.load(f)['version']
 
 
 def wait_until(page, pred, timeout=20, what='условие'):
@@ -64,7 +73,7 @@ def done(new_relay):
 
 
 def test_chrome_tab_announces_itself_in_the_database(done):
-    assert done.presence['kind'] == 'sfera_relay' and done.presence['version'] == '1.5.0'
+    assert done.presence['kind'] == 'sfera_relay' and done.presence['version'] == uploader_version()
 
 
 def test_app_bar_says_upload_goes_through_chrome(done):
@@ -73,11 +82,11 @@ def test_app_bar_says_upload_goes_through_chrome(done):
 
 def test_app_settings_explain_the_route(done):
     assert 'Вы в приложении Claude: расширений браузера здесь нет' in done.banner
-    assert 'QA pro в Chrome: на связи · загрузчик 1.5.0' in done.banner
+    assert f'QA pro в Chrome: на связи · загрузчик {uploader_version()}' in done.banner
 
 
 def test_app_connection_check_sees_chrome(done):
-    assert done.check == 'Загрузчика в этом окне нет — загрузка пойдёт через QA pro в Chrome (на связи, загрузчик 1.5.0).'
+    assert done.check == f'Загрузчика в этом окне нет — загрузка пойдёт через QA pro в Chrome (на связи, загрузчик {uploader_version()}).'
 
 
 def test_window_opens_in_chrome_with_the_apps_cases(done):
