@@ -283,12 +283,14 @@ function openKbSection(id) {
   $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 /* ---------- режим: генерация или актуализация ---------- */
-const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта']];
+const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта'], ['trace', 'Трассировка', 'Разбор дефекта по слоям: описание и стек трейс']];
 function renderMode() {
   const m = S.settings.mode;
   $('#mode-seg').innerHTML = MODES.map(([id, n, t]) => `<button type="button" role="radio" aria-checked="${m === id}" data-mode="${id}" title="${t}">${n}</button>`).join('');
   $('#upd-panel').hidden = m !== 'update';
-  const newRun = $('#btn-newses'); if (newRun) { newRun.disabled = m === 'help'; newRun.title = m === 'help' ? 'Новый запуск — в режимах «Генерация» и «Актуализация»' : 'Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте'; }
+  const newRun = $('#btn-newses'), noRun = m === 'help' || m === 'trace';
+  if (newRun) { newRun.disabled = noRun; newRun.title = noRun ? 'Новый запуск — в режимах «Генерация» и «Актуализация»' : 'Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте'; }
+  document.querySelector('.app')?.classList.toggle('no-rail', m === 'trace');
   for (const el of document.querySelectorAll('[data-modes]')) el.hidden = !el.dataset.modes.split(',').includes(m);
   let k = 0;
   for (const el of document.querySelectorAll('.rail > .panel')) if (!el.hidden) { const n = el.querySelector('.step-n'); if (n) n.textContent = String(++k).padStart(2, '0'); }
@@ -616,11 +618,11 @@ function closeEditor() {
 }
 
 /* ================= tabs ================= */
-const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['review', 'Ревью'], ['export', 'Экспорт'], ['trace', 'Трассировка'], ['history', 'История']];
+const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['review', 'Ревью'], ['export', 'Экспорт'], ['history', 'История']];
 const validTab = () => { if (!TABS.some(([id]) => id === S.tab)) S.tab = 'agent'; };
 function renderTabs() {
   validTab();
-  $('#tabs').hidden = S.settings.mode === 'help';
+  $('#tabs').hidden = S.settings.mode === 'help' || S.settings.mode === 'trace';
   const r = S.run;
   const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
@@ -628,8 +630,9 @@ function renderTabs() {
 function renderTab() {
   const body = $('#tab-body');
   if (S.settings.mode === 'help') return renderHelp();
+  if (S.settings.mode === 'trace') { body.innerHTML = traceTab(); return; }
   validTab();
-  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, trace: traceTab, history: historyTab }[S.tab];
+  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, history: historyTab }[S.tab];
   body.innerHTML = fn();
   if (S.tab === 'cases') { if (prodScope()) renderProdCases(); else { renderCaseList(); renderTmsBar(); } }
   S.pendingCasesRender = false;

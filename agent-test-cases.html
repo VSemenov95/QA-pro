@@ -79,6 +79,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 @media (max-width:960px){.app{grid-template-columns:minmax(0,1fr);padding-inline:16px}.topbar-in{padding-inline:16px}}
 @media (max-width:700px){.topbar{position:static}.brand span{display:none}.top-tools{margin-left:0}}
 .rail{display:flex;flex-direction:column;gap:14px;min-width:0}
+.app.no-rail{grid-template-columns:minmax(0,1fr)}.app.no-rail .rail{display:none}
 @media (min-width:961px){.rail{position:sticky;top:calc(var(--top-h,62px) + 20px);max-height:calc(100vh - var(--top-h,62px) - 40px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 4px 2px 0;margin-right:-4px}}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
 .panel-h{display:flex;align-items:center;gap:10px}
@@ -709,9 +710,9 @@ select option{background:var(--surface);color:var(--ink)}
 /* шапка: строка 1 — логотип, статусы подключения, инструменты; строка 2 — продукт, «Новый запуск», режимы */
 .topbar-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
 .brand span{display:none}
-.topbar .mode-seg{display:inline-grid;grid-template-columns:repeat(3,auto);gap:4px;width:auto;padding:4px;border-radius:14px;background:var(--track)}
+.topbar .mode-seg{display:inline-grid;grid-template-columns:repeat(4,auto);gap:4px;width:auto;padding:4px;border-radius:14px;background:var(--track)}
 .topbar .mode-seg button{min-height:40px;padding:8px 18px;font-size:14px;white-space:nowrap}
-@media (max-width:700px){.topbar .mode-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.topbar .mode-seg button{padding:8px 6px;font-size:13px}}
+@media (max-width:700px){.topbar .mode-seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.topbar .mode-seg button{padding:8px 6px;font-size:13px}}
 @media (max-width:960px){.app{padding-inline:16px}.topbar-in{padding-inline:16px}}
 
 /* раскладка и карточки */

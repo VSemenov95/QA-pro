@@ -605,7 +605,7 @@ async function runTrace() {
     if (e?.code !== 'cancelled') T.error = errText(e);
   } finally {
     T.busy = false;
-    if (S.tab === 'trace') renderTab();
+    if (S.settings.mode === 'trace') renderTab();
   }
 }
 function errText(e) {

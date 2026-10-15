@@ -158,7 +158,7 @@ const S = {
     agentTools: saved.agentTools !== false,
     autoResume: saved.autoResume !== false,
     skipExisting: saved.skipExisting !== false,
-    mode: ['update', 'help'].includes(saved.mode) ? saved.mode : 'generate',
+    mode: ['update', 'help', 'trace'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
     target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
     strictRules: saved.strictRules === true,   // строгий режим: при ревью исправлять нарушения правил запросом к модели (тратит запросы)
@@ -503,7 +503,7 @@ const readyDocs = () => S.docs.filter((d) => d.status === 'ready');
 /* документы запуска. Генерация и актуализация идут по документам, загруженным для этого запуска, а всё остальное
    о продукте агент берёт из базы знаний (сводки разделов по всем документам продукта). Без продукта документы
    живут только в этом окне — все они и есть документы запуска. */
-const forRun = () => S.settings.mode !== 'help';
+const forRun = () => ['generate', 'update'].includes(S.settings.mode);
 const isRunDoc = (d) => !S.productId || S.runDocs.has(d.id);
 const runDocList = () => S.docs.filter(isRunDoc);
 function saveRunDocs() { if (S.productId) lsSet('qapro.runDocs.' + S.productId, [...S.runDocs]); }

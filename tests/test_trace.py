@@ -1,10 +1,10 @@
-"""Вкладка «Трассировка»: описание дефекта, необязательный стек трейса и пошаговый разбор агентом."""
+"""Режим «Трассировка»: описание дефекта, необязательный стек трейса и пошаговый разбор агентом."""
 DESC = 'Сохранение правила корреляции по времени выдаёт ошибку 500'
 STACK = 'java.lang.ClassCastException: class java.lang.Integer cannot be cast to class java.lang.String'
 
 
 def run_trace(app, desc=DESC, stack=''):
-    app.tab('trace')
+    app.mode('trace')
     app.page.fill('#trace-desc', desc)
     app.page.dispatch_event('#trace-desc', 'input')
     if stack:
@@ -14,12 +14,17 @@ def run_trace(app, desc=DESC, stack=''):
     app.page.wait_for_selector('.trace-steps li', timeout=30000)
 
 
-def test_trace_tab_is_in_the_work_area(app):
-    assert app.page.is_visible('#tab-trace')
+def test_trace_is_a_header_mode(app):
+    app.mode('trace')
+    assert app.page.is_visible('[data-mode=trace]')
+    assert app.page.get_attribute('[data-mode=trace]', 'aria-checked') == 'true'
+    assert not app.page.is_visible('#tabs')
+    assert app.page.is_visible('#trace-desc')
+    assert app.page.is_disabled('#btn-newses')
 
 
 def test_run_is_disabled_without_description(app):
-    app.tab('trace')
+    app.mode('trace')
     assert app.page.is_disabled('[data-act=trace-run]')
     app.page.fill('#trace-desc', 'Ошибка при сохранении')
     app.page.dispatch_event('#trace-desc', 'input')
@@ -46,10 +51,10 @@ def test_stack_is_optional(app):
     assert DESC in prompt and 'не приложен' in prompt
 
 
-def test_draft_survives_switching_tabs(app):
-    app.tab('trace')
+def test_draft_survives_switching_modes(app):
+    app.mode('trace')
     app.page.fill('#trace-desc', DESC)
     app.page.dispatch_event('#trace-desc', 'input')
-    app.tab('agent')
-    app.tab('trace')
+    app.mode('generate')
+    app.mode('trace')
     assert app.page.input_value('#trace-desc') == DESC
