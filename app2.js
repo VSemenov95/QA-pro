@@ -3436,10 +3436,31 @@ async function createProduct(name, description = '', seed = {}) {
   return id;
 }
 /* ---------- документы продукта ---------- */
-function docMeta(d) { return { id: d.id, name: d.name, ext: d.ext, chars: d.chars, warn: d.warn || '', parts: d.savedParts || 0, sample: !!d.sample, addedAt: d.addedAt || Date.now(), by: d.by || S.caps.uid || '', ...(d.source ? { source: d.source, video: d.video || null } : {}) }; }
+function docMeta(d) { return { id: d.id, name: d.name, ext: d.ext, chars: d.chars, warn: d.warn || '', parts: d.savedParts || 0, sample: !!d.sample, addedAt: d.addedAt || Date.now(), by: d.by || S.caps.uid || '', ...(d.openapi ? { openapi: true } : {}), ...(d.source ? { source: d.source, video: d.video || null } : {}) }; }
 async function addDocMeta(pid, d) {
   try { await updateProduct(pid, (p) => ({ docs: [...arrOf(p.docs).filter((x) => x.id !== d.id), docMeta(d)] })); }
   catch { toast(`Документ «${d.name}» не добавлен в продукт — нет прав на запись.`, 'err'); }
+}
+let apiFilterT = null;
+function scheduleApiFilter() { clearTimeout(apiFilterT); apiFilterT = setTimeout(applyApiFilter, 500); }
+/* фильтр «API» применяется к спецификациям этой сессии сразу; восстановленные из продукта — при следующей загрузке файла */
+async function applyApiFilter() {
+  const hint = $('#api-hint');
+  const specs = S.docs.filter((d) => d.openapi && d.pid === S.productId);
+  const live = specs.filter((d) => rawSpecs.has(d.id));
+  for (const d of live) {
+    const raw = rawSpecs.get(d.id);
+    let r = null;
+    try { r = await parseSpec(raw.ext, raw.buf); } catch (e) { d.status = 'error'; d.error = e.message || String(e); d.text = ''; d.chars = 0; d.warn = ''; continue; }
+    d.status = 'ready'; d.error = '';
+    d.text = r.text; d.chars = d.text.length; d.warn = r.warn;
+    if (d.savedParts) {
+      for (let i = 0; i < d.savedParts; i++) { try { await S.caps.db.doc(`${prodPath(d.pid)}/docparts/${d.id}_${i}`).delete(); } catch { /* части уже нет */ } }
+      d.savedParts = 0; await persistDocText(d);
+    }
+  }
+  if (hint && specs.length) hint.textContent = live.length ? 'Фильтр применён к загруженной спецификации.' : 'Спецификация сохранена в продукте: фильтр применится, когда загрузите её заново.';
+  invalidateIndex(); renderDocs(); renderRunControls(); renderProduct();
 }
 async function persistDocText(d) {
   const pid = d.pid;
@@ -3472,7 +3493,7 @@ async function loadDocText(pid, m) {
 }
 function docFromMeta(pid, m) {
   if (m.sample) return { ...sampleDocObj(), id: m.id, pid, addedAt: m.addedAt, by: m.by };
-  return { id: m.id, pid, name: m.name, ext: m.ext, size: (m.chars || 0) * 2, status: 'loading', text: '', chars: m.chars || 0, error: '', warn: m.warn || '', preview: false, savedParts: m.parts, addedAt: m.addedAt, by: m.by, ...(m.source ? { source: m.source, video: m.video || null } : {}) };
+  return { id: m.id, pid, name: m.name, ext: m.ext, size: (m.chars || 0) * 2, status: 'loading', text: '', chars: m.chars || 0, error: '', warn: m.warn || '', preview: false, savedParts: m.parts, addedAt: m.addedAt, by: m.by, ...(m.openapi ? { openapi: true } : {}), ...(m.source ? { source: m.source, video: m.video || null } : {}) };
 }
 /* список документов продукта сверяется с хранилищем: коллеги могли добавить или убрать файлы */
 async function syncProductDocs(prod) {

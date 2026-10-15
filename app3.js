@@ -410,6 +410,10 @@ function renderRunControls() {
     if (form && (S.running || !dr)) form.hidden = true;
   }
   if (reducing) run.disabled = true;
+  // поле «API» активно только когда в запуске есть спецификация OpenAPI / Swagger
+  const apiOn = docsFor(null).some((d) => d.openapi);
+  const af = $('#api-filter'); if (af) af.disabled = !apiOn;
+  const ab = $('#api-block'); if (ab) ab.classList.toggle('is-off', !apiOn);
   const docs = docsFor(null), types = selectedTypes(), o = S.settings.outputs, upd = S.settings.mode === 'update';
   run.disabled = !docs.length || !types.length || (!upd && !o.cases && !o.checklist) || runDocList().some((d) => d.status === 'parsing' || d.status === 'loading') || (upd && S.upd.file?.status !== 'ready');
   renderProdSelect();
@@ -2426,7 +2430,7 @@ function bind() {
   const af = $('#api-filter');
   if (af) {
     af.value = S.settings.apiFilter || '';
-    af.addEventListener('input', () => { S.settings.apiFilter = af.value.slice(0, 300); saveSettings(); });
+    af.addEventListener('input', () => { S.settings.apiFilter = af.value.slice(0, 300); saveSettings(); scheduleApiFilter(); });
   }
   const tn = $('#target-n');
   if (tn) {

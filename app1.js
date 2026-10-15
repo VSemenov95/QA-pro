@@ -422,6 +422,8 @@ function openApiToText(spec, filter) {
   const info = spec.info || {}, base = spec.servers?.[0]?.url || spec.basePath || '';
   return [`# ${info.title || 'API'}${info.version ? ' ' + info.version : ''}`, base ? `Базовый адрес: ${base}` : '', ...blocks].filter(Boolean).join('\n\n');
 }
+/* исходники спецификаций этой сессии: по ним фильтр «API» пересчитывает текст без повторной загрузки */
+const rawSpecs = new Map();
 async function parseSpec(ext, buf) {
   const raw = decodeText(buf);
   let spec = null;
@@ -429,7 +431,7 @@ async function parseSpec(ext, buf) {
   else { await lib('yaml'); try { spec = window.jsyaml.load(raw); } catch (e) { throw new Error('Не удалось разобрать YAML: ' + (e.message || e)); } }
   if (spec && typeof spec === 'object' && (spec.openapi || spec.swagger)) {
     const filter = S.settings.apiFilter || '';
-    return { text: openApiToText(spec, filter), warn: filter.trim() ? '' : 'Поле «API» не заполнено — взяты все эндпоинты спецификации' };
+    return { text: openApiToText(spec, filter), warn: filter.trim() ? '' : 'Поле «API» не заполнено — взяты все эндпоинты спецификации', openapi: true, raw: { ext, buf } };
   }
   if (ext === 'json' && spec !== null) return { text: raw };   // обычный JSON без OpenAPI — как текст
   throw new Error('Это не спецификация OpenAPI или Swagger: в файле нет поля openapi или swagger');
@@ -469,6 +471,7 @@ function addFiles(files) {
       d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
       d.status = d.chars ? 'ready' : 'error';
       if (!d.chars) d.error = 'В файле не найден текст';
+      if (r.openapi) { d.openapi = true; rawSpecs.set(d.id, r.raw); }
     }).catch((e) => { d.status = 'error'; d.error = e.message || String(e); })
       .finally(() => {
         if (d.status === 'ready' && S.docs.includes(d)) {
