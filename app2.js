@@ -1089,6 +1089,8 @@ function acceptCases(run, b, res) {
   let added = 0;
   for (const c of arr) {
     if (!c || typeof c !== 'object') continue;
+    // строгое число тестов: модель могла вернуть больше кейсов, чем проверок — лишние не добавляем
+    if (strictTarget(run) && run.cases.length >= run.settings.target) break;
     let tc = c.testCase && typeof c.testCase === 'object' && !Array.isArray(c.testCase) ? c.testCase : null;
     if (!tc) { tc = { ...c }; delete tc.planItem; delete tc.requirementIds; delete tc.suites; }
     const planItem = itemIds.includes(c.planItem) ? c.planItem : itemIds[0];

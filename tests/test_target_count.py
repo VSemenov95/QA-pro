@@ -1,4 +1,5 @@
 """Количество тестов задаётся перед генерацией: план ограничивается этим числом проверок."""
+import re
 import pytest
 
 
@@ -102,3 +103,31 @@ def test_without_target_there_is_no_limit(app):
     app.generate()
     assert cases_count(app) > 1
     assert not any('Строгое число' in t for t in coverage_log(app))
+
+
+def test_model_extra_cases_do_not_exceed_target(app):
+    """Модель вернула четыре кейса на одну проверку — в запуске должен остаться один."""
+    from tests.support.model import case_body
+
+    def four_cases(call):
+        pid = re.findall(r'### ([A-Z]+-\d+)\.', call.prompt)[0]
+        return {'cases': [{'planItem': pid, 'requirementIds': [], 'suites': ['regression'], 'testCase': case_body(f'Кейс {k}')} for k in range(4)]}
+
+    app.model.on('promptGenerate', four_cases)
+    app.page.fill('#target-n', '1')
+    app.page.dispatch_event('#target-n', 'change')
+    app.add_sample()
+    app.generate()
+    assert cases_count(app) == 1, cases_count(app)
+
+
+def test_typed_number_applies_when_generate_is_clicked(app):
+    """Как в работе: число введено с клавиатуры и сразу нажата кнопка запуска, без явного события."""
+    from tests.support.model import case_body
+    app.model.on('promptGenerate', lambda call: {'cases': [{'planItem': p, 'requirementIds': [], 'suites': ['regression'], 'testCase': case_body(f'Кейс {k}')} for p in re.findall(r'### ([A-Z]+-\d+)\.', call.prompt) for k in range(3)]})
+    app.add_sample()
+    app.page.click('#target-n')
+    app.page.keyboard.type('1')
+    app.generate()
+    assert app.state('S.settings.target') == 1 and app.state('S.run.settings.target') == 1
+    assert cases_count(app) == 1, cases_count(app)
