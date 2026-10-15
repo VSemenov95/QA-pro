@@ -8,7 +8,7 @@
 ## Пункты чек-листа
 ⟦e5⟧
 
-Для каждой проблемы: targetId — id пункта (или id требования, если оно не покрыто), severity — "critical" / "major" / "minor", category, message, suggestion. Если пункт в порядке — не упоминай его.
+Для каждой проблемы: targetId — id пункта (или id требования, если оно не покрыто), severity — "critical" / "major", category, message, suggestion. Мелкие замечания (формулировки, оформление) не пиши отдельными findings: одной строкой в поле "minor" по всему пакету. Если пункт в порядке — не упоминай его.
 
 Ответь только JSON-объектом:
-{"findings":[{"targetId":"CL-001","severity":"minor","category":"Формулировка","message":"...","suggestion":"..."}]}
+{"findings":[{"targetId":"CL-001","severity":"major","category":"Формулировка","message":"...","suggestion":"..."}],"minor":""}

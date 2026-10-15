@@ -63,7 +63,13 @@ def test_reviewer_gets_cases_by_type_and_checklist_separately(reviewed):
 
 def test_findings_come_from_reviewer_for_cases_and_items(reviewed):
     got = reviewed.state(AI_FINDINGS + ".map((f) => [f.kind, f.targetId, f.severity, f.category])")
-    assert sorted(got) == [['case', 'API-001', 'critical', 'Соответствие ТЗ'], ['case', 'UI-001', 'major', 'Соответствие ТЗ'], ['checklist', 'CL-002', 'minor', 'Соответствие ТЗ']]
+    assert sorted(got) == [['case', 'API-001', 'critical', 'Соответствие ТЗ'], ['case', 'UI-001', 'major', 'Соответствие ТЗ'], ['checklist', 'CL-001', 'minor', 'Мелкие замечания']]
+
+
+def test_minor_findings_of_a_batch_become_one_line(reviewed):
+    """Мелкие замечания не отдельными карточками: одна строка на пакет, в ней — все замечания пакета."""
+    line = reviewed.state(AI_FINDINGS + ".find((f) => f.category === 'Мелкие замечания').message")
+    assert line.startswith('Чек-лист ') and 'CL-002: ' in line
 
 
 def test_findings_are_sorted_by_severity(reviewed):
@@ -118,12 +124,13 @@ def test_findings_for_unknown_objects_are_ignored(generated):
 
 @pytest.mark.parametrize('word,sev', [('Блокирующее', 'critical'), ('low', 'minor'), ('мелкое', 'minor'), ('что-то', 'major')])
 def test_severity_words_are_normalized(generated, word, sev):
+    """Все замечания пакета получают одну и ту же нормализованную важность (мелкие сворачиваются в строку пакета)."""
     generated.model.on('promptReviewCases', {'findings': [{'targetId': 'API-001', 'severity': word, 'message': 'Проблема'}]})
     generated.model.on('promptReviewChecklist', {'findings': []})
     generated.tab('review')
     generated.page.click('[data-act=start-review]')
     generated.wait_idle()
-    assert generated.state(AI_FINDINGS + '.map((f) => f.severity)') == [sev]
+    assert set(generated.state(AI_FINDINGS + '.map((f) => f.severity)')) == {sev}
 
 
 # ---------- проверки без модели ----------
@@ -206,7 +213,7 @@ def test_dismissed_finding_does_not_come_back_after_full_review(reviewed):
     reviewed.page.click('[data-act=fd-dismiss-ok]')
     reviewed.page.click('[data-act=start-review-full]')
     reviewed.wait_idle()
-    assert sorted(open_findings(reviewed)) == [['CL-002', 'minor'], ['UI-001', 'major']]
+    assert sorted(open_findings(reviewed)) == [['CL-001', 'minor'], ['UI-001', 'major']]
 
 
 def test_reopen_returns_dismissed_finding(reviewed):
@@ -227,6 +234,9 @@ def test_fix_sends_reviewer_remark_to_refine(reviewed):
 
 
 def test_fix_checklist_item_uses_item_refine(reviewed):
+    reviewed.model.on('promptReviewChecklist', {'findings': [{'targetId': 'CL-002', 'severity': 'major', 'category': 'Соответствие ТЗ', 'message': 'Лимит не указан', 'suggestion': 'Указать код 202'}]})
+    reviewed.page.click('[data-act=start-review-full]')
+    reviewed.wait_idle()
     finding_of(reviewed, 'CL-002').locator('[data-act=fd-fix]').click()
     reviewed.wait_idle()
     assert reviewed.state("S.run.checklist.groups[0].items[1].check") == 'Исправленный пункт с конкретным лимитом 3 запроса'

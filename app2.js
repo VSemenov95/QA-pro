@@ -2281,12 +2281,21 @@ function startReview(full = false, tab = 'review') {
           onProgress: (n) => { line.text = `${label}: пишет замечания — ${fmtKChars(n)}`; scheduleRender(); },
         });
         let n = 0;
+        const minor = [];   // мелкие замечания пакета — одной строкой, а не отдельными карточками
         for (const f of arrOf(res?.findings)) {
           const id = String(f?.targetId || '').trim();
           const kind = run.cases.some((c) => c.dispId === id) ? 'case' : cl.some((i) => i.id === id) ? 'checklist' : run.reqById[id] ? 'req' : null;
           if (!kind || !String(f?.message || '').trim()) continue;
+          if (normSev(f.severity) === 'minor') { minor.push(`${id}: ${String(f.message).trim()}`); continue; }
           if (dismissed.includes(normKey(id + ' ' + f.message))) continue;
           addFinding(run, { kind, targetId: id, severity: normSev(f.severity), category: String(f.category || 'Замечание').slice(0, 60), message: String(f.message).trim(), suggestion: String(f.suggestion || '').trim(), source: 'ai' });
+          n++;
+        }
+        const tail = String(res?.minor || '').trim();
+        if (tail) minor.push(tail);
+        if (minor.length) {
+          const first = job.kind === 'case' ? job.cases[0].dispId : job.items[0].id;
+          addFinding(run, { kind: job.kind === 'case' ? 'case' : 'checklist', targetId: first, severity: 'minor', category: 'Мелкие замечания', message: `${label}: ${minor.join('; ')}`, suggestion: 'Поправить при следующей правке кейсов этого пакета.', source: 'ai' });
           n++;
         }
         line.text = `${label}: ${n ? `${n} ${plural(n, 'замечание', 'замечания', 'замечаний')}` : 'замечаний нет'}`; line.kind = n ? 'warn' : 'ok';
