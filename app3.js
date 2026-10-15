@@ -616,7 +616,7 @@ function closeEditor() {
 }
 
 /* ================= tabs ================= */
-const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['review', 'Ревью'], ['export', 'Экспорт'], ['history', 'История']];
+const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['review', 'Ревью'], ['export', 'Экспорт'], ['trace', 'Трассировка'], ['history', 'История']];
 const validTab = () => { if (!TABS.some(([id]) => id === S.tab)) S.tab = 'agent'; };
 function renderTabs() {
   validTab();
@@ -629,7 +629,7 @@ function renderTab() {
   const body = $('#tab-body');
   if (S.settings.mode === 'help') return renderHelp();
   validTab();
-  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, history: historyTab }[S.tab];
+  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, trace: traceTab, history: historyTab }[S.tab];
   body.innerHTML = fn();
   if (S.tab === 'cases') { if (prodScope()) renderProdCases(); else { renderCaseList(); renderTmsBar(); } }
   S.pendingCasesRender = false;
@@ -1037,6 +1037,24 @@ function outputPreview(o) {
   }
   const t = o.text.length > 300000 ? o.text.slice(0, 300000) + '\n…' : o.text;
   return `<pre class="json-pre" tabindex="0">${o.ext === 'json' ? hlJSON(t) : esc(t)}</pre>`;
+}
+/* вкладка «Трассировка ошибки»: описание дефекта, необязательный стек трейса и пошаговый разбор агентом */
+function traceTab() {
+  const T = S.trace, r = T.result;
+  const ready = aiReady(S.settings.genAI);
+  const note = ready ? `Агент построит трассировку по описанию дефекта, стеку трейса и знаниям о продукте (${aiLabel(S.settings.genAI)}).` : aiProblem(S.settings.genAI);
+  const steps = r ? `<ol class="trace-steps">${r.steps.map((s) => `<li><div class="trace-h"><span class="trace-n">${s.n}</span><b>${esc(s.title)}</b>${s.layer ? `<span class="chip">${esc(s.layer)}</span>` : ''}</div>${s.details.length ? `<ul>${s.details.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ol>` : '';
+  const block = (title, rows) => (rows.some(Boolean) ? `<div class="exp-card"><div class="exp-row"><b>${title}</b></div>${rows.filter(Boolean).join('')}</div>` : '');
+  const failure = r ? block('Место сбоя', [r.failure.error && `<p><b>Ошибка:</b> ${esc(r.failure.error)}</p>`, r.failure.location && `<p><b>Где:</b> ${esc(r.failure.location)}</p>`, r.failure.cause && `<p><b>Причина:</b> ${esc(r.failure.cause)}</p>`]) : '';
+  const response = r ? block('Ответ сервера', [r.response.status && `<p><b>Статус:</b> ${esc(r.response.status)}</p>`, r.response.body && `<pre class="trace-pre">${esc(r.response.body)}</pre>`]) : '';
+  const result = r ? block('Результат для пользователя', [r.result && `<p>${esc(r.result)}</p>`, r.summary && `<p class="muted">${esc(r.summary)}</p>`, r.questions.length && `<p><b>Уточнить:</b></p><ul>${r.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>`]) : '';
+  return `<div class="exp-card"><div class="exp-row"><b>Трассировка ошибки</b><span class="muted small">${esc(aiLabel(S.settings.genAI))}</span></div>
+    <p class="hint">${esc(note)}</p>
+    <div class="field"><label class="lbl" for="trace-desc">Описание дефекта</label><textarea id="trace-desc" rows="4" placeholder="Что сделал пользователь, что ожидалось и что получилось">${esc(T.description)}</textarea></div>
+    <div class="field"><label class="lbl" for="trace-stack">Стек трейс <span class="muted small">(необязательно)</span></label><textarea id="trace-stack" rows="8" class="mono" placeholder="Вставьте стек трейс из логов">${esc(T.stack)}</textarea></div>
+    <div class="exp-row"><button class="btn accent" type="button" data-act="trace-run" ${T.busy || !T.description.trim() || !ready ? 'disabled' : ''}>${T.busy ? 'Агент трассирует…' : 'Выполнить трассировку'}</button></div>
+    ${T.error ? `<div class="banner err"><div class="banner-body">${esc(T.error)}</div></div>` : ''}
+  </div>${steps}${failure}${response}${result}`;
 }
 function exportTab() {
   const r = S.run;
@@ -2206,6 +2224,7 @@ function onTabClick(e) {
       break;
     }
     case 'pass-prev': if (armed(el, 'Вернуть прежнюю версию?')) restorePrevPassport(); break;
+    case 'trace-run': runTrace(); break;
   }
   renderRunControls(); // любое действие могло изменить черновик: кнопки «Перегенерировать» и «Сократить» пересчитываются
 }
@@ -2449,6 +2468,12 @@ function bind() {
   $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; S.clEdit = null; S.clRefine = null; renderTabs(); renderTab(); saveSession(); });
   const body = $('#tab-body');
   body.addEventListener('click', onTabClick);
+  body.addEventListener('input', (e) => {
+    if (e.target.id !== 'trace-desc' && e.target.id !== 'trace-stack') return;
+    S.trace[e.target.id === 'trace-desc' ? 'description' : 'stack'] = e.target.value;
+    const run = document.querySelector('[data-act=trace-run]');
+    if (run) run.disabled = S.trace.busy || !S.trace.description.trim() || !aiReady(S.settings.genAI);
+  });
   body.addEventListener('change', (e) => {
     const t = e.target;
     if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }

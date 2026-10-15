@@ -172,6 +172,7 @@ def _actualize(c):
 DEFAULTS = {
     'promptAnalyze': _analyze,
     'promptAnalyzeMore': lambda c: {'requirements': [], 'criteria': []},
+    'promptTrace': lambda c: {'steps': [{'n': 1, 'title': 'Инициация действия (Frontend/UI)', 'layer': 'Frontend', 'details': ['Действие: пользователь отправляет форму']}, {'n': 2, 'title': 'Обработка на стороне сервиса', 'layer': 'Backend', 'details': ['Сервис получает JSON и десериализует тело']}], 'failure': {'error': 'ClassCastException', 'location': 'TimeBasedRuleDto', 'cause': 'тип поля не совпадает с данными'}, 'response': {'status': '500', 'body': 'Ошибка десериализации'}, 'result': 'Правило не создано', 'summary': 'Проверить тип поля в DTO', 'questions': ['Приложите стек трейс']},
     'promptCoverageAudit': lambda c: {'gaps': []},
     'promptChecklist': _checklist,
     'promptPlan': _plan,

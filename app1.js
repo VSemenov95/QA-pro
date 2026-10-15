@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -182,7 +182,7 @@ const S = {
   qaCtx: { all: '', api: '', ui: '', e2e: '' }, qaCtxType: 'all', ctxDirty: false,   // доп. контекст от QA
   // продукты: общий для команды контекст — документы, доп. контекст, запуски и знания агента
   products: [], productId: null, prodReady: false, prodIndex: { pid: null, cases: [], checklist: [] }, prodKnown: { reqs: [], qa: [], docs: [] },
-  runDocs: new Set(), runDocsFresh: false, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
+  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
   tabId: rid('tab'), sessionReady: false, follow: null, resume: null,   // сессия: восстановление и продолжение
   lessons: [],                              // память агента: правила из замечаний пользователя
   fdFilter: 'open', fdUI: new Map(),

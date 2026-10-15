@@ -574,6 +574,40 @@ function promptExportItems(spec, fmt, cases) {
 
 /* ================= Claude calls ================= */
 const FATAL = new Set(['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'session_expired', 'rate_limited', 'auth', 'network', 'provider_unavailable']);
+/* трассировка ошибки: описание дефекта и необязательный стек трейса → шаги по слоям (раздел «Трассировка ошибки») */
+function promptTrace(desc, stack) {
+  return renderPrompt('promptTrace', {
+    e1: desc,
+    e2: stack ? `\n${fence}\n${stack}\n${fence}\n` : 'не приложен',
+    e3: knowBlocks(null, 'single', `${desc} ${stack}`) || 'Сведений о продукте нет: опирайся только на описание и стек трейса, остальное помечай как «нет данных».',
+    e4: qaCtxBlock(ctxOf(null)),
+  });
+}
+function normTrace(res) {
+  const o = res && typeof res === 'object' && !Array.isArray(res) ? res : {};
+  const str = (v) => String(v ?? '').trim();
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const steps = arrOf(o.steps).map((s, i) => ({ n: Number(obj(s).n) || i + 1, title: str(obj(s).title), layer: str(obj(s).layer), details: arrStr(obj(s).details) })).filter((s) => s.title);
+  const f = obj(o.failure), rs = obj(o.response);
+  return { steps, failure: { error: str(f.error), location: str(f.location), cause: str(f.cause) }, response: { status: str(rs.status), body: str(rs.body) }, result: str(o.result), summary: str(o.summary), questions: arrStr(o.questions) };
+}
+async function runTrace() {
+  const T = S.trace;
+  if (T.busy || !T.description.trim()) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  T.busy = true; T.error = ''; T.result = null; renderTab();
+  try {
+    const res = await ask(promptTrace(T.description.trim(), T.stack.trim()), { step: 'trace' });
+    T.result = normTrace(res);
+    if (!T.result.steps.length) throw { message: 'Модель не вернула шаги трассировки. Уточните описание или приложите стек трейс.' };
+  } catch (e) {
+    T.result = null;
+    if (e?.code !== 'cancelled') T.error = errText(e);
+  } finally {
+    T.busy = false;
+    if (S.tab === 'trace') renderTab();
+  }
+}
 function errText(e) {
   const map = {
     not_granted: 'Доступ к Claude для этой страницы не разрешён. Перезагрузите страницу и разрешите доступ в запросе.',
@@ -638,7 +672,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
