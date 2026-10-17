@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', etalon: 'analyze', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', defect: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', etalon: 'analyze', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -212,9 +212,9 @@ const S = {
   helpView: lsGet('qapro.kbView', 'blocks'),    // база знаний: «Разделы», «Вопросы» или «Материалы»
   kb: { pid: null, index: { blocks: [], docs: {} }, loaded: false, cache: {}, open: null, q: '', queue: [], synthQ: [], job: { busy: false, log: [], error: '', ctl: null, doc: '' }, edit: null },
   // указания агенту: правила, шаблоны API/UI/E2E, формат экспорта
-  cfg: { rules: '', tpl: { api: { ...DEFAULT_TPL.api }, ui: { ...DEFAULT_TPL.ui }, e2e: { ...DEFAULT_TPL.e2e } }, exportFormat: '', reviewRules: '' },
-  cfgTeam: { rules: null, api: null, ui: null, e2e: null, export: null, review: null }, // {updatedAt, value} — сохранённая версия команды
-  cfgDirty: { rules: false, api: false, ui: false, e2e: false, export: false, review: false },
+  cfg: { rules: '', tpl: { api: { ...DEFAULT_TPL.api }, ui: { ...DEFAULT_TPL.ui }, e2e: { ...DEFAULT_TPL.e2e } }, exportFormat: '', reviewRules: '', defectTpl: '' },
+  cfgTeam: { rules: null, api: null, ui: null, e2e: null, export: null, review: null, defect: null }, // {updatedAt, value} — сохранённая версия команды
+  cfgDirty: { rules: false, api: false, ui: false, e2e: false, export: false, review: false, defect: false },
   conns: lsGet('qapro.conns', []),          // подключения к другим ИИ — ключи только в этом браузере
   connEdit: null, connTest: null,
   tms: { kind: 'sfera', baseUrl: '', token: '', user: '', project: '', section: '', state: 'NotReady', duration: 10, url: '', headers: '', mode: 'case', ...lsGet('qapro.tms', {}) },
@@ -222,7 +222,7 @@ const S = {
   qaCtx: { all: '', api: '', ui: '', e2e: '' }, qaCtxType: 'all', ctxDirty: false,   // доп. контекст от QA
   // продукты: общий для команды контекст — документы, доп. контекст, запуски и знания агента
   products: [], productId: null, prodReady: false, prodIndex: { pid: null, cases: [], checklist: [] }, prodKnown: { reqs: [], qa: [], docs: [] },
-  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
+  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false, defect: null, defectBusy: false, defectError: '', defectPid: null, defectSavedAt: 0 }, defects: { pid: null, items: [], loaded: false, open: null }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
   tabId: rid('tab'), sessionReady: false, follow: null, resume: null,   // сессия: восстановление и продолжение
   lessons: [],                              // память агента: правила из замечаний пользователя
   fdFilter: 'open', fdUI: new Map(),
@@ -250,9 +250,9 @@ const S = {
   pendingCasesRender: false,
 };
 function saveSettings() { lsSet('tca.settings', S.settings); }
-const CFG_KEYS = ['rules', 'api', 'ui', 'e2e', 'export', 'review'];
-function cfgValue(k) { return k === 'rules' ? S.cfg.rules : k === 'export' ? S.cfg.exportFormat : k === 'review' ? S.cfg.reviewRules : S.cfg.tpl[k]; }
-function setCfgValue(k, v) { if (k === 'rules') S.cfg.rules = v; else if (k === 'export') S.cfg.exportFormat = v; else if (k === 'review') S.cfg.reviewRules = v; else S.cfg.tpl[k] = v; }
+const CFG_KEYS = ['rules', 'api', 'ui', 'e2e', 'export', 'review', 'defect'];
+function cfgValue(k) { return k === 'rules' ? S.cfg.rules : k === 'export' ? S.cfg.exportFormat : k === 'review' ? S.cfg.reviewRules : k === 'defect' ? S.cfg.defectTpl : S.cfg.tpl[k]; }
+function setCfgValue(k, v) { if (k === 'rules') S.cfg.rules = v; else if (k === 'export') S.cfg.exportFormat = v; else if (k === 'review') S.cfg.reviewRules = v; else if (k === 'defect') S.cfg.defectTpl = v; else S.cfg.tpl[k] = v; }
 function cfgDefault(k) { return TYPES.includes(k) ? { ...DEFAULT_TPL[k] } : ''; }
 const saveConns = () => lsSet('qapro.conns', S.conns);
 const saveTms = () => lsSet('qapro.tms', S.tms);

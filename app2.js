@@ -667,6 +667,162 @@ async function runTrace() {
     if (S.settings.mode === 'trace') renderTab();
   }
 }
+/* ================= баг-репорт по трассировке: шаблон команды, связанные кейсы, поиск дублей ================= */
+const SEVERITIES = ['blocker', 'critical', 'major', 'minor', 'trivial'];
+const DSEV_RU = { blocker: 'Блокирующий', critical: 'Критичный', major: 'Значительный', minor: 'Незначительный', trivial: 'Тривиальный' };
+const DPRIOS = ['high', 'medium', 'low'];
+const DPRIO_RU = { high: 'Высокий', medium: 'Средний', low: 'Низкий' };
+const DEFECT_MAX = 300;   // дефектов в индексе продукта
+const defIdxPath = (pid) => `${prodPath(pid)}/meta/defects`;
+const defPath = (pid, id) => `${prodPath(pid)}/defects/${id}`;
+function traceText(r) {
+  if (!r) return 'не выполнена';
+  const out = r.steps.map((s) => `${s.n}. ${s.title}${s.layer ? ` [${s.layer}]` : ''}${s.details.length ? '\n' + s.details.map((d) => `   - ${d}`).join('\n') : ''}`);
+  if (r.failure.error || r.failure.location || r.failure.cause) out.push(`Место сбоя: ${[r.failure.error, r.failure.location, r.failure.cause].filter(Boolean).join(' · ')}`);
+  if (r.response.status || r.response.body) out.push(`Ответ сервера: ${[r.response.status, r.response.body].filter(Boolean).join(' · ')}`);
+  if (r.result) out.push(`Результат для пользователя: ${r.result}`);
+  if (r.summary) out.push(`Резюме: ${r.summary}`);
+  return out.join('\n');
+}
+/* кандидаты для модели: кейсы и дефекты продукта, ближайшие к описанию по словам */
+function nearest(items, text, of, n) {
+  const q = [...new Set(helpTokens(text))];
+  if (!q.length) return [];
+  return items.map((x) => ({ x, s: helpScore(q, of(x)) })).filter((o) => o.s >= Math.min(2, q.length)).sort((a, b) => b.s - a.s).slice(0, n).map((o) => o.x);
+}
+function defectFocus(T) {
+  const r = T.result;
+  return `${T.description} ${r ? `${r.failure.error} ${r.failure.location} ${r.failure.cause} ${r.result} ${r.steps.map((s) => s.title + ' ' + s.details.join(' ')).join(' ')}` : ''}`;
+}
+function defectCandidates(T) {
+  const focus = defectFocus(T);
+  const cases = S.prodIndex.pid === S.productId ? nearest(S.prodIndex.cases, focus, (x) => x.n, 20) : [];
+  const dups = S.defects.pid === S.productId ? nearest(S.defects.items, focus, (x) => `${x.title} ${x.actual} ${x.location}`, 15) : [];
+  return { cases, dups };
+}
+function promptDefect(T, cand) {
+  const focus = defectFocus(T);
+  return renderPrompt('promptDefect', {
+    e1: T.description.trim(),
+    e2: T.stack.trim() ? `\n${fence}\n${T.stack.trim().slice(0, 12000)}\n${fence}\n` : 'не приложен',
+    e3: traceText(T.result),
+    e4: S.cfg.defectTpl.trim() || 'Не задан — используй стандартные поля из формата ответа, "fields" оставь пустым.',
+    e5: knowBlocks(null, 'single', focus) || 'Сведений о продукте нет.',
+    e6: qaCtxBlock(ctxOf(null)),
+    e7: cand.cases.length ? cand.cases.map((x) => `- ${x.i}: ${x.n}`).join('\n') : 'нет',
+    e8: cand.dups.length ? cand.dups.map((x) => `- ${x.id}: ${x.title}${x.actual ? ` | фактически: ${x.actual}` : ''}${x.location ? ` | место сбоя: ${x.location}` : ''}`).join('\n') : 'нет',
+  });
+}
+function normDefect(res, cand) {
+  const o = res && typeof res === 'object' && !Array.isArray(res) ? res : {};
+  const str = (v, n = 4000) => String(v ?? '').trim().slice(0, n);
+  const lo = (v) => str(v, 20).toLowerCase();
+  const caseIds = new Set(cand.cases.map((x) => x.i)), dupIds = new Set(cand.dups.map((x) => x.id));
+  const steps = arrStr(o.steps).map((x) => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+  return {
+    title: str(o.title, 200), severity: SEVERITIES.includes(lo(o.severity)) ? lo(o.severity) : 'major', priority: DPRIOS.includes(lo(o.priority)) ? lo(o.priority) : 'medium',
+    component: str(o.component, 200), environment: str(o.environment, 400), preconditions: arrStr(o.preconditions).filter(Boolean), steps,
+    expected: str(o.expected), actual: str(o.actual), analysis: str(o.analysis),
+    fields: arrOf(o.fields).map((f) => ({ name: str(f?.name, 120), value: str(f?.value) })).filter((f) => f.name),
+    relatedCases: [...new Set(arrStr(o.relatedCases).map((x) => x.trim()))].filter((x) => caseIds.has(x)).slice(0, 5),
+    duplicates: arrOf(o.duplicates).map((d) => ({ id: str(d?.id, 40), reason: str(d?.reason, 400) })).filter((d) => dupIds.has(d.id)),
+  };
+}
+async function runDefect() {
+  const T = S.trace;
+  if (T.defectBusy || !T.result) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  T.defectBusy = true; T.defectError = ''; renderTab();
+  try {
+    if (S.productId && S.caps.db && S.defects.pid !== S.productId) await loadDefects(S.productId);
+    const cand = defectCandidates(T);
+    const res = await ask(promptDefect(T, cand), { step: 'defect' });
+    const d = normDefect(res, cand);
+    if (!d.title || !d.steps.length) throw { message: 'Модель не вернула заголовок и шаги воспроизведения. Уточните описание дефекта и повторите.' };
+    T.defect = { id: '', ...d, stack: T.stack.trim(), createdAt: 0 };
+    T.defectPid = S.productId; T.defectSavedAt = 0;
+  } catch (e) {
+    if (e?.code !== 'cancelled') T.defectError = errText(e);
+  } finally {
+    T.defectBusy = false;
+    if (S.settings.mode === 'trace') renderTab();
+  }
+}
+/* текст для трекера: plain — для полей Сферы и Jira без разметки, md — Markdown */
+function defectText(d, md) {
+  const h = (t) => (md ? `**${t}**` : `${t}:`);
+  const list = (a, num) => a.map((x, i) => `${num ? `${i + 1}.` : '-'} ${x}`).join('\n');
+  const out = [md ? `## ${d.title}` : d.title, '',
+    `${h('Серьёзность')} ${DSEV_RU[d.severity] || d.severity} · ${h('Приоритет')} ${DPRIO_RU[d.priority] || d.priority}`];
+  if (d.component) out.push(`${h('Компонент')} ${d.component}`);
+  if (d.environment) out.push(`${h('Окружение')} ${d.environment}`);
+  if (d.preconditions.length) out.push('', h('Предусловия'), list(d.preconditions));
+  out.push('', h('Шаги воспроизведения'), list(d.steps, true), '', `${h('Ожидаемый результат')} ${d.expected}`, `${h('Фактический результат')} ${d.actual}`);
+  for (const f of d.fields) out.push(`${h(f.name)} ${f.value}`);
+  if (d.analysis) out.push('', `${h('Анализ')} ${d.analysis}`);
+  if (d.relatedCases.length) out.push(`${h('Связанные тест-кейсы')} ${d.relatedCases.join(', ')}`);
+  if (d.stack) out.push('', h('Стек трейс'), md ? `${fence}\n${d.stack}\n${fence}` : d.stack);
+  return out.join('\n');
+}
+async function loadDefects(pid) {
+  if (!pid || !S.caps.db) { S.defects = { pid, items: [], loaded: true, open: null }; return; }
+  let items = [];
+  try { items = arrOf((await S.caps.db.doc(defIdxPath(pid)).get()).data()?.items); } catch { /* дефектов ещё нет */ }
+  if (S.productId === pid) { S.defects = { pid, items, loaded: true, open: null }; if (S.settings.mode === 'trace' && !isTyping($('#tab-body'))) renderTab(); }
+}
+const defIdxItem = (d) => ({ id: d.id, title: d.title.slice(0, 200), severity: d.severity, actual: d.actual.replace(/\s+/g, ' ').slice(0, 200), location: (S.trace.result?.failure.location || d.component || '').slice(0, 140), createdAt: d.createdAt, by: d.by || '' });
+let defChain = Promise.resolve();
+async function saveDefect() {
+  const T = S.trace, d = T.defect, pid = S.productId;
+  if (!d || !pid || !S.caps.db) return;
+  if (!d.title.trim() || !d.steps.some((x) => x.trim())) return toast('Заполните заголовок и шаги воспроизведения.', 'err');
+  d.steps = d.steps.map((x) => x.trim()).filter(Boolean); d.preconditions = d.preconditions.map((x) => x.trim()).filter(Boolean);
+  const job = defChain.then(async () => {
+    const ref = S.caps.db.doc(defIdxPath(pid));
+    const cur = arrOf((await ref.get()).data()?.items);
+    if (!d.id) {
+      const n = cur.reduce((m, x) => Math.max(m, Number((/(\d+)$/.exec(String(x.id)) || [])[1] || 0)), 0) + 1;
+      d.id = `D-${pad(n, 3)}`; d.createdAt = Date.now(); d.by = S.caps.uid || '';
+    }
+    d.updatedAt = Date.now();
+    await S.caps.db.doc(defPath(pid, d.id)).set({ ...d, trace: T.result || null, description: T.description });
+    const next = [...cur.filter((x) => x.id !== d.id), defIdxItem(d)].slice(-DEFECT_MAX);
+    await ref.set({ items: next, updatedAt: Date.now() });
+    if (S.productId === pid) S.defects = { ...S.defects, pid, items: next, loaded: true };
+  });
+  defChain = job.catch(() => {});
+  try { await job; T.defectSavedAt = Date.now(); toast(`Дефект ${d.id} сохранён в продукт`); }
+  catch { toast('Не удалось сохранить дефект — нужны права на изменение продукта.', 'err'); }
+  if (S.settings.mode === 'trace') renderTab();
+}
+async function openDefect(id) {
+  const pid = S.productId;
+  try {
+    const data = (await S.caps.db.doc(defPath(pid, id)).get()).data();
+    if (!data) return toast('Дефект не найден — возможно, его удалили.', 'err');
+    const T = S.trace;
+    T.description = String(data.description || ''); T.stack = String(data.stack || '');
+    T.result = data.trace ? normTrace(data.trace) : null; T.error = '';
+    T.defect = { ...normDefect(data, { cases: (data.relatedCases || []).map((i) => ({ i })), dups: (data.duplicates || []).map((x) => ({ id: x.id })) }), id: data.id, stack: String(data.stack || ''), createdAt: data.createdAt || 0, by: data.by || '' };
+    T.defectPid = pid; T.defectSavedAt = data.updatedAt || data.createdAt || 0; T.defectError = '';
+    renderTab();
+    document.querySelector('#defect-card')?.scrollIntoView({ block: 'start' });
+  } catch { toast('Не удалось открыть дефект.', 'err'); }
+}
+async function deleteDefect(id) {
+  const pid = S.productId;
+  const job = defChain.then(async () => {
+    const ref = S.caps.db.doc(defIdxPath(pid));
+    const next = arrOf((await ref.get()).data()?.items).filter((x) => x.id !== id);
+    await ref.set({ items: next, updatedAt: Date.now() });
+    await S.caps.db.doc(defPath(pid, id)).delete();
+    if (S.productId === pid) S.defects = { ...S.defects, items: next };
+    if (S.trace.defect?.id === id) S.trace.defect.id = '';
+  });
+  defChain = job.catch(() => {});
+  try { await job; toast(`Дефект ${id} удалён`); } catch { toast('Не удалось удалить дефект.', 'err'); }
+  if (S.settings.mode === 'trace') renderTab();
+}
 function errText(e) {
   const map = {
     not_granted: 'Доступ к Claude для этой страницы не разрешён. Перезагрузите страницу и разрешите доступ в запросе.',
@@ -731,7 +887,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', defect: 'баг-репорт', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -3884,8 +4040,9 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.pc = freshPc(); S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
+  S.defects = { pid: null, items: [], loaded: false, open: null };
   // источник контекста продукта (база QA pro, папка, git или GitHub) подключается, даже если что-то из данных продукта не загрузилось
-  try { await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid)]); }
+  try { await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid), loadDefects(pid)]); }
   finally { if (tok === switchTok) await ctxSwitch(pid).catch(() => {}); }
   if (tok !== switchTok) return false;
   if (!restore) saveSession();

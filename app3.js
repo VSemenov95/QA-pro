@@ -444,16 +444,16 @@ function renderRunControls() {
 }
 
 /* ---------- правила для агента (левая колонка) и настройки под шестерёнкой ---------- */
-const SET_TABS = [['model', 'Модель'], ['ctx', 'Контекст'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['tms', 'ТМС'], ['bg', 'Фон']];
+const SET_TABS = [['model', 'Модель'], ['ctx', 'Контекст'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['defect', 'Шаблон дефекта'], ['tms', 'ТМС'], ['bg', 'Фон']];
 const tmsDirty = () => !!S.tmsDraft && JSON.stringify(S.tmsDraft) !== JSON.stringify(S.tms);
 const cfgKeyOfTab = () => (S.cfgTab === 'tpl' ? S.cfgType : S.cfgTab);
-const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : 'Шаблон ' + TL[k]);
+const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : k === 'defect' ? 'Шаблон дефекта' : 'Шаблон ' + TL[k]);
 const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : id === 'ctx' ? S.ctx.conflicts.length > 0 || (S.ctx.src.kind !== 'folder' && S.ctx.pending.size > 0) : !!S.cfgDirty[id]);
 const DOT = '<span class="dot-d" title="Есть несохранённые изменения">•</span>';
 function renderCfgTabs() {
   const nav = $('#set-tabs');
   if (nav) nav.innerHTML = SET_TABS.map(([id, name]) => `<button type="button" role="tab" id="settab-${id}" aria-selected="${S.setTab === id}" data-settab="${id}">${name}${cfgTabDirty(id) ? DOT : ''}</button>`).join('');
-  $('#btn-settings')?.classList.toggle('dirty', ['ctx', 'tpl', 'export', 'review', 'tms'].some(cfgTabDirty));
+  $('#btn-settings')?.classList.toggle('dirty', ['ctx', 'tpl', 'export', 'review', 'defect', 'tms'].some(cfgTabDirty));
   const rd = $('#h-rules-dot');
   if (rd) rd.hidden = !S.cfgDirty.rules;
 }
@@ -506,6 +506,12 @@ function renderCfg() {
         <p class="hint">Правила из ваших замечаний: комментарии к доработке кейсов и пунктов, причины отклонения замечаний ревьюера. Агент учитывает их при генерации и ревью, они общие для команды.</p>
         <ul class="lessons">${S.lessons.length ? S.lessons.map((l) => `<li><div style="min-width:0"><span>${esc(l.text)}</span><div><span class="chip">${LESSON_SCOPE_RU[l.scope] || l.scope}</span></div></div><button class="icon-btn" type="button" data-cfg="lesson-del" data-id="${esc(l.id)}" aria-label="Удалить правило" title="Удалить правило">${ICON.x}</button></li>`).join('') : '<li class="muted small">Пока пусто — правила появятся после ваших замечаний.</li>'}</ul>
         <div class="lesson-add"><input id="lesson-new" type="text" placeholder="Добавить правило вручную" aria-label="Новое правило"><select id="lesson-scope" aria-label="Для чего правило"><option value="generation">генерация</option><option value="review">ревью</option><option value="both">оба</option></select><button class="btn" type="button" data-cfg="lesson-add">Добавить</button></div></div>`;
+  } else if (S.cfgTab === 'defect') {
+    body.innerHTML = `<div class="field"><div class="lbl-row"><label class="lbl" for="cfg-defect">Поля и правила баг-репорта</label><button class="link" type="button" data-cfg="expand">Развернуть</button></div>
+      <textarea id="cfg-defect" rows="9" placeholder="Например: Заголовок — [Модуль] Что сломалось. Обязательные поля: Версия сборки, Стенд, Затронутые роли, Ссылка на задачу. Серьёзность по шкале Сферы. В шагах — URL экрана и тестовая учётка.">${esc(S.cfg.defectTpl)}</textarea>
+      <div class="cfg-mini"><button class="link" type="button" data-cfg="load-defect">Приложить файл .md</button></div>
+      <input type="file" id="cfg-defect-md" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
+      <p class="hint">Опишите словами или вставьте пример дефекта из трекера. Стандартные поля — заголовок, серьёзность, приоритет, компонент, окружение, предусловия, шаги, ожидаемый и фактический результат, анализ — агент заполняет всегда; дополнительные поля шаблона появятся в карточке дефекта отдельными строками. Пусто — только стандартные поля.</p></div>`;
   } else {
     body.innerHTML = `<div class="field"><div class="lbl-row"><label class="lbl" for="cfg-export">Формат и правила заполнения</label><button class="link" type="button" data-cfg="expand">Развернуть</button></div>
       <textarea id="cfg-export" rows="8" placeholder="Например: CSV для импорта в Test IT, разделитель «;». Колонки: Название, Предусловия, Шаг, Ожидаемый результат, Приоритет, Теги. Каждый шаг — отдельная строка, название и предусловия — только в первой строке кейса. В теги добавить smoke или regression.">${esc(S.cfg.exportFormat)}</textarea>
@@ -518,7 +524,7 @@ function cfgFootHTML(k) {
   if (ctxOwnsCfg()) return ctxCfgFoot(k); // источник контекста — репозиторий
   const team = S.cfgTeam[k], dirty = S.cfgDirty[k];
   const canSave = !!(S.caps.db && S.caps.canEdit);
-  const state = dirty ? '<b>Изменено в этом окне</b>' : team ? `<b>Версия команды</b><span>· обновлена ${fmtDate(team.updatedAt)}</span>` : `<b>${k === 'rules' || k === 'export' || k === 'review' ? 'Не задано' : 'Стандартный шаблон'}</b>`;
+  const state = dirty ? '<b>Изменено в этом окне</b>' : team ? `<b>Версия команды</b><span>· обновлена ${fmtDate(team.updatedAt)}</span>` : `<b>${k === 'rules' || k === 'export' || k === 'review' || k === 'defect' ? 'Не задано' : 'Стандартный шаблон'}</b>`;
   return `<div class="cfg-state${dirty ? ' dirty' : ''}">${esc(cfgName(k))}: ${state}</div>
     ${dirty ? `<div class="row">${canSave ? `<button class="btn accent" type="button" data-cfg="save" data-k="${k}">Сохранить для команды</button>` : ''}<button class="btn" type="button" data-cfg="revert" data-k="${k}">${team ? 'Вернуть версию команды' : 'Отменить изменения'}</button></div>
     ${canSave ? '' : `<p class="hint">${S.caps.db ? 'Изменения действуют только у вас. Сохранить для всей команды может владелец или редактор приложения.' : 'Изменения действуют только в этом браузере.'}</p>`}` : ''}`;
@@ -551,6 +557,7 @@ async function saveCfg(k) {
   try {
     if (k === 'rules') await db.doc('config/rules').set({ text: S.cfg.rules, updatedAt: now, updatedBy: by });
     else if (k === 'review') await db.doc('config/review').set({ text: S.cfg.reviewRules, updatedAt: now, updatedBy: by });
+    else if (k === 'defect') await db.doc('config/defect').set({ text: S.cfg.defectTpl, updatedAt: now, updatedBy: by });
     else if (k === 'export') await db.doc('config/export').set({ format: S.cfg.exportFormat, updatedAt: now, updatedBy: by });
     else {
       if (!tplInfo(k).ok) return toast('Исправьте JSON примера перед сохранением.', 'err');
@@ -581,6 +588,7 @@ function subscribeCfg() {
       let k = null, value;
       if (d.id === 'rules') { k = 'rules'; value = String(data.text ?? ''); }
       else if (d.id === 'review') { k = 'review'; value = String(data.text ?? ''); }
+      else if (d.id === 'defect') { k = 'defect'; value = String(data.text ?? ''); }
       else if (d.id === 'export') {
         k = 'export';
         value = data.format != null ? String(data.format) : data.structure != null ? 'JSON со структурой:\n' + (typeof data.structure === 'string' ? data.structure : JSON.stringify(data.structure, null, 2)) : '';
@@ -608,7 +616,7 @@ function openEditor(which) {
   const rules = which === 'rules';
   const k = rules ? 'rules' : cfgKeyOfTab();
   const tpl = !rules && S.cfgTab === 'tpl';
-  const src = rules ? '#cfg-rules' : { export: '#cfg-export', review: '#cfg-review' }[S.cfgTab] || '#cfg-example';
+  const src = rules ? '#cfg-rules' : { export: '#cfg-export', review: '#cfg-review', defect: '#cfg-defect' }[S.cfgTab] || '#cfg-example';
   ovKey = { k, src, tpl };
   $('#ov-title').textContent = tpl ? `Пример кейса ${TL[k]} (JSON)` : cfgName(k);
   const ta = $('#ov-text');
@@ -1182,7 +1190,59 @@ function traceTab() {
     <div class="field"><label class="lbl" for="trace-stack">Стек трейс <span class="muted small">(необязательно)</span></label><textarea id="trace-stack" rows="8" class="mono" placeholder="Вставьте стек трейс из логов">${esc(T.stack)}</textarea></div>
     <div class="exp-row"><button class="btn accent" type="button" data-act="trace-run" ${T.busy || !T.description.trim() || !ready ? 'disabled' : ''}>${T.busy ? 'Агент трассирует…' : 'Выполнить трассировку'}</button></div>
     ${T.error ? `<div class="banner err"><div class="banner-body">${esc(T.error)}</div></div>` : ''}
-  </div>${steps}${failure}${response}${result}`;
+  </div>${steps}${failure}${response}${result}${r ? defectHTML() : ''}${defectListHTML()}`;
+}
+/* баг-репорт по трассировке: оформление по шаблону команды, правка, копирование, сохранение в продукт */
+function defectHTML() {
+  const T = S.trace, d = T.defect, ready = aiReady(S.settings.genAI);
+  const tpl = S.cfg.defectTpl.trim() ? 'по шаблону команды' : 'стандартные поля';
+  const err = T.defectError ? `<div class="banner err"><div class="banner-body">${esc(T.defectError)}</div></div>` : '';
+  if (!d) {
+    return `<div class="exp-card" id="defect-card"><div class="exp-row"><b>Баг-репорт</b><span class="muted small">${tpl} · <button class="link inline" type="button" data-act="cfg-defect">шаблон дефекта</button></span></div>
+      <p class="hint">Агент оформит дефект по описанию и трассировке: заголовок, шаги воспроизведения, ожидаемый и фактический результат, серьёзность, анализ причины. Найдёт связанные тест-кейсы продукта и проверит, нет ли уже такого дефекта.</p>
+      <div class="exp-row"><button class="btn accent" type="button" data-act="defect-run" ${T.defectBusy || !ready ? 'disabled' : ''}>${T.defectBusy ? 'Агент оформляет дефект…' : 'Оформить дефект'}</button></div>${err}</div>`;
+  }
+  const canSave = !!(S.productId && S.caps.db && T.defectPid === S.productId);
+  const dupById = new Map(S.defects.items.map((x) => [x.id, x]));
+  const dups = d.duplicates.filter((x) => x.id !== d.id);
+  const dupBanner = dups.length ? `<div class="banner warn defect-dups"><div class="banner-body"><b>Возможно, такой дефект уже заведён</b><ul>${dups.map((x) => `<li><button class="link inline mono" type="button" data-act="defect-open" data-id="${esc(x.id)}">${esc(x.id)}</button> ${esc(dupById.get(x.id)?.title || '')}${x.reason ? ` <span class="muted">— ${esc(x.reason)}</span>` : ''}</li>`).join('')}</ul></div></div>` : '';
+  const sel = (key, vals, ru) => `<select id="def-${key}" data-def="${key}">${vals.map((v) => `<option value="${v}" ${d[key] === v ? 'selected' : ''}>${ru[v]}</option>`).join('')}</select>`;
+  const inp = (key, label, ph = '') => `<div class="field"><label class="lbl" for="def-${key}">${label}</label><input type="text" id="def-${key}" data-def="${key}" value="${esc(d[key])}" placeholder="${esc(ph)}"></div>`;
+  const area = (key, label, rows, hint = '') => `<div class="field"><label class="lbl" for="def-${key}">${label}${hint ? ` <span class="muted small">${hint}</span>` : ''}</label><textarea id="def-${key}" data-def="${key}" rows="${rows}">${esc(Array.isArray(d[key]) ? d[key].join('\n') : d[key])}</textarea></div>`;
+  const saved = d.id ? `<span class="chip">${esc(d.id)}</span>` : '';
+  const state = T.defectSavedAt ? `<span class="muted small">сохранён ${fmtDate(T.defectSavedAt)}</span>` : d.id ? '<span class="muted small warn-hint">есть несохранённые правки</span>' : '';
+  return `<div class="exp-card defect" id="defect-card">
+    <div class="exp-row"><b>Баг-репорт</b>${saved}${state}<span class="muted small" style="margin-left:auto">${tpl}</span></div>
+    ${dupBanner}
+    ${inp('title', 'Заголовок')}
+    <div class="grid2"><div class="field"><label class="lbl" for="def-severity">Серьёзность</label>${sel('severity', SEVERITIES, DSEV_RU)}</div><div class="field"><label class="lbl" for="def-priority">Приоритет</label>${sel('priority', DPRIOS, DPRIO_RU)}</div></div>
+    <div class="grid2">${inp('component', 'Компонент', 'Слой или сервис')}${inp('environment', 'Окружение', 'Стенд, версия, браузер')}</div>
+    ${area('preconditions', 'Предусловия', 2, 'по одному на строку')}
+    ${area('steps', 'Шаги воспроизведения', Math.min(10, Math.max(4, d.steps.length + 1)), 'по одному на строку')}
+    <div class="grid2">${area('expected', 'Ожидаемый результат', 3)}${area('actual', 'Фактический результат', 3)}</div>
+    ${d.fields.map((f, i) => `<div class="field"><label class="lbl" for="def-f${i}">${esc(f.name)}</label><input type="text" id="def-f${i}" data-def-field="${i}" value="${esc(f.value)}"></div>`).join('')}
+    ${area('analysis', 'Анализ', 3)}
+    ${d.relatedCases.length ? `<div class="field"><span class="lbl">Связанные тест-кейсы</span><div class="case-sub">${d.relatedCases.map((id) => `<span class="chip">${esc(id)}</span>`).join('')}</div></div>` : ''}
+    ${d.stack ? '<p class="hint">Стек трейс войдёт в баг-репорт целиком.</p>' : ''}
+    <div class="exp-row defect-acts">
+      ${canSave ? `<button class="btn accent" type="button" data-act="defect-save">${d.id ? 'Сохранить изменения' : 'Сохранить в продукт'}</button>` : ''}
+      <button class="btn" type="button" data-act="defect-copy">Копировать текст</button>
+      <button class="btn" type="button" data-act="defect-copy-md">Копировать Markdown</button>
+      ${S.caps.downloads ? '<button class="btn" type="button" data-act="defect-dl">Скачать .md</button>' : ''}
+      <button class="btn" type="button" data-act="defect-run" ${T.defectBusy || !ready ? 'disabled' : ''}>${T.defectBusy ? 'Агент оформляет…' : 'Оформить заново'}</button>
+      ${d.id ? '' : '<button class="btn" type="button" data-act="defect-clear">Закрыть</button>'}
+    </div>
+    ${canSave || !S.productId ? '' : '<p class="hint">Сохранить дефект можно в продукт, для которого он оформлен.</p>'}
+    ${!S.productId || !S.caps.db ? '<p class="hint">Без продукта дефект не сохраняется: скопируйте его в трекер или скачайте.</p>' : ''}
+    ${err}</div>`;
+}
+function defectListHTML() {
+  const D = S.defects;
+  if (!S.productId || D.pid !== S.productId || !D.items.length) return '';
+  const items = [...D.items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return `<div class="exp-card defect-list"><div class="exp-row"><b>Дефекты продукта · ${items.length}</b><span class="muted small">общие для команды, по ним агент ищет дубли</span></div>
+    <ul class="hist">${items.map((x) => `<li class="hrow"><div style="min-width:0"><h4><span class="mono muted">${esc(x.id)}</span> ${esc(x.title)}</h4><div class="meta"><span class="chip sev-${x.severity === 'blocker' || x.severity === 'critical' ? 'critical' : x.severity === 'major' ? 'major' : 'minor'}">${esc(DSEV_RU[x.severity] || x.severity)}</span>${x.createdAt ? `<span>${fmtDate(x.createdAt)}</span>` : ''}</div></div>
+      <div class="acts"><button class="btn sm" type="button" data-act="defect-open" data-id="${esc(x.id)}">Открыть</button><button class="btn sm danger" type="button" data-act="defect-del" data-id="${esc(x.id)}">Удалить</button></div></li>`).join('')}</ul></div>`;
 }
 function exportTab() {
   const r = S.run;
@@ -2401,6 +2461,15 @@ function onTabClick(e) {
     case 'q-md': downloadFile(`questions_${new Date(S.run.createdAt).toISOString().slice(0, 10)}.md`, questionsMarkdown(S.run)); break;
     case 'q-letter': copyText(questionsLetter(S.run)); break;
     case 'q-import': { const f = $('#q-file'); if (f) { f.value = ''; f.click(); } break; }
+    case 'defect-run': if (!S.trace.defect || armed(el, 'Заменить правки?')) runDefect(); break;
+    case 'defect-save': saveDefect(); break;
+    case 'defect-copy': copyText(defectText(S.trace.defect, false)); break;
+    case 'defect-copy-md': copyText(defectText(S.trace.defect, true)); break;
+    case 'defect-dl': { const d = S.trace.defect; downloadFile(`${d.id || 'defect'}_${new Date().toISOString().slice(0, 10)}.md`, defectText(d, true)); break; }
+    case 'defect-clear': S.trace.defect = null; S.trace.defectError = ''; renderTab(); break;
+    case 'defect-open': openDefect(el.dataset.id); break;
+    case 'defect-del': if (armed(el, 'Точно удалить?')) deleteDefect(el.dataset.id); break;
+    case 'cfg-defect': openSettings('defect'); break;
   }
   renderRunControls(); // любое действие могло изменить черновик: кнопки «Перегенерировать» и «Сократить» пересчитываются
 }
@@ -2571,6 +2640,7 @@ function bind() {
     const t = e.target, ty = S.cfgType;
     if (t.id === 'cfg-export') { S.cfg.exportFormat = t.value; markCfgDirty('export'); }
     else if (t.id === 'cfg-review') { S.cfg.reviewRules = t.value; markCfgDirty('review'); }
+    else if (t.id === 'cfg-defect') { S.cfg.defectTpl = t.value; markCfgDirty('defect'); }
     else if (t.id === 'cfg-example') { S.cfg.tpl[ty].example = t.value; markCfgDirty(ty); }
     else if (t.id === 'cfg-tplrules') { S.cfg.tpl[ty].rules = t.value; markCfgDirty(ty); }
     else if (t.id === 'cfg-prefix') { S.cfg.tpl[ty].idPrefix = t.value; markCfgDirty(ty); }
@@ -2584,6 +2654,7 @@ function bind() {
     if (a === 'expand') openEditor();
     else if (a === 'load') { const f = $('#cfg-file'); f.value = ''; f.click(); }
     else if (a === 'load-md') { const f = $('#cfg-md'); f.value = ''; f.click(); }
+    else if (a === 'load-defect') { const f = $('#cfg-defect-md'); f.value = ''; f.click(); }
     else if (a === 'default') { S.cfg.tpl[S.cfgType] = { ...DEFAULT_TPL[S.cfgType] }; markCfgDirty(S.cfgType); renderCfg(); toast('Подставлен стандартный пример'); }
     else if (a === 'lesson-del') deleteLesson(b.dataset.id);
     else if (a === 'lesson-add') {
@@ -2606,6 +2677,10 @@ function bind() {
       if (f.size > 300000) return toast('Файл слишком большой — до 300 КБ.', 'err');
       S.cfg.reviewRules = text.trim(); markCfgDirty('review'); renderCfg();
       toast(`Правила ревью загружены из ${f.name}`);
+    } else if (e.target.id === 'cfg-defect-md') {
+      if (f.size > 300000) return toast('Файл слишком большой — до 300 КБ.', 'err');
+      S.cfg.defectTpl = text.trim(); markCfgDirty('defect'); renderCfg();
+      toast(`Шаблон дефекта загружен из ${f.name}`);
     }
   });
   $('#cfg-foot').addEventListener('click', (e) => {
@@ -2654,6 +2729,14 @@ function bind() {
   const body = $('#tab-body');
   body.addEventListener('click', onTabClick);
   body.addEventListener('input', (e) => {
+    const t = e.target, d = S.trace.defect;
+    if (d && (t.dataset?.def || t.dataset?.defField != null)) {
+      if (t.dataset.defField != null) { const f = d.fields[Number(t.dataset.defField)]; if (f) f.value = t.value; }
+      else if (Array.isArray(d[t.dataset.def])) d[t.dataset.def] = t.value.split('\n');
+      else d[t.dataset.def] = t.value;
+      if (S.trace.defectSavedAt) { S.trace.defectSavedAt = 0; const st = document.querySelector('#defect-card .exp-row .muted.small'); if (st) { st.textContent = 'есть несохранённые правки'; st.classList.add('warn-hint'); } }
+      return;
+    }
     if (e.target.id !== 'trace-desc' && e.target.id !== 'trace-stack') return;
     S.trace[e.target.id === 'trace-desc' ? 'description' : 'stack'] = e.target.value;
     const run = document.querySelector('[data-act=trace-run]');
@@ -2662,6 +2745,7 @@ function bind() {
   body.addEventListener('change', (e) => {
     const t = e.target;
     if (t.id === 'q-file' && t.files?.[0]) { importAnswers(t.files[0]); return; }
+    if (t.tagName === 'SELECT' && t.dataset.def && S.trace.defect) { S.trace.defect[t.dataset.def] = t.value; return; }
     if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
     else if (t.classList?.contains('sel-all-cb')) {
       const list = t.dataset.where === 'cases' ? filteredCases() : S.run?.cases || [];
@@ -2803,6 +2887,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects }; // только для автотестов
 initCaps();
 })();
