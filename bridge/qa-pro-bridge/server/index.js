@@ -127,6 +127,38 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'], additionalProperties: false },
     annotations: { title: 'Отменить задание', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'sfera_call', title: 'Операция Сферы через загрузчик',
+    description: 'Выполнить операцию API Сферы через загрузчик в Chrome под входом пользователя: tasks.search, tasks.create, tasks.get, tasks.attach, tasks.link (Сфера.Задачи), repo.branches, repo.tree, repo.file, repo.branch, repo.commit, repo.mr (репозиторий). Адреса операций задаются в настройках загрузчика.',
+    inputSchema: {
+      type: 'object',
+      properties: { op: { type: 'string' }, args: { type: 'object' }, timeoutMs: { type: 'number', minimum: 1000, maximum: 25000 } },
+      required: ['op'], additionalProperties: false,
+    },
+    annotations: { title: 'Операция Сферы через загрузчик', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: 'project_list', title: 'Файлы репозитория автотестов',
+    description: 'Список текстовых файлов локального репозитория автотестов (без .git, build, target, node_modules).',
+    inputSchema: { type: 'object', properties: { root: { type: 'string', description: 'Полный путь к папке репозитория' }, max: { type: 'number' } }, required: ['root'], additionalProperties: false },
+    annotations: { title: 'Файлы репозитория автотестов', readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'project_read', title: 'Прочитать файлы репозитория',
+    description: 'Прочитать текстовые файлы локального репозитория автотестов (до 300 КБ на файл).',
+    inputSchema: { type: 'object', properties: { root: { type: 'string' }, paths: { type: 'array', items: { type: 'string' }, maxItems: 400 } }, required: ['root', 'paths'], additionalProperties: false },
+    annotations: { title: 'Прочитать файлы репозитория', readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'project_write', title: 'Записать автотесты в репозиторий',
+    description: 'Записать сгенерированные автотесты в локальный репозиторий: создать или перезаписать файлы внутри папки репозитория. Коммит и пуш делает пользователь.',
+    inputSchema: {
+      type: 'object',
+      properties: { root: { type: 'string' }, files: { type: 'array', maxItems: 100, items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
+      required: ['root', 'files'], additionalProperties: false,
+    },
+    annotations: { title: 'Записать автотесты в репозиторий', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  },
 ];
 async function callTool(name, args) {
   try {

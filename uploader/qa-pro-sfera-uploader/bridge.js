@@ -34,6 +34,9 @@
       const r = await ask({ type: 'PING' });
       if (r?.ok) reply(d.id, 'SFERA_PONG', { version: r.version, baseUrl: r.baseUrl, bridge: !!r.bridge, bridgeVersion: r.bridgeVersion || '' });
       else reply(d.id, 'SFERA_ERROR', { error: r?.error || 'Расширение не ответило.' });
+    } else if (d.type === 'SFERA_CALL') {
+      const r = await ask({ type: 'CALL', op: d.op, args: d.args || {} });
+      reply(d.id, 'SFERA_CALL_RESULT', r?.ok ? { ok: true, data: r.data ?? null } : { ok: false, error: r?.error || 'Расширение не ответило.', code: r?.code || '' });
     } else if (d.type === 'SFERA_UPLOAD') {
       const r = await ask({ type: 'UPLOAD_REQUEST', requestId: d.id, cases: d.cases, title: d.title });
       if (!r?.ok) reply(d.id, 'SFERA_ERROR', { error: r?.error || 'Расширение не ответило.' });

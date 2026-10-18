@@ -34,7 +34,7 @@ def job_msg(ws):
 
 # ---------- инструменты и манифест ----------
 def test_tool_names(bridge):
-    assert {t['name'] for t in bridge.tools()} == {'ping', 'sfera_upload', 'sfera_job', 'sfera_cancel'}
+    assert {t['name'] for t in bridge.tools()} == {'ping', 'sfera_upload', 'sfera_job', 'sfera_cancel', 'sfera_call', 'project_list', 'project_read', 'project_write'}
 
 
 def test_manifest_lists_the_same_tools(bridge):

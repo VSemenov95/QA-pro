@@ -163,6 +163,10 @@
 | `promptReviewChecklist` (ревью чек-листа) | «Правила ревью команды», уроки («ревью» или «оба») | паспорт и разделы (`review`) | требования, контекст QA |
 | `promptTrace` (трассировка ошибки, режим «Трассировка») | «Правила» не передаются; шаги строятся по слоям из описания и стека | паспорт и разделы базы (`single`, отбор по тексту дефекта и стеку) | описание дефекта, стек трейса (или «не приложен»), контекст QA |
 | `promptDefect` (баг-репорт по трассировке) | «Шаблон дефекта» команды (`config/defect`) | паспорт и разделы базы (`single`, отбор по описанию и трассировке) | описание, стек трейса, текст трассировки, до 20 кейсов продукта и до 15 дефектов продукта, ближайших по словам (`defectCandidates`) — для связанных кейсов и поиска дублей |
+| `promptSpecReview` (бета, ревью ТЗ) | «Правила ревью» и память агента (review) | паспорт и разделы базы (`single`) | требования запуска с цитатами, до 60 тыс. знаков документов запуска |
+| `promptRegress` (бета, регресс к релизу) | — | паспорт и разделы базы (`single`, отбор по документам и дефектам) | документы релиза (до 50 тыс. знаков), исправленные дефекты, до 450 кейсов продукта (ближайшие при большем числе), бюджет времени |
+| `promptAutoProfile` (бета, профиль проекта автотестов) | — | — | сборка, каталоги, каталог классов (`scanProject`), типичные тесты |
+| `promptAutoTest` (бета, автотест по кейсу) | профиль проекта | — | до 55 классов каталога (ближайшие и по видам), 2 похожих теста, тестовые классы, кейс |
 | `promptHelp` (справка) | — | выбранные разделы базы | предыдущий вопрос и ответ |
 
 ### 5.13. Что не учитывается, хотя кажется, что учитывается
@@ -747,3 +751,15 @@
 | `thawDoc` | `app3.js:2525` | capabilities |  |
 | `thawCol` | `app3.js:2535` | capabilities |  |
 | `initCaps` | `app3.js:2546` | capabilities |  |
+
+
+## Бета-функции (ветка `beta-feature`)
+
+Подробное описание и настройка — [docs/beta-feature/README.md](docs/beta-feature/README.md).
+
+- **Ревью ТЗ** — `runSpecReview`, `normSpecFindings`, `specSet`, `specLetter`, `specMarkdown` (`app2.js`), вкладка `specTab` (`app3.js`). Результат — `run.specReview`, сохраняется в мета запуска.
+- **Покрытие** — `covRows`, `covExport` (`app2.js`), вкладка `covTab`. Новых запросов к модели нет.
+- **Регресс** — режим `regress`: `regDefects`, `promptRegress`, `normRegress`, `runRegress`, `loadRegress`, `regressExport`; результат — `products/<pid>/meta/regress`. Вкладки скрыты, рисует `regressTab`.
+- **Автотесты** — источник проекта `autoSrc` (в памяти окна: `fs` — доступ браузера к папке, `files` — папка только для чтения или .zip, `bridge` — мост, `sfera` — загрузчик), `scanProject`/`scanJava` (стек, каталог, тестовые классы, образцы), `autoAnalyze` → профиль в `products/<pid>/meta/autotests`, `promptAutoTest`/`normAutoTest`/`autoGenerate` → `run.auto.items`, `mergeJava`/`autoBuildFiles`/`autoWrite`/`autoZip`. Вкладка `autoTab`.
+- **Сфера** — `sferaCall(op, args)`: в Chrome через загрузчик (`SFERA_CALL` → `CALL` → `callOp`), в приложении Claude через мост (`sfera_call` → WebSocket `call`/`call_result`). Операции описываются в настройках загрузчика (`sferaOps`). Дефект → задача: `sferaTaskArgs`, `defectHtml`, `sferaCreateTask`, `sferaDupSearch`, `sferaRefreshStatuses`; регресс — `regFromSfera`.
+- **Мост 1.4** — инструменты `sfera_call`, `project_list`, `project_read`, `project_write` (`server/core.js`): только внутри папки, указанной пользователем, без выхода по `..`, абсолютным путям и символическим ссылкам.

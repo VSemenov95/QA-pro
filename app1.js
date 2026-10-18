@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', defect: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', defect: 'analyze', specreview: 'analyze', regress: 'analyze', autoprofile: 'analyze', autotest: 'generate', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -62,6 +62,7 @@ const LIBS = {
   pdfWorker: ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
   xlsx: ['https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
   yaml: ['https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js', 'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js'],
+  jszip: ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'],
 };
 
 /* ================= default templates (заменяются шаблонами команды) ================= */
@@ -159,7 +160,7 @@ const S = {
     agentTools: saved.agentTools !== false,
     autoResume: saved.autoResume !== false,
     skipExisting: saved.skipExisting !== false,
-    mode: ['update', 'help', 'trace'].includes(saved.mode) ? saved.mode : 'generate',
+    mode: ['update', 'help', 'trace', 'regress'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
     target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
     strictRules: saved.strictRules === true,   // строгий режим: при ревью исправлять нарушения правил запросом к модели (тратит запросы)
@@ -183,7 +184,7 @@ const S = {
   qaCtx: { all: '', api: '', ui: '', e2e: '' }, qaCtxType: 'all', ctxDirty: false,   // доп. контекст от QA
   // продукты: общий для команды контекст — документы, доп. контекст, запуски и знания агента
   products: [], productId: null, prodReady: false, prodIndex: { pid: null, cases: [], checklist: [] }, prodKnown: { reqs: [], qa: [], docs: [] },
-  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false, defect: null, defectBusy: false, defectError: '', defectPid: null, defectSavedAt: 0 }, defects: { pid: null, items: [], loaded: false, open: null }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
+  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false, defect: null, defectBusy: false, defectError: '', defectPid: null, defectSavedAt: 0, sferaForm: null, sferaBusy: '', sferaError: '', sferaDups: [], sferaLink: new Set() }, defects: { pid: null, items: [], loaded: false, open: null }, specUI: { busy: false, error: '', filter: 'all' }, covUI: { filter: 'all', q: '' }, regress: { defectsText: '', pick: new Set(), sfera: [], budget: 'day', busy: false, error: '', result: null, filter: 'all' }, autoProj: null, autoUI: { busy: false, error: '', log: '', view: 'profile', sel: new Set(), open: null }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
   tabId: rid('tab'), sessionReady: false, follow: null, resume: null,   // сессия: восстановление и продолжение
   lessons: [],                              // память агента: правила из замечаний пользователя
   fdFilter: 'open', fdUI: new Map(),

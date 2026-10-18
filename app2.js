@@ -733,7 +733,8 @@ async function runDefect() {
     const res = await ask(promptDefect(T, cand), { step: 'defect' });
     const d = normDefect(res, cand);
     if (!d.title || !d.steps.length) throw { message: 'Модель не вернула заголовок и шаги воспроизведения. Уточните описание дефекта и повторите.' };
-    T.defect = { id: '', ...d, stack: T.stack.trim(), createdAt: 0 };
+    T.defect = { id: '', ...d, stack: T.stack.trim(), createdAt: 0, sfera: null };
+    T.sferaDups = []; T.sferaError = '';
     T.defectPid = S.productId; T.defectSavedAt = 0;
   } catch (e) {
     if (e?.code !== 'cancelled') T.defectError = errText(e);
@@ -764,7 +765,7 @@ async function loadDefects(pid) {
   try { items = arrOf((await S.caps.db.doc(defIdxPath(pid)).get()).data()?.items); } catch { /* дефектов ещё нет */ }
   if (S.productId === pid) { S.defects = { pid, items, loaded: true, open: null }; if (S.settings.mode === 'trace' && !isTyping($('#tab-body'))) renderTab(); }
 }
-const defIdxItem = (d) => ({ id: d.id, title: d.title.slice(0, 200), severity: d.severity, actual: d.actual.replace(/\s+/g, ' ').slice(0, 200), location: (S.trace.result?.failure.location || d.component || '').slice(0, 140), createdAt: d.createdAt, by: d.by || '' });
+const defIdxItem = (d) => ({ id: d.id, title: d.title.slice(0, 200), severity: d.severity, actual: d.actual.replace(/\s+/g, ' ').slice(0, 200), location: (S.trace.result?.failure.location || d.component || '').slice(0, 140), createdAt: d.createdAt, by: d.by || '', sfera: d.sfera || null });
 let defChain = Promise.resolve();
 async function saveDefect() {
   const T = S.trace, d = T.defect, pid = S.productId;
@@ -797,7 +798,8 @@ async function openDefect(id) {
     const T = S.trace;
     T.description = String(data.description || ''); T.stack = String(data.stack || '');
     T.result = data.trace ? normTrace(data.trace) : null; T.error = '';
-    T.defect = { ...normDefect(data, { cases: (data.relatedCases || []).map((i) => ({ i })), dups: (data.duplicates || []).map((x) => ({ id: x.id })) }), id: data.id, stack: String(data.stack || ''), createdAt: data.createdAt || 0, by: data.by || '' };
+    T.defect = { ...normDefect(data, { cases: (data.relatedCases || []).map((i) => ({ i })), dups: (data.duplicates || []).map((x) => ({ id: x.id })) }), id: data.id, stack: String(data.stack || ''), createdAt: data.createdAt || 0, by: data.by || '', sfera: data.sfera || null };
+    T.sferaDups = []; T.sferaError = '';
     T.defectPid = pid; T.defectSavedAt = data.updatedAt || data.createdAt || 0; T.defectError = '';
     renderTab();
     document.querySelector('#defect-card')?.scrollIntoView({ block: 'start' });
@@ -816,6 +818,561 @@ async function deleteDefect(id) {
   defChain = job.catch(() => {});
   try { await job; toast(`Дефект ${id} удалён`); } catch { toast('Не удалось удалить дефект.', 'err'); }
   if (S.settings.mode === 'trace') renderTab();
+}
+/* ================= бета: ревью ТЗ — проблемы требований и вопросы аналитику до генерации ================= */
+const SPEC_KINDS = { contradiction: 'Противоречие', missing_value: 'Нет значения', ambiguity: 'Неоднозначность', missing_negative: 'Нет негатива', untestable: 'Нетестируемо' };
+const SPEC_SEV = { critical: 'Блокирует тесты', major: 'Существенно', minor: 'Мелочь' };
+const SPEC_DOC_LIMIT = 60000;
+function promptSpecReview(run) {
+  const reqs = run.requirements.filter((q) => q.inScope);
+  let left = SPEC_DOC_LIMIT;
+  const docs = docsFor(run).map((d) => { const t = String(d.text || '').slice(0, Math.max(0, left)); left -= t.length; return t ? `<document name="${d.name}">\n${t}\n</document>` : ''; }).filter(Boolean);
+  return renderPrompt('promptSpecReview', {
+    e1: reqs.map((q) => `${reqCompact(q)}${q.quote ? ` Цитата: «${q.quote}»` : ''} (${q.doc}${q.section ? ', ' + q.section : ''})`).join('\n'),
+    e2: docs.join('\n\n') || 'нет',
+    e3: knowBlocks(run, 'single', reqs.map(reqText).join(' ')) || 'нет',
+    e4: (S.cfg.reviewRules.trim() || 'не заданы') + lessonsBlock('review'),
+  });
+}
+function normSpecFindings(res, run) {
+  const ids = new Set(run.requirements.map((q) => q.id));
+  const str = (v, n = 1200) => String(v ?? '').trim().slice(0, n);
+  return arrOf(res?.findings).map((f, i) => ({
+    id: `T-${pad(i + 1, 2)}`, kind: SPEC_KINDS[str(f?.kind, 30)] ? str(f.kind, 30) : 'ambiguity', severity: SPEC_SEV[str(f?.severity, 20)] ? str(f.severity, 20) : 'major',
+    reqIds: arrStr(f?.reqIds).filter((x) => ids.has(x)), section: str(f?.section, 80), quote: str(f?.quote, 600), problem: str(f?.problem), question: str(f?.question, 600), suggestion: str(f?.suggestion), status: 'open',
+  })).filter((f) => f.problem || f.question).slice(0, 25);
+}
+async function runSpecReview() {
+  const run = S.run, SR = S.specUI;
+  if (!run || SR.busy || !run.requirements.length) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  SR.busy = true; SR.error = ''; renderTab();
+  try {
+    const res = await ask(promptSpecReview(run), { step: 'specreview' });
+    const items = normSpecFindings(res, run);
+    run.specReview = { at: Date.now(), items };
+    queueSave(run);
+    toast(items.length ? `Ревью ТЗ: ${items.length} ${plural(items.length, 'находка', 'находки', 'находок')}` : 'Ревью ТЗ: проблем не найдено');
+  } catch (e) { if (e?.code !== 'cancelled') SR.error = errText(e); }
+  finally { SR.busy = false; if (S.tab === 'specrev') renderTab(); renderTabs(); }
+}
+function specSet(id, status) {
+  const run = S.run, f = run?.specReview?.items.find((x) => x.id === id);
+  if (!f) return;
+  const prev = f.status;
+  f.status = f.status === status ? 'open' : status;
+  if (f.status === 'accepted' && f.suggestion) {
+    for (const rid_ of f.reqIds) { const q = run.reqById[rid_]; if (q && !q.criteria.includes(f.suggestion)) q.criteria.push(f.suggestion); }
+  } else if (prev === 'accepted' && f.suggestion) {
+    for (const rid_ of f.reqIds) { const q = run.reqById[rid_]; if (q) q.criteria = q.criteria.filter((c) => c !== f.suggestion); }
+  }
+  if (f.status === 'ask' && f.question && !run.questions.some((q) => q.text === f.question)) run.questions.push({ id: 'Q-' + pad(run.questions.length + 1, 2), text: f.question, answer: '', appliedAnswer: '', from: 'specreview' });
+  if (prev === 'ask' && f.status !== 'ask') run.questions = run.questions.filter((q) => !(q.from === 'specreview' && q.text === f.question && !q.answer));
+  if (f.status === 'dismissed') addLesson(`Ревью ТЗ: не считать проблемой — ${f.problem.slice(0, 300)}`, 'review', 'remark');
+  queueSave(run);
+}
+function specLetter(run) {
+  const asked = (run.specReview?.items || []).filter((f) => f.status === 'ask');
+  const doc = run.docs.map((d) => d.name).join(', ');
+  return [`Добрый день!`, '', `При подготовке тестов по документации (${doc}) возникли вопросы. Ответы нужны, чтобы зафиксировать ожидаемые результаты.`, '',
+    ...asked.map((f, i) => `${i + 1}. ${f.question}${f.quote ? `\n   В документе${f.section ? ` (${f.section})` : ''}: «${f.quote}»` : ''}${f.suggestion ? `\n   Предлагаем: ${f.suggestion}` : ''}`), '', 'Спасибо!'].join('\n');
+}
+function specMarkdown(run) {
+  const items = run.specReview?.items || [];
+  return [`# Ревью ТЗ`, '', `Документы: ${run.docs.map((d) => d.name).join(', ')}`, '',
+    ...items.filter((f) => f.status !== 'dismissed').map((f) => `## ${f.id} · ${SPEC_KINDS[f.kind]} · ${SPEC_SEV[f.severity]}${f.reqIds.length ? ` · ${f.reqIds.join(', ')}` : ''}\n\n${f.quote ? `> ${f.quote}${f.section ? ` (${f.section})` : ''}\n\n` : ''}${f.problem}\n\n${f.question ? `**Вопрос аналитику:** ${f.question}\n\n` : ''}${f.suggestion ? `**Предложенная формулировка:** ${f.suggestion}\n` : ''}`)].join('\n');
+}
+
+/* ================= бета: матрица покрытия «требование × вид тестов» ================= */
+function covRows(run) {
+  const types = run.settings.types || TYPES;
+  return run.requirements.filter((q) => q.inScope).map((q) => {
+    const cs = run.cases.filter((c) => c.status !== 'obsolete' && c.requirementIds.includes(q.id));
+    const by = {};
+    for (const t of TYPES) by[t] = q.types.includes(t) && types.includes(t) ? cs.filter((c) => c.type === t).length : null;
+    const need = TYPES.filter((t) => by[t] != null), got = need.filter((t) => by[t] > 0);
+    const ex = coveredByProduct(run, q.id);
+    const state = (need.length ? got.length === need.length : cs.length > 0) || (ex && !cs.length) ? 'ok' : got.length || cs.length ? 'part' : 'gap';
+    return { q, by, smoke: cs.some((c) => (c.suites || []).includes('smoke')), state, total: cs.length, ex };
+  });
+}
+function covExport(run) {
+  const ST = { ok: 'Покрыто', part: 'Частично', gap: 'Нет кейсов' };
+  const rows = covRows(run).map((x) => [x.q.id, x.q.title, ...TYPES.map((t) => (x.by[t] == null ? '—' : String(x.by[t]))), x.smoke ? 'да' : '', ST[x.state], x.ex && !x.total ? `в продукте: ${x.ex.caseIds.join(', ')}` : run.cases.filter((c) => c.requirementIds.includes(x.q.id)).map((c) => c.dispId).join(', ')]);
+  return { kind: 'xlsx', filename: `coverage_${new Date().toISOString().slice(0, 10)}`, columns: ['ID', 'Требование', 'API', 'UI', 'E2E', 'Смоук', 'Состояние', 'Кейсы'], rows };
+}
+/* ================= бета: регресс к релизу — документация и исправленные дефекты → анализ влияния → набор кейсов ================= */
+const REG_BUDGETS = { short: { label: '2 ч', text: 'около 2 часов: только самое важное' }, day: { label: '1 день', text: 'один рабочий день' }, any: { label: 'без ограничений', text: 'не ограничен: включи всё вероятно затронутое' } };
+const REG_DOC_LIMIT = 50000, REG_CASES_MAX = 450;
+const regPath = (pid) => `${prodPath(pid)}/meta/regress`;
+/* строки «КЛЮЧ — описание» или просто текст; ключ — как в трекере (RECOV-311) */
+function parseDefectLines(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = /^([A-ZА-Я][A-ZА-Я0-9_]*-\d+)\s*[—–:\-]?\s*(.*)$/u.exec(l);
+    return m ? { key: m[1], title: m[2] || m[1] } : { key: '', title: l };
+  }).slice(0, 100);
+}
+function regDefects() {
+  const R = S.regress, list = parseDefectLines(R.defectsText).map((d) => ({ ...d, src: 'manual' }));
+  for (const x of S.defects.items) if (R.pick.has(x.id)) list.push({ key: x.sfera?.key || x.id, title: x.title, actual: x.actual, location: x.location, src: 'product' });
+  for (const x of R.sfera) list.push({ ...x, src: 'sfera' });
+  const seen = new Set();
+  return list.filter((d) => { const k = (d.key || d.title).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+function promptRegress(docs, defects, cases, omitted) {
+  let left = REG_DOC_LIMIT;
+  const dt = docs.map((d) => { const t = String(d.text || '').slice(0, Math.max(0, left)); left -= t.length; return `<document name="${d.name}">\n${t || '(не поместился — учитывай только название)'}\n</document>`; });
+  const focus = `${docs.map((d) => d.name).join(' ')} ${defects.map((d) => `${d.title} ${d.actual || ''} ${d.location || ''}`).join(' ')}`;
+  return renderPrompt('promptRegress', {
+    e1: dt.join('\n\n') || 'нет',
+    e2: defects.length ? defects.map((d) => `- ${d.key ? d.key + ': ' : ''}${d.title}${d.actual ? ` | было: ${d.actual}` : ''}${d.location ? ` | место сбоя: ${d.location}` : ''}${d.analysis ? ` | анализ: ${d.analysis}` : ''}`).join('\n') : 'нет',
+    e3: knowBlocks(null, 'single', focus) || 'Сведений о продукте нет: косвенное влияние помечай как гипотезу.',
+    e4: cases.map((x) => `${x.i} [${TL[x.t] || x.t}] ${x.n}`).join('\n') + (omitted ? `\n(ещё ${omitted} кейсов не показаны: они дальше всего от изменений)` : ''),
+    e5: REG_BUDGETS[S.regress.budget]?.text || REG_BUDGETS.day.text,
+  });
+}
+function normRegress(res, cases, docs, defects) {
+  const ids = new Map(cases.map((x) => [x.i, x]));
+  const str = (v, n = 600) => String(v ?? '').trim().slice(0, n);
+  const decided = new Map();
+  for (const c of arrOf(res?.cases)) {
+    const id = str(c?.id, 40), dec = str(c?.decision, 20);
+    if (!ids.has(id) || !['must', 'recommended'].includes(dec)) continue;
+    const prev = decided.get(id);
+    if (!prev || (prev.decision === 'recommended' && dec === 'must')) decided.set(id, { id, decision: dec, reason: str(c?.reason) });
+  }
+  const outdated = arrOf(res?.outdated).map((o) => ({ id: str(o?.id, 40), reason: str(o?.reason) })).filter((o) => ids.has(o.id));
+  for (const o of outdated) if (!decided.has(o.id)) decided.set(o.id, { id: o.id, decision: 'must', reason: o.reason });
+  return {
+    at: Date.now(), by: S.caps.uid || '', budget: S.regress.budget, docs: docs.map((d) => d.name), defects: defects.map((d) => ({ key: d.key, title: d.title })), total: cases.length,
+    impact: arrOf(res?.impact).map((x) => ({ source: str(x?.source, 120), kind: x?.kind === 'defect' ? 'defect' : 'doc', change: str(x?.change), affected: str(x?.affected), direct: x?.direct !== false, hypothesis: str(x?.confidence, 20) === 'hypothesis' })).filter((x) => x.source && x.affected).slice(0, 60),
+    cases: [...decided.values()].map((c) => ({ ...c, title: ids.get(c.id).n, type: ids.get(c.id).t, outdated: outdated.some((o) => o.id === c.id) })),
+    gaps: arrOf(res?.gaps).map((g) => ({ source: str(g?.source, 120), what: str(g?.what) })).filter((g) => g.what).slice(0, 30),
+  };
+}
+async function runRegress() {
+  const R = S.regress;
+  if (R.busy) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  const docs = docsFor(null), defects = regDefects();
+  if (!docs.length && !defects.length) return toast('Отметьте документацию релиза слева или добавьте исправленные дефекты.', 'err');
+  const all = S.prodIndex.pid === S.productId ? S.prodIndex.cases : [];
+  if (!all.length) return toast('В продукте пока нет тест-кейсов: регресс подбирается из кейсов, добавленных в проект.', 'err');
+  R.busy = true; R.error = ''; renderTab();
+  try {
+    const focus = `${docs.map((d) => `${d.name} ${String(d.text || '').slice(0, 20000)}`).join(' ')} ${defects.map((d) => `${d.title} ${d.actual || ''} ${d.location || ''}`).join(' ')}`;
+    const cases = all.length > REG_CASES_MAX ? [...nearest(all, focus, (x) => x.n, REG_CASES_MAX)] : all;
+    if (cases.length < Math.min(all.length, REG_CASES_MAX)) for (const x of all) { if (cases.length >= REG_CASES_MAX) break; if (!cases.includes(x)) cases.push(x); }
+    const res = await ask(promptRegress(docs, defects, cases, all.length - cases.length), { step: 'regress' });
+    R.result = normRegress(res, cases, docs, defects);
+    R.result.total = all.length;
+    if (S.productId && S.caps.db) S.caps.db.doc(regPath(S.productId)).set(R.result).catch(() => {});
+  } catch (e) { if (e?.code !== 'cancelled') R.error = errText(e); }
+  finally { R.busy = false; if (S.settings.mode === 'regress') renderTab(); }
+}
+async function loadRegress(pid) {
+  if (!pid || !S.caps.db) return;
+  try { const d = (await S.caps.db.doc(regPath(pid)).get()).data(); if (d && S.productId === pid) { S.regress.result = d; if (S.settings.mode === 'regress' && !isTyping($('#tab-body'))) renderTab(); } } catch { /* ещё не подбирали */ }
+}
+function regressExport(res) {
+  const RU = { must: 'Обязательно', recommended: 'Рекомендуется' };
+  return { kind: 'xlsx', filename: `regress_${new Date(res.at).toISOString().slice(0, 10)}`, columns: ['Кейс', 'Вид', 'Название', 'Решение', 'Почему', 'Актуализировать'],
+    rows: res.cases.sort((a, b) => (a.decision === b.decision ? 0 : a.decision === 'must' ? -1 : 1)).map((c) => [c.id, TL[c.type] || c.type, c.title, RU[c.decision], c.reason, c.outdated ? 'да' : '']) };
+}
+/* ================= бета: операции API Сферы через загрузчик (Chrome) или мост (приложение Claude) ================= */
+async function sferaCall(op, args = {}) {
+  if (!(inDesktopApp && hostOn())) {
+    const ext = S.sferaExt?.ok ? S.sferaExt : await sferaPing();
+    if (ext.ok) {
+      const r = await bridgeCall({ type: 'SFERA_CALL', op, args }, { timeout: 30000, until: ['SFERA_CALL_RESULT'] });
+      if (!r) throw { code: 'timeout', message: 'Загрузчик Сферы не ответил за 30 секунд.' };
+      if (!r.ok) throw { code: r.code || 'sfera', message: r.error || 'Загрузчик вернул ошибку.' };
+      return r.data;
+    }
+  }
+  if (hostOn()) {
+    try { return (await hostCall('sfera_call', { op, args }))?.data ?? null; }
+    catch (e) { throw { code: e?.code || 'sfera', message: e?.code === 'not_in_manifest' ? 'Эта версия страницы не может вызывать операции Сферы через мост: переопубликуйте QA pro из локальной сессии Claude.' : hostErr(e) }; }
+  }
+  throw { code: 'no_uploader', message: 'Нужен загрузчик Сферы: откройте QA pro в Chrome с установленным загрузчиком или подключите мост в приложении Claude.' };
+}
+
+/* ---------- дефект → Сфера.Задачи ---------- */
+const SFERA_TASK_KEY = 'qapro.sferaTask';
+function sferaTaskDefaults() { return { project: '', type: 'Дефект', assignee: '', release: '', labels: 'QA_pro', ...lsGet(SFERA_TASK_KEY, {}) }; }
+function defectHtml(d) {
+  const p = (t) => `<p>${esc(t)}</p>`, list = (a, tag) => `<${tag}>${a.map((x) => `<li>${esc(x)}</li>`).join('')}</${tag}>`;
+  return [d.component && p(`Компонент: ${d.component}`), d.environment && p(`Окружение: ${d.environment}`),
+    d.preconditions.length && `<p><b>Предусловия</b></p>${list(d.preconditions, 'ul')}`, `<p><b>Шаги воспроизведения</b></p>${list(d.steps, 'ol')}`,
+    `<p><b>Ожидаемый результат</b></p>${p(d.expected)}`, `<p><b>Фактический результат</b></p>${p(d.actual)}`,
+    ...d.fields.map((f) => p(`${f.name}: ${f.value}`)), d.analysis && `<p><b>Анализ</b></p>${p(d.analysis)}`,
+    d.relatedCases.length && p(`Связанные тест-кейсы: ${d.relatedCases.join(', ')}`), '<p>Оформлено в QA pro по трассировке ошибки.</p>'].filter(Boolean).join('\n');
+}
+function sferaTaskArgs(d, f) {
+  return { project: f.project.trim(), type: f.type.trim() || 'Дефект', title: d.title, description: defectHtml(d), descriptionText: defectText(d, false), severity: d.severity, severityRu: DSEV_RU[d.severity], priority: d.priority, priorityRu: DPRIO_RU[d.priority],
+    assignee: f.assignee.trim(), release: f.release.trim(), labels: f.labels.split(/[,;\s]+/).filter(Boolean), relatedCases: d.relatedCases, component: d.component, environment: d.environment };
+}
+async function sferaDupSearch() {
+  const T = S.trace, d = T.defect, f = T.sferaForm;
+  if (!d || !f.project.trim()) return toast('Укажите проект Сферы.', 'err');
+  T.sferaBusy = 'search'; T.sferaError = ''; renderTab();
+  try {
+    const q = [d.title, T.result?.failure.location].filter(Boolean).join(' ').slice(0, 200);
+    const found = arrOf(await sferaCall('tasks.search', { project: f.project.trim(), text: q, limit: 20 })).map((x) => ({ key: String(x?.key || ''), title: String(x?.title || ''), status: String(x?.status || ''), url: String(x?.url || '') })).filter((x) => x.key);
+    const near = nearest(found, defectFocus(T), (x) => x.title, 5);
+    T.sferaDups = near.length ? near : found.slice(0, 3);
+    if (!T.sferaDups.length) toast('Похожих задач в Сфере не найдено');
+  } catch (e) { T.sferaError = e?.message || errText(e); }
+  finally { T.sferaBusy = ''; renderTab(); }
+}
+async function sferaCreateTask() {
+  const T = S.trace, d = T.defect, f = T.sferaForm;
+  if (!d || T.sferaBusy) return;
+  if (!f.project.trim()) return toast('Укажите проект Сферы.', 'err');
+  lsSet(SFERA_TASK_KEY, f);
+  T.sferaBusy = 'create'; T.sferaError = ''; renderTab();
+  try {
+    const r = await sferaCall('tasks.create', sferaTaskArgs(d, f));
+    const key = String(r?.key || r?.id || '');
+    if (!key) throw { message: 'Сфера не вернула номер задачи: проверьте поле «map» операции tasks.create в настройках загрузчика.' };
+    d.sfera = { key, url: String(r?.url || ''), status: 'Создан', at: Date.now(), project: f.project.trim() };
+    if (d.stack) sferaCall('tasks.attach', { key, filename: `${d.id || 'defect'}-stacktrace.txt`, content: d.stack }).catch(() => toast('Стек трейса не приложен: операция tasks.attach не настроена или Сфера отказала.', 'warn'));
+    for (const dup of T.sferaDups.filter((x) => T.sferaLink.has(x.key))) sferaCall('tasks.link', { key, target: dup.key, kind: 'relates' }).catch(() => {});
+    toast(`Дефект ${key} заведён в Сфера.Задачи`);
+    if (S.productId && S.caps.db && T.defectPid === S.productId) await saveDefect();
+  } catch (e) { T.sferaError = e?.message || errText(e); }
+  finally { T.sferaBusy = ''; renderTab(); }
+}
+async function sferaRefreshStatuses() {
+  const items = S.defects.items.filter((x) => x.sfera?.key);
+  if (!items.length) return;
+  let n = 0;
+  for (const x of items) {
+    try { const r = await sferaCall('tasks.get', { key: x.sfera.key }); if (r?.status && r.status !== x.sfera.status) { x.sfera = { ...x.sfera, status: String(r.status) }; n++; } } catch (e) { toast(e?.message || 'Статусы из Сферы не обновлены.', 'err'); return; }
+  }
+  if (n && S.caps.db && S.productId) await S.caps.db.doc(defIdxPath(S.productId)).set({ items: S.defects.items, updatedAt: Date.now() }).catch(() => {});
+  toast(n ? `Обновлено статусов: ${n}` : 'Статусы не изменились');
+  if (S.settings.mode === 'trace') renderTab();
+}
+async function regFromSfera() {
+  const R = S.regress, f = sferaTaskDefaults();
+  const project = String(R.sferaProject ?? f.project).trim(), release = String(R.sferaRelease ?? f.release).trim();
+  if (!project) { R.sferaError = 'Укажите проект Сферы.'; return renderTab(); }
+  lsSet(SFERA_TASK_KEY, { ...f, project, release });
+  R.sferaBusy = true; R.sferaError = ''; renderTab();
+  try {
+    const list = arrOf(await sferaCall('tasks.search', { project, type: 'Дефект', status: 'Исправлен', release, limit: 100 }));
+    R.sfera = list.map((x) => ({ key: String(x?.key || ''), title: String(x?.title || ''), status: String(x?.status || '') })).filter((x) => x.key);
+    if (!R.sfera.length) toast('В Сфере не найдено исправленных дефектов по проекту и релизу.');
+  } catch (e) { R.sferaError = e?.message || errText(e); }
+  finally { R.sferaBusy = false; renderTab(); }
+}
+
+/* ================= бета: автотесты — проект, профиль, генерация в стиле проекта, запись в репозиторий ================= */
+const AUTO_TEXT = /\.(java|kt|kts|gradle|xml|properties|ya?ml)$/i;
+const AUTO_SKIP = /(^|\/)(\.git|node_modules|build|target|out|\.idea|\.gradle|allure-results|allure-report)\//;
+const AUTO_MAX_FILES = 1500;
+const autoPath = (pid) => `${prodPath(pid)}/meta/autotests`;
+const STACK_RX = [['Gradle', /build\.gradle/], ['Maven', /pom\.xml/], ['JUnit 5', /junit-jupiter|org\.junit\.jupiter/], ['JUnit 4', /junit:junit|org\.junit\.Test\b/], ['TestNG', /testng/i], ['RestAssured', /rest-assured|io\.restassured/], ['Selenide', /selenide/i], ['Selenium', /selenium-java|org\.openqa\.selenium/], ['Allure', /allure/i], ['Owner', /org\.aeonbits\.owner/], ['Lombok', /lombok/], ['AssertJ', /assertj/], ['Hamcrest', /hamcrest/], ['Jackson', /jackson/], ['Faker', /javafaker|datafaker/], ['Kafka', /kafka/i], ['Appium', /appium/i]];
+function autoKind(path, cls, text) {
+  const p = path.toLowerCase(), c = cls.toLowerCase();
+  if (/spec/.test(c) || /\/specs?\//.test(p)) return 'Спецификации';
+  if (/page\b|page$/.test(c) || /\/pages?\//.test(p)) return 'Page Object';
+  if (/(api|client)$/.test(c) || /\/(clients?|api)\//.test(p)) return 'API-клиенты';
+  if (/(dto|model|request|response)$/.test(c) || /\/(models?|dto|pojo)\//.test(p)) return 'Модели';
+  if (/(config|properties)$/.test(c) || /\/config\//.test(p)) return 'Конфиг';
+  if (/base$|testbase/.test(c)) return 'Базовые классы';
+  if (/(data|generator|faker)/.test(c) || /\/data\//.test(p)) return 'Тестовые данные';
+  return 'Шаги и хелперы';
+}
+const JAVA_KW = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'else', 'try', 'synchronized']);
+function scanJava(path, text) {
+  const pkg = (/^\s*package\s+([\w.]+)\s*;/m.exec(text) || [])[1] || '';
+  const cls = (/\b(?:public\s+)?(?:abstract\s+|final\s+)*(?:class|interface|enum|record)\s+(\w+)/.exec(text) || [])[1] || path.split('/').pop().replace(/\.\w+$/, '');
+  const isTest = /@Test\b|@ParameterizedTest\b/.test(text);
+  const methods = [];
+  const rx = /^[ \t]*(?:@\w+(?:\([^)]*\))?\s+)*(?:public|protected)\s+(?:static\s+)?(?:final\s+)?(?:<[^>]+>\s+)?([\w<>\[\],.? ]+?)\s+(\w+)\s*\(([^)]*)\)/gm;
+  let m;
+  while ((m = rx.exec(text)) && methods.length < 40) { if (!JAVA_KW.has(m[2]) && m[2] !== cls) methods.push(`${m[2]}(${m[3].replace(/\s+/g, ' ').replace(/@\w+\s+/g, '').trim()})`); }
+  const tests = (text.match(/@(Test|ParameterizedTest)\b/g) || []).length;
+  return { path, pkg, cls, isTest, methods, tests };
+}
+function scanProject(files) {
+  const build = files.filter((f) => /(^|\/)(build\.gradle(\.kts)?|pom\.xml|settings\.gradle(\.kts)?)$/.test(f.path));
+  const all = files.map((f) => f.text).join('\n').slice(0, 3e6), buildText = build.map((f) => f.text).join('\n');
+  const stack = STACK_RX.filter(([, rx]) => rx.test(buildText) || rx.test(all)).map(([n]) => n);
+  const jv = (/(?:sourceCompatibility|languageVersion|<maven\.compiler\.(?:source|release)>|<java\.version>|JavaLanguageVersion\.of\()\s*=?\s*['"(]?(?:JavaVersion\.VERSION_)?(\d+)/.exec(buildText) || [])[1];
+  if (jv) stack.unshift('Java ' + jv);
+  const java = files.filter((f) => /\.java$/.test(f.path)).map((f) => ({ ...scanJava(f.path, f.text), text: f.text }));
+  const catalog = java.filter((j) => !j.isTest).map((j) => ({ path: j.path, cls: j.cls, kind: autoKind(j.path, j.cls, j.text), methods: j.methods }));
+  const tests = java.filter((j) => j.isTest);
+  const dirs = {};
+  for (const j of java) { const d = j.path.split('/').slice(0, -1).join('/'); dirs[d] = (dirs[d] || 0) + 1; }
+  const byDir = new Map();
+  for (const t of [...tests].sort((a, b) => b.tests - a.tests)) { const d = t.path.split('/').slice(0, -1).join('/'); if (!byDir.has(d)) byDir.set(d, t); }
+  const samples = [...byDir.values(), ...tests].filter((t, i, a) => a.indexOf(t) === i).slice(0, 6).map((t) => ({ path: t.path, text: t.text.slice(0, 5000) }));
+  return {
+    stack, files: files.length, javaFiles: java.length, build: build.map((f) => ({ path: f.path, text: f.text.slice(0, 5000) })),
+    dirs: Object.entries(dirs).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([d, n]) => `${d} (${n})`),
+    catalog: catalog.slice(0, 600), testClasses: tests.map((t) => ({ path: t.path, cls: t.cls, tests: t.tests })).slice(0, 400), samples,
+  };
+}
+const catLine = (c) => `${c.path}: ${c.cls} — ${c.methods.join(', ') || 'без публичных методов'}`;
+function catalogText(cat, limit = 60000) {
+  const out = []; let n = 0;
+  for (const c of cat) { const l = catLine(c); if (n + l.length > limit) break; out.push(l); n += l.length + 1; }
+  return out.join('\n');
+}
+/* --- источники проекта: в памяти этого окна (доступ к папке браузер не хранит между перезагрузками) --- */
+const autoSrc = { kind: '', handle: null, files: null, root: '', sfera: null };
+async function readFsHandle(dir, prefix = '', out = []) {
+  for await (const [name, h] of dir.entries()) {
+    if (out.length >= AUTO_MAX_FILES) break;
+    const p = prefix + name;
+    if (h.kind === 'directory') { if (!AUTO_SKIP.test(p + '/') && !name.startsWith('.')) await readFsHandle(h, p + '/', out); }
+    else if (AUTO_TEXT.test(name)) { const f = await h.getFile(); if (f.size <= 300000) out.push({ path: p, text: await f.text() }); }
+  }
+  return out;
+}
+async function autoLoadFiles() {
+  if (autoSrc.kind === 'fs') return readFsHandle(autoSrc.handle);
+  if (autoSrc.kind === 'files') return autoSrc.files;
+  if (autoSrc.kind === 'bridge') {
+    const list = (await hostCall('project_list', { root: autoSrc.root }))?.files || [];
+    const paths = list.filter((f) => AUTO_TEXT.test(f.path) && f.size <= 300000).slice(0, AUTO_MAX_FILES).map((f) => f.path);
+    const out = [];
+    for (let i = 0; i < paths.length; i += 150) out.push(...((await hostCall('project_read', { root: autoSrc.root, paths: paths.slice(i, i + 150) }))?.files || []).filter((f) => typeof f.text === 'string'));
+    return out;
+  }
+  if (autoSrc.kind === 'sfera') {
+    const a = autoSrc.sfera;
+    const tree = arrOf(await sferaCall('repo.tree', a)).map((x) => ({ path: String(x?.path || ''), type: String(x?.type || 'blob') })).filter((x) => x.path && x.type !== 'tree' && AUTO_TEXT.test(x.path) && !AUTO_SKIP.test(x.path));
+    const want = [...tree.filter((x) => !/\.java$/.test(x.path)), ...tree.filter((x) => /\.java$/.test(x.path))].slice(0, 400);
+    const out = [];
+    await pool(want, 4, async (x) => { try { const r = await sferaCall('repo.file', { ...a, path: x.path }); const t = typeof r === 'string' ? r : r?.content; if (typeof t === 'string') out.push({ path: x.path, text: t }); } catch { /* файл пропущен */ } });
+    return out;
+  }
+  return [];
+}
+const autoCanWrite = () => ['fs', 'bridge', 'sfera'].includes(autoSrc.kind);
+async function autoReadOne(path) {
+  if (autoSrc.kind === 'fs') { let d = autoSrc.handle; const parts = path.split('/'); for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p); return (await (await d.getFileHandle(parts.at(-1))).getFile()).text(); }
+  if (autoSrc.kind === 'files') return autoSrc.files.find((f) => f.path === path)?.text ?? null;
+  if (autoSrc.kind === 'bridge') return ((await hostCall('project_read', { root: autoSrc.root, paths: [path] }))?.files || [])[0]?.text ?? null;
+  if (autoSrc.kind === 'sfera') { const r = await sferaCall('repo.file', { ...autoSrc.sfera, path }); return typeof r === 'string' ? r : r?.content ?? null; }
+  return null;
+}
+async function autoConnect(kind, opts = {}) {
+  const U = S.autoUI;
+  U.error = '';
+  try {
+    if (kind === 'fs') {
+      if (typeof window.showDirectoryPicker !== 'function') throw { code: 'no_fs' };
+      autoSrc.handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'qapro-autotests' });
+      Object.assign(autoSrc, { kind: 'fs', files: null, root: '', sfera: null });
+      return autoAnalyze({ kind: 'fs', name: autoSrc.handle.name });
+    }
+    if (kind === 'files') { Object.assign(autoSrc, { kind: 'files', files: opts.files, handle: null, root: '', sfera: null }); return autoAnalyze({ kind: 'files', name: opts.name }); }
+    if (kind === 'bridge') {
+      const root = String(opts.root || '').trim();
+      if (!root) throw { message: 'Укажите полный путь к папке репозитория на компьютере.' };
+      Object.assign(autoSrc, { kind: 'bridge', root, handle: null, files: null, sfera: null });
+      return autoAnalyze({ kind: 'bridge', name: root.split(/[\\/]/).filter(Boolean).pop() || root, root });
+    }
+    if (kind === 'sfera') {
+      const a = { project: String(opts.project || '').trim(), repo: String(opts.repo || '').trim(), branch: String(opts.branch || '').trim() || 'main' };
+      if (!a.project || !a.repo) throw { message: 'Укажите проект и репозиторий Сферы.' };
+      Object.assign(autoSrc, { kind: 'sfera', sfera: a, handle: null, files: null, root: '' });
+      return autoAnalyze({ kind: 'sfera', name: `${a.project} / ${a.repo}`, ...a });
+    }
+  } catch (e) {
+    if (e?.name === 'AbortError') return;
+    U.error = e?.code === 'no_fs' || e?.name === 'SecurityError' || e?.name === 'NotAllowedError'
+      ? 'Это окно не даёт доступ к папке на запись. Выберите папку только для чтения, подключите её через мост приложения Claude или откройте автономную версию QA pro в Chrome.'
+      : e?.message || errText(e);
+    renderTab();
+  }
+}
+async function autoAnalyze(source) {
+  const U = S.autoUI, pid = S.productId;
+  if (U.busy) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  U.busy = true; U.error = ''; U.log = 'Читаю файлы проекта…'; renderTab();
+  try {
+    const files = (await autoLoadFiles()).filter((f) => !AUTO_SKIP.test(f.path));
+    if (!files.some((f) => /\.java$/.test(f.path))) throw { message: 'В папке не найдено Java-файлов. Выберите корень проекта автотестов.' };
+    U.log = `Прочитано файлов: ${files.length}. Составляю профиль проекта…`; renderTab();
+    const scan = scanProject(files);
+    const res = await ask(renderPrompt('promptAutoProfile', {
+      e1: `${source.name} · ${scan.files} файлов, ${scan.javaFiles} Java, тестовых классов ${scan.testClasses.length}`,
+      e2: `${scan.stack.join(', ') || 'не определены'}\n${scan.build.map((b) => `--- ${b.path}\n${b.text.slice(0, 3000)}`).join('\n')}`,
+      e3: scan.dirs.join('\n'), e4: catalogText(scan.catalog, 40000) || 'нет',
+      e5: scan.samples.map((x) => `--- ${x.path}\n${x.text}`).join('\n\n'),
+    }), { step: 'autoprofile' });
+    const str = (v, n = 600) => String(v ?? '').trim().slice(0, n);
+    const conv = res?.conventions && typeof res.conventions === 'object' ? Object.fromEntries(Object.entries(res.conventions).map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => str(x, 120)).join(', ') : str(v, 300)])) : {};
+    const profile = { summary: str(res?.summary), style: arrStr(res?.style).slice(0, 20), conventions: conv,
+      reuse: arrOf(res?.reuse).map((x) => ({ name: str(x?.name, 200), what: str(x?.what, 300), when: str(x?.when, 300) })).filter((x) => x.name).slice(0, 50), gaps: arrStr(res?.gaps).slice(0, 15) };
+    const proj = { source: { ...source }, at: Date.now(), by: S.caps.uid || '', stack: scan.stack, files: scan.files, javaFiles: scan.javaFiles, dirs: scan.dirs, catalog: scan.catalog, testClasses: scan.testClasses, samples: scan.samples, profile };
+    S.autoProj = proj; autoSrc.loadedFiles = files;
+    if (pid && S.caps.db) {
+      const slim = { ...proj, catalog: proj.catalog.slice(0, 400).map((c) => ({ ...c, methods: c.methods.slice(0, 20) })), samples: proj.samples.slice(0, 4) };
+      while (JSON.stringify(slim).length > 220000 && slim.catalog.length > 50) slim.catalog = slim.catalog.slice(0, Math.floor(slim.catalog.length * 0.8));
+      await S.caps.db.doc(autoPath(pid)).set(slim).catch(() => toast('Профиль не сохранён в продукте: нет прав на изменение.', 'err'));
+    }
+    toast('Профиль проекта автотестов готов');
+  } catch (e) { if (e?.code !== 'cancelled') U.error = e?.message || errText(e); }
+  finally { U.busy = false; U.log = ''; if (S.tab === 'auto') renderTab(); }
+}
+async function loadAutoProject(pid) {
+  if (!pid || !S.caps.db) return;
+  try { const d = (await S.caps.db.doc(autoPath(pid)).get()).data(); if (d && S.productId === pid) S.autoProj = d; } catch { /* ещё не подключали */ }
+}
+function promptAutoTest(proj, c) {
+  const P = proj.profile, tc = JSON.stringify(c.testCase);
+  const focus = `${pickTitleText(c.testCase)} ${tc.slice(0, 3000)}`;
+  const cat = nearest(proj.catalog, focus, (x) => `${x.cls} ${x.methods.join(' ')} ${x.path}`, 40);
+  // ближайших по словам мало — добираем каталог по видам, полезным для этого вида тестов
+  const order = c.type === 'api' ? ['API-клиенты', 'Спецификации', 'Модели', 'Тестовые данные', 'Базовые классы', 'Конфиг', 'Шаги и хелперы', 'Page Object']
+    : ['Page Object', 'Шаги и хелперы', 'Тестовые данные', 'Базовые классы', 'Конфиг', 'API-клиенты', 'Спецификации', 'Модели'];
+  const rest = proj.catalog.filter((x) => !cat.includes(x)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)).slice(0, Math.max(15, 55 - cat.length));
+  const samples = nearest(proj.samples, focus, (x) => x.text, 2);
+  const tests = nearest(proj.testClasses, focus, (x) => `${x.cls} ${x.path}`, 30);
+  return renderPrompt('promptAutoTest', {
+    e1: `${proj.source.name} · ${proj.stack.join(', ')}\n${P.summary}\nСтиль:\n${P.style.map((x) => '- ' + x).join('\n')}\nСоглашения:\n${Object.entries(P.conventions).map(([k, v]) => `- ${k}: ${v}`).join('\n')}${P.reuse.length ? `\nЧто переиспользовать:\n${P.reuse.map((x) => `- ${x.name} — ${x.what}${x.when ? ` (${x.when})` : ''}`).join('\n')}` : ''}${P.gaps.length ? `\nЧего нет в проекте: ${P.gaps.join('; ')}` : ''}`,
+    e2: [...cat, ...rest].map(catLine).join('\n') || 'нет',
+    e3: (samples.length ? samples : proj.samples.slice(0, 2)).map((x) => `--- ${x.path}\n${x.text}`).join('\n\n') || 'нет',
+    e4: (tests.length ? tests : proj.testClasses.slice(0, 30)).map((x) => `${x.path} (${x.tests} тестов)`).join('\n') || 'нет',
+    e5: JSON.stringify({ id: c.dispId, type: TL[c.type], suites: (c.suites || []).map((x) => SUITE_RU[x] || x), requirementIds: c.requirementIds, testCase: c.testCase }, null, 1),
+  });
+}
+function catalogNames(proj) {
+  const n = new Set();
+  for (const c of proj.catalog) { n.add(c.cls); for (const m of c.methods) { const name = m.replace(/\(.*$/, ''); n.add(`${c.cls}.${name}`); n.add(name); } }
+  return n;
+}
+function normAutoTest(res, c, proj) {
+  const str = (v, n = 400) => String(v ?? '').trim().slice(0, n);
+  const names = catalogNames(proj);
+  const ok = (x) => { const b = x.replace(/\(.*$/, '').trim(); return names.has(b) || names.has(b.split('.').pop()) || names.has(b.split('.')[0]); };
+  let path = str(res?.path, 300).replace(/^\/+/, '').replace(/\\/g, '/');
+  const mode = res?.mode === 'append' && proj.testClasses.some((t) => t.path === path) ? 'append' : 'new';
+  if (!/\.java$/.test(path)) path = '';
+  return { uid: c.uid, dispId: c.dispId, type: c.type, title: pickTitleText(c.testCase), path, className: str(res?.className, 120), mode, methodName: str(res?.methodName, 120),
+    imports: arrStr(res?.imports).filter((x) => /^import\s+[\w.*\s]+;$/.test(x.trim())).slice(0, 30), code: String(res?.code ?? '').slice(0, 40000),
+    reused: [...new Set(arrStr(res?.reused).filter(ok))].slice(0, 40),
+    added: arrOf(res?.added).map((a) => ({ what: str(a?.what, 200), why: str(a?.why, 300), path: str(a?.path, 300).replace(/^\/+/, ''), mode: a?.mode === 'new' ? 'new' : 'append', code: String(a?.code ?? '').slice(0, 20000) })).filter((a) => a.what).slice(0, 10),
+    at: Date.now(), written: null };
+}
+async function autoGenerate() {
+  const run = S.run, U = S.autoUI, proj = S.autoProj;
+  if (!run || !proj || U.busy) return;
+  const cases = run.cases.filter((c) => U.sel.has(c.uid));
+  if (!cases.length) return toast('Отметьте кейсы для автотестов.', 'err');
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  U.busy = true; U.error = ''; U.log = `Пишу автотесты: 0 из ${cases.length}`; renderTab();
+  run.auto = run.auto || { items: [] };
+  let done = 0, failed = 0;
+  const fails = [];
+  try {
+    await pool(cases, 2, async (c) => {
+      try {
+        const res = await ask(promptAutoTest(proj, c), { step: 'autotest' });
+        const it = normAutoTest(res, c, proj);
+        if (!it.code.trim()) throw new Error('пустой код');
+        if (!it.path) it.path = `${proj.profile.conventions?.[c.type + 'Tests'] || 'src/test/java'}/${it.className || c.dispId.replace(/\W/g, '') + 'Test'}.java`.replace(/\/+/g, '/');
+        run.auto.items = [...run.auto.items.filter((x) => x.uid !== c.uid), it];
+      } catch (e) { failed++; fails.push(`${c.dispId}: ${e?.message && !e?.code ? e.message : errText(e)}`); }
+      done++; U.log = `Пишу автотесты: ${done} из ${cases.length}`; if (S.tab === 'auto') renderTab();
+    });
+    queueSave(run);
+    toast(failed ? `Готово автотестов: ${cases.length - failed}, не получилось: ${failed}` : `Готово автотестов: ${cases.length}`, failed ? 'warn' : '');
+    if (fails.length) U.error = 'Не получилось:\n' + fails.join('\n');
+    U.view = 'tests';
+  } finally { U.busy = false; U.log = ''; if (S.tab === 'auto') renderTab(); renderTabs(); }
+}
+/* вставка метода в класс и новых import — без разбора Java: перед последней закрывающей скобкой */
+function mergeJava(orig, code, imports = []) {
+  let text = String(orig || '');
+  const missing = imports.map((x) => x.trim()).filter((x) => x && !text.includes(x));
+  if (missing.length) {
+    const lines = text.split('\n'); let at = -1;
+    lines.forEach((l, i) => { if (/^\s*import\s/.test(l)) at = i; });
+    if (at < 0) lines.forEach((l, i) => { if (at < 0 && /^\s*package\s/.test(l)) at = i; });
+    lines.splice(at + 1, 0, ...(at >= 0 && /^\s*package\s/.test(lines[at]) ? ['', ...missing] : missing));
+    text = lines.join('\n');
+  }
+  const end = text.lastIndexOf('}');
+  if (end < 0) return text + '\n' + code + '\n';
+  const body = code.replace(/\s+$/, '').split('\n').map((l) => (l.trim() ? '    ' + l.replace(/^ {0,4}/, '') : '')).join('\n');
+  return text.slice(0, end).replace(/\s*$/, '\n') + '\n' + body + '\n' + text.slice(end);
+}
+async function autoBuildFiles(items) {
+  const files = new Map(), notes = [];
+  const getOrig = async (p) => { if (files.has(p)) return files.get(p); try { return await autoReadOne(p); } catch { return null; } };
+  for (const it of items) {
+    if (it.mode === 'new') files.set(it.path, it.code);
+    else { const o = await getOrig(it.path); if (o == null) { notes.push(`${it.path}: исходный файл не прочитан — метод выгружен отдельно`); files.set(it.path.replace(/\.java$/, `.${it.dispId}.snippet.java`), [...it.imports, '', it.code].join('\n')); } else files.set(it.path, mergeJava(o, it.code, it.imports)); }
+    for (const a of it.added) {
+      if (!a.path || !a.code.trim()) continue;
+      if (a.mode === 'new') { if (!files.has(a.path)) files.set(a.path, a.code); continue; }
+      const o = await getOrig(a.path);
+      if (o == null) notes.push(`${a.path}: не найден — «${a.what}» добавьте вручную`); else if (!o.includes(a.code.trim().split('\n')[0].trim())) files.set(a.path, mergeJava(o, a.code));
+    }
+  }
+  return { files, notes };
+}
+async function autoWrite(uids) {
+  const run = S.run, U = S.autoUI;
+  if (!run?.auto || U.busy) return;
+  const items = run.auto.items.filter((x) => !uids || uids.includes(x.uid));
+  if (!items.length) return;
+  if (!autoCanWrite()) return toast('Подключите проект с правом записи: локальную папку или репозиторий Сферы. Или скачайте .zip.', 'err');
+  U.busy = true; U.error = ''; U.log = 'Записываю автотесты…'; renderTab();
+  try {
+    const { files, notes } = await autoBuildFiles(items);
+    const list = [...files].map(([path, content]) => ({ path, content }));
+    let where = '';
+    if (autoSrc.kind === 'fs') {
+      for (const f of list) { let d = autoSrc.handle; const parts = f.path.split('/'); for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create: true }); const w = await (await d.getFileHandle(parts.at(-1), { create: true })).createWritable(); await w.write(f.content); await w.close(); }
+      where = `папку ${autoSrc.handle.name}`;
+    } else if (autoSrc.kind === 'bridge') {
+      await hostCall('project_write', { root: autoSrc.root, files: list });
+      where = autoSrc.root;
+    } else if (autoSrc.kind === 'sfera') {
+      const a = autoSrc.sfera, branch = `qa-pro/${items.map((x) => x.dispId).slice(0, 3).join('-')}${items.length > 3 ? `-${items.length}` : ''}`.toLowerCase();
+      await sferaCall('repo.branch', { ...a, from: a.branch, name: branch });
+      await sferaCall('repo.commit', { ...a, branch, message: `QA pro: автотесты ${items.map((x) => x.dispId).join(', ')}`, files: list });
+      const mr = await sferaCall('repo.mr', { ...a, source: branch, target: a.branch, title: `Автотесты: ${items.map((x) => x.dispId).join(', ')}`, description: items.map((x) => `- ${x.dispId}: ${x.title}`).join('\n') });
+      where = `ветку ${branch}${mr?.url ? ` (${mr.url})` : ''}`;
+    }
+    for (const it of items) it.written = { at: Date.now(), where };
+    queueSave(run);
+    toast(`Записано файлов: ${list.length} → ${where}`);
+    if (notes.length) U.error = notes.join('\n');
+  } catch (e) { U.error = e?.message || errText(e); }
+  finally { U.busy = false; U.log = ''; if (S.tab === 'auto') renderTab(); }
+}
+async function autoZip() {
+  const run = S.run;
+  if (!run?.auto?.items.length) return;
+  try {
+    await lib('jszip');
+    const { files, notes } = await autoBuildFiles(run.auto.items);
+    const zip = new window.JSZip();
+    for (const [p, t] of files) zip.file(p, t);
+    if (notes.length) zip.file('QA-PRO-NOTES.txt', notes.join('\n'));
+    downloadFile(`autotests_${new Date().toISOString().slice(0, 10)}.zip`, await zip.generateAsync({ type: 'blob' }));
+  } catch { toast('Не удалось собрать архив.', 'err'); }
+}
+async function autoReadZip(file) {
+  await lib('jszip');
+  const zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+  const out = [];
+  const entries = Object.values(zip.files).filter((e) => !e.dir && AUTO_TEXT.test(e.name) && !AUTO_SKIP.test(e.name)).slice(0, AUTO_MAX_FILES);
+  for (const e of entries) out.push({ path: e.name, text: await e.async('string') });
+  const first = out[0]?.path.split('/')[0];
+  return first && out.every((f) => f.path.startsWith(first + '/')) ? out.map((f) => ({ ...f, path: f.path.slice(first.length + 1) })) : out;
 }
 function errText(e) {
   const map = {
@@ -881,7 +1438,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { cover: 'покрытие требования', trace: 'трассировка', defect: 'баг-репорт', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { cover: 'покрытие требования', trace: 'трассировка', defect: 'баг-репорт', specreview: 'ревью ТЗ', regress: 'регресс', autoprofile: 'профиль автотестов', autotest: 'автотесты', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -2290,7 +2847,7 @@ async function saveRun(run) {
     counts, coverage: coveragePct(run), partsCount: parts.length, status: run.status, counters: run.counters, error: run.error || null,
     stage: run.stage || 'added', addedAt: run.addedAt || null, auditDone: !!run.auditDone,
     doneKeys: run.doneKeys || [], doneChecks: run.doneChecks || [], taskStart: run.taskStart || null, qaCtx: run.qaCtx || null, usage: run.usage || null,
-    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '',
+    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '', specReview: run.specReview || null, auto: run.auto ? { items: run.auto.items.slice(0, 200) } : null,
     hb: S.running && !S.unloading && run === S.run ? Date.now() : 0, hbTab: S.tabId,
     mode: run.mode || 'generate', source: run.source || null, srcParts: srcParts.length,
     steps: Object.fromEntries(STEPS.map((s) => { const st = run.steps[s.id]; return [s.id, { status: st.status, t0: st.t0, t1: st.t1, note: st.note || '', log: st.log.slice(-40) }]; })),
@@ -2356,7 +2913,7 @@ async function openHistory(id, opts = {}) {
       stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
       doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null,
       qaCtx: meta.qaCtx ? { all: '', api: '', ui: '', e2e: '', ...meta.qaCtx } : null,
-      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '',
+      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '', specReview: meta.specReview || null, auto: meta.auto || null,
       baseCounters: meta.baseCounters || { api: 0, ui: 0, e2e: 0, cl: 0 }, hb: meta.hb || 0, hbTab: meta.hbTab || '',
       mode: meta.mode || 'generate', source: meta.source || null, srcCases, srcHashes: [],
     };
@@ -3860,8 +4417,8 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.pc = freshPc(); S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
-  S.defects = { pid: null, items: [], loaded: false, open: null };
-  await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid), loadDefects(pid)]);
+  S.defects = { pid: null, items: [], loaded: false, open: null }; S.regress.result = null; S.regress.pick = new Set(); S.regress.sfera = []; S.autoProj = null;
+  await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid), loadDefects(pid), loadRegress(pid), loadAutoProject(pid)]);
   if (tok !== switchTok) return false;
   if (!restore) saveSession();
   renderAll();

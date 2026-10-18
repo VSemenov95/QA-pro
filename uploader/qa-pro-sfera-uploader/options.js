@@ -94,3 +94,27 @@ async function saveBridge() {
 $('#bridge-on').addEventListener('change', saveBridge);
 $('#bridge-port').addEventListener('change', saveBridge);
 $('#bridge-check').addEventListener('click', () => { $('#bridge-state').textContent = 'Проверяю мост…'; loadBridge(true); });
+
+// ---------- API Сферы для QA pro ----------
+const OPS_EXAMPLE = {
+  'tasks.create': { method: 'POST', path: '/app/tasks/api/v1/entities', body: { projectKey: '{project}', type: '{type}', name: '{title}', description: '{description}', priority: '{priority}' }, map: { key: 'number', url: 'link' } },
+  'tasks.search': { method: 'GET', path: '/app/tasks/api/v1/entities', query: { projectKey: '{project}', query: '{text}', size: '{limit}' }, pick: 'content', map: { key: 'number', title: 'name', status: 'status.name' } },
+};
+send({ type: 'GET_OPS' }).then((r) => {
+  if (!r?.ok) return;
+  $('#ops').value = Object.keys(r.ops || {}).length ? JSON.stringify(r.ops, null, 2) : '';
+  $('#ops').placeholder = 'Пример (адреса условные — возьмите настоящие из DevTools):\n' + JSON.stringify(OPS_EXAMPLE, null, 2);
+  $('#ops-help').innerHTML = 'Операции и аргументы, которые передаёт QA pro:<br>' + r.names.map((n) => `<span class="mono">${n}</span>: ${r.args[n] || ''}`).join('<br>');
+});
+$('#ops-save').addEventListener('click', async () => {
+  const note = $('#ops-note'), text = $('#ops').value.trim();
+  let ops = {};
+  if (text) {
+    try { ops = JSON.parse(text); } catch (e) { note.textContent = 'Некорректный JSON: ' + e.message; return; }
+    if (!ops || typeof ops !== 'object' || Array.isArray(ops)) { note.textContent = 'Нужен объект вида { "tasks.create": { ... } }.'; return; }
+    const bad = Object.entries(ops).filter(([k, v]) => !v || typeof v.path !== 'string' || !v.path.startsWith('/')).map(([k]) => k);
+    if (bad.length) { note.textContent = 'У операций нет пути, начинающегося с «/»: ' + bad.join(', '); return; }
+  }
+  const r = await send({ type: 'SAVE_SETTINGS', patch: { sferaOps: ops } });
+  note.textContent = r?.ok ? `Сохранено: ${Object.keys(ops).length} операций.` : r?.error || 'Не удалось сохранить.';
+});
