@@ -721,8 +721,8 @@ function agentTab() {
   }
   if (S.follow || r.status === 'interrupted' || (r.status === 'stopped' && r.interrupted)) { /* баннер выше */ }
   else if (r.status === 'done') html += `<div class="banner info" style="margin-bottom:16px"><div><b>Готово.</b> ${r.fromHistory ? 'Запуск загружен из истории.' : 'Проверьте вопросы к документации, поправьте кейсы вручную или доработайте с ИИ, затем выгрузите.'}${openBtns}</div></div>`;
-  else if (r.status === 'partial') html += `<div class="banner warn" style="margin-bottom:16px"><div><b>Готово с ошибками.</b> Часть запросов к модели не удалась — их можно повторить.${openBtns}${retry}</div></div>`;
-  else if (r.status === 'stopped') html += `<div class="banner warn" style="margin-bottom:16px"><div><b>Остановлено.</b> Готовые результаты сохранены.${retry}${openBtns}</div></div>`;
+  else if (r.status === 'partial') html += `<div class="banner warn" style="margin-bottom:16px"><div style="min-width:0"><b>Готово с ошибками.</b> Часть запросов к модели не удалась — их можно повторить.${failedListHTML(r)}${openBtns}${retry}</div></div>`;
+  else if (r.status === 'stopped') html += `<div class="banner warn" style="margin-bottom:16px"><div style="min-width:0"><b>Остановлено.</b> Готовые результаты сохранены.${failedListHTML(r)}${retry}${openBtns}</div></div>`;
   else if (r.status === 'error') html += `<div class="banner err" style="margin-bottom:16px"><div><b>Работа прервана.</b> ${esc(r.error || '')}${retry}${openBtns}</div></div>`;
   const steps = stepsOf(r.mode || 'generate').filter((s) => { const st = r.steps[s.id]; return r.fromHistory ? st.log.length > 0 : !(s.optional && st.status === 'pending'); });
   if (steps.length) {
@@ -746,6 +746,13 @@ function agentTab() {
   return html;
 }
 
+/* список неудавшихся пачек с причинами — прямо в баннере, без поиска по журналу шагов */
+function failedListHTML(r) {
+  const list = failedInfo(r);
+  if (!list.length) return '';
+  const n = list.length, shown = list.slice(0, 12);
+  return `<details class="failed-list" open><summary>Не удалось · ${n} ${plural(n, 'запрос', 'запроса', 'запросов')}</summary><ul>${shown.map((f) => `<li><b>${esc(f.where || 'Запрос')}</b>${f.items.length ? ` <span class="muted">— ${esc(f.items.join('; '))}</span>` : ''}<div class="failed-why">${esc(f.error || 'причина не сохранилась')}</div></li>`).join('')}</ul>${n > shown.length ? `<p class="hint">Ещё ${n - shown.length} — в журнале шагов ниже.</p>` : ''}</details>`;
+}
 /* ---------- requirements ---------- */
 /* карточка требования: описание, критерии, покрытие тремя вариантами и правка */
 function reqDetailHTML(r, q, cases) {
@@ -2964,6 +2971,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, defectText, normDefect, loadDefects, covRows, specLetter, parseDefectLines, scanProject, scanJava, mergeJava, normAutoTest, autoBuildFiles, autoSrc, sferaTaskArgs, defectHtml, autoConnectFiles: (files) => autoConnect('files', { files, name: 'test-project' }) }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, defectText, normDefect, loadDefects, covRows, specLetter, parseDefectLines, scanProject, scanJava, mergeJava, normAutoTest, autoBuildFiles, autoSrc, sferaTaskArgs, defectHtml, autoConnectFiles: (files) => autoConnect('files', { files, name: 'test-project' }), failedInfo }; // только для автотестов
 initCaps();
 })();

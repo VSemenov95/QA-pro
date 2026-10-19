@@ -923,6 +923,10 @@ tr.req-row:hover td{background:var(--hover)}
 .trace-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .trace-n{width:26px;height:26px;border-radius:50%;border:1px solid var(--line-2);display:grid;place-items:center;font-size:12px;flex:none}
 .trace-steps ul{margin:6px 0 0;padding-left:20px;color:var(--ink-2)}
+.failed-list{margin-top:8px;color:var(--ink)}
+.failed-list summary{cursor:pointer;font-weight:600;color:var(--warn)}
+.failed-list ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;font-size:13px}
+.failed-list .failed-why{color:var(--fail);word-break:break-word}
 .trace-pre{white-space:pre-wrap;word-break:break-word;font-family:var(--f-mono);font-size:12.5px;background:var(--code-bg);border-radius:var(--r-sm);padding:10px}
 .exp-card.defect{border-color:var(--stamp-line)}
 .exp-card.defect .exp-row .chip{font-size:11.5px}
