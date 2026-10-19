@@ -937,6 +937,21 @@ async function testConn(conn) {
   const r = await extJSON(conn, 'Проверка связи. Ответь JSON-объектом {"ok": true, "model": "<как тебя зовут>"}.', { signal: ctl.signal });
   return r;
 }
+/* неудавшиеся запросы запуска для баннера «Готово с ошибками»: пачка (вид, пункты плана) и причина */
+function failedInfo(run) {
+  const step = (id) => { const st = STEPS.find((x) => x.id === id); return st ? stepTitle(st, run.mode) : ''; };
+  const live = arrOf(run.failed).map((f) => {
+    if (f.kind === 'src') return { where: step(f.step), items: [], error: String(f.error || '') };
+    const items = arrOf(f.batch?.items);
+    return { where: `${TL[f.batch?.type] || ''} · ${[...new Set(items.map((i) => i.id))].join(', ')}`.replace(/^ · /, ''), items: [...new Set(items.map((i) => i.title).filter(Boolean))].slice(0, 6), error: String(f.error || '') };
+  });
+  if (live.length) return live;
+  if (arrOf(run.failedInfo).length) return run.failedInfo;
+  // запуск из истории до этой версии: причины — из журнала шагов
+  const out = [];
+  for (const st of stepsOf(run.mode)) for (const l of arrOf(run.steps?.[st.id]?.log)) if (l.kind === 'err') out.push({ where: stepTitle(st, run.mode), items: [], error: String(l.text || '') });
+  return out.slice(-30);
+}
 function handleCallError(run, e, line, label) {
   if (e?.code === 'cancelled') { line.text = `${label}: остановлено`; line.kind = 'warn'; return; }
   line.text = `${label}: ${errText(e)}`; line.kind = 'err';
@@ -2134,7 +2149,7 @@ async function saveRun(run) {
     counts, coverage: coveragePct(run), partsCount: parts.length, status: run.status, counters: run.counters, error: run.error || null,
     stage: run.stage || 'added', addedAt: run.addedAt || null, auditDone: !!run.auditDone,
     doneKeys: run.doneKeys || [], doneChecks: run.doneChecks || [], taskStart: run.taskStart || null, qaCtx: run.qaCtx || null, usage: run.usage || null,
-    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '',
+    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '', failedInfo: run.failed.length ? failedInfo(run).slice(0, 40).map((f) => ({ ...f, error: f.error.slice(0, 500) })) : null,
     hb: S.running && !S.unloading && run === S.run ? Date.now() : 0, hbTab: S.tabId,
     mode: run.mode || 'generate', source: run.source || null, srcParts: srcParts.length,
     steps: Object.fromEntries(STEPS.map((s) => { const st = run.steps[s.id]; return [s.id, { status: st.status, t0: st.t0, t1: st.t1, note: st.note || '', log: st.log.slice(-40) }]; })),
@@ -2200,7 +2215,7 @@ async function openHistory(id, opts = {}) {
       stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
       doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null,
       qaCtx: meta.qaCtx ? { all: '', api: '', ui: '', e2e: '', ...meta.qaCtx } : null,
-      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '',
+      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '', failedInfo: meta.failedInfo || null,
       baseCounters: meta.baseCounters || { api: 0, ui: 0, e2e: 0, cl: 0 }, hb: meta.hb || 0, hbTab: meta.hbTab || '',
       mode: meta.mode || 'generate', source: meta.source || null, srcCases, srcHashes: [],
     };
