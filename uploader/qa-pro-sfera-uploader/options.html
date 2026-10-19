@@ -46,6 +46,16 @@
     <div class="row"><span class="hint" id="keep-note"></span></div>
   </section>
   <section class="card">
+    <h2>API Сферы для QA pro</h2>
+    <p class="hint">QA pro заводит дефекты в Сфера.Задачи и читает репозитории автотестов через загрузчик — от вашего имени. Адреса этих операций зависят от инсталляции Сферы, поэтому их задают здесь. Как заполнить: в Сфере откройте DevTools → Network, выполните действие вручную (создайте дефект, откройте файл в репозитории) и перенесите адрес, метод и тело запроса в описание операции.</p>
+    <div class="field">
+      <label class="lbl" for="ops">Операции (JSON)</label>
+      <textarea id="ops" rows="14" class="mono" spellcheck="false"></textarea>
+      <p class="hint" id="ops-help"></p>
+    </div>
+    <div class="row"><button class="primary" type="button" id="ops-save">Сохранить операции</button><span class="hint" id="ops-note"></span></div>
+  </section>
+  <section class="card">
     <h2>Если QA pro пишет «загрузчик не найден»</h2>
     <ol class="hint steps">
       <li>Обновите страницу QA pro (Ctrl+F5) или нажмите «Подключить к открытым вкладкам».</li>

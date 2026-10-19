@@ -283,12 +283,12 @@ function openKbSection(id) {
   $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 /* ---------- режим: генерация или актуализация ---------- */
-const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта'], ['trace', 'Трассировка', 'Разбор дефекта по слоям: описание и стек трейс']];
+const MODES = [['generate', 'Генерация', 'Чек-листы и тест-кейсы по ТЗ'], ['update', 'Актуализация', 'Актуализация существующих кейсов под ТЗ'], ['help', 'База знаний', 'Вопросы и ответы строго по базе знаний продукта'], ['trace', 'Трассировка', 'Разбор дефекта по слоям: описание и стек трейс'], ['regress', 'Регресс', 'Подбор регресса к релизу: документация новой функциональности и исправленные дефекты']];
 function renderMode() {
   const m = S.settings.mode;
   $('#mode-seg').innerHTML = MODES.map(([id, n, t]) => `<button type="button" role="radio" aria-checked="${m === id}" data-mode="${id}" title="${t}">${n}</button>`).join('');
   $('#upd-panel').hidden = m !== 'update';
-  const newRun = $('#btn-newses'), noRun = m === 'help' || m === 'trace';
+  const newRun = $('#btn-newses'), noRun = m === 'help' || m === 'trace' || m === 'regress';
   if (newRun) { newRun.disabled = noRun; newRun.title = noRun ? 'Новый запуск — в режимах «Генерация» и «Актуализация»' : 'Закрыть текущий результат и начать новый запуск. Результат останется в «Истории», документы и знания продукта — на месте'; }
   document.querySelector('.app')?.classList.toggle('no-rail', m === 'trace');
   for (const el of document.querySelectorAll('[data-modes]')) el.hidden = !el.dataset.modes.split(',').includes(m);
@@ -437,16 +437,16 @@ function renderRunControls() {
 }
 
 /* ---------- правила для агента (левая колонка) и настройки под шестерёнкой ---------- */
-const SET_TABS = [['model', 'Модель'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['tms', 'ТМС'], ['bg', 'Фон']];
+const SET_TABS = [['model', 'Модель'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['defect', 'Шаблон дефекта'], ['tms', 'ТМС'], ['bg', 'Фон']];
 const tmsDirty = () => !!S.tmsDraft && JSON.stringify(S.tmsDraft) !== JSON.stringify(S.tms);
 const cfgKeyOfTab = () => (S.cfgTab === 'tpl' ? S.cfgType : S.cfgTab);
-const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : 'Шаблон ' + TL[k]);
+const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : k === 'defect' ? 'Шаблон дефекта' : 'Шаблон ' + TL[k]);
 const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : !!S.cfgDirty[id]);
 const DOT = '<span class="dot-d" title="Есть несохранённые изменения">•</span>';
 function renderCfgTabs() {
   const nav = $('#set-tabs');
   if (nav) nav.innerHTML = SET_TABS.map(([id, name]) => `<button type="button" role="tab" id="settab-${id}" aria-selected="${S.setTab === id}" data-settab="${id}">${name}${cfgTabDirty(id) ? DOT : ''}</button>`).join('');
-  $('#btn-settings')?.classList.toggle('dirty', ['tpl', 'export', 'review', 'tms'].some(cfgTabDirty));
+  $('#btn-settings')?.classList.toggle('dirty', ['tpl', 'export', 'review', 'defect', 'tms'].some(cfgTabDirty));
   const rd = $('#h-rules-dot');
   if (rd) rd.hidden = !S.cfgDirty.rules;
 }
@@ -495,6 +495,12 @@ function renderCfg() {
         <p class="hint">Правила из ваших замечаний: комментарии к доработке кейсов и пунктов, причины отклонения замечаний ревьюера. Агент учитывает их при генерации и ревью, они общие для команды.</p>
         <ul class="lessons">${S.lessons.length ? S.lessons.map((l) => `<li><div style="min-width:0"><span>${esc(l.text)}</span><div><span class="chip">${LESSON_SCOPE_RU[l.scope] || l.scope}</span></div></div><button class="icon-btn" type="button" data-cfg="lesson-del" data-id="${esc(l.id)}" aria-label="Удалить правило" title="Удалить правило">${ICON.x}</button></li>`).join('') : '<li class="muted small">Пока пусто — правила появятся после ваших замечаний.</li>'}</ul>
         <div class="lesson-add"><input id="lesson-new" type="text" placeholder="Добавить правило вручную" aria-label="Новое правило"><select id="lesson-scope" aria-label="Для чего правило"><option value="generation">генерация</option><option value="review">ревью</option><option value="both">оба</option></select><button class="btn" type="button" data-cfg="lesson-add">Добавить</button></div></div>`;
+  } else if (S.cfgTab === 'defect') {
+    body.innerHTML = `<div class="field"><div class="lbl-row"><label class="lbl" for="cfg-defect">Поля и правила баг-репорта</label><button class="link" type="button" data-cfg="expand">Развернуть</button></div>
+      <textarea id="cfg-defect" rows="9" placeholder="Например: Заголовок — [Модуль] Что сломалось. Обязательные поля: Версия сборки, Стенд, Затронутые роли, Ссылка на задачу. Серьёзность по шкале Сферы. В шагах — URL экрана и тестовая учётка.">${esc(S.cfg.defectTpl)}</textarea>
+      <div class="cfg-mini"><button class="link" type="button" data-cfg="load-defect">Приложить файл .md</button></div>
+      <input type="file" id="cfg-defect-md" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
+      <p class="hint">Опишите словами или вставьте пример дефекта из трекера. Стандартные поля — заголовок, серьёзность, приоритет, компонент, окружение, предусловия, шаги, ожидаемый и фактический результат, анализ — агент заполняет всегда; дополнительные поля шаблона появятся в карточке дефекта отдельными строками. Пусто — только стандартные поля.</p></div>`;
   } else {
     body.innerHTML = `<div class="field"><div class="lbl-row"><label class="lbl" for="cfg-export">Формат и правила заполнения</label><button class="link" type="button" data-cfg="expand">Развернуть</button></div>
       <textarea id="cfg-export" rows="8" placeholder="Например: CSV для импорта в Test IT, разделитель «;». Колонки: Название, Предусловия, Шаг, Ожидаемый результат, Приоритет, Теги. Каждый шаг — отдельная строка, название и предусловия — только в первой строке кейса. В теги добавить smoke или regression.">${esc(S.cfg.exportFormat)}</textarea>
@@ -506,7 +512,7 @@ function renderCfg() {
 function cfgFootHTML(k) {
   const team = S.cfgTeam[k], dirty = S.cfgDirty[k];
   const canSave = !!(S.caps.db && S.caps.canEdit);
-  const state = dirty ? '<b>Изменено в этом окне</b>' : team ? `<b>Версия команды</b><span>· обновлена ${fmtDate(team.updatedAt)}</span>` : `<b>${k === 'rules' || k === 'export' || k === 'review' ? 'Не задано' : 'Стандартный шаблон'}</b>`;
+  const state = dirty ? '<b>Изменено в этом окне</b>' : team ? `<b>Версия команды</b><span>· обновлена ${fmtDate(team.updatedAt)}</span>` : `<b>${k === 'rules' || k === 'export' || k === 'review' || k === 'defect' ? 'Не задано' : 'Стандартный шаблон'}</b>`;
   return `<div class="cfg-state${dirty ? ' dirty' : ''}">${esc(cfgName(k))}: ${state}</div>
     ${dirty ? `<div class="row">${canSave ? `<button class="btn accent" type="button" data-cfg="save" data-k="${k}">Сохранить для команды</button>` : ''}<button class="btn" type="button" data-cfg="revert" data-k="${k}">${team ? 'Вернуть версию команды' : 'Отменить изменения'}</button></div>
     ${canSave ? '' : `<p class="hint">${S.caps.db ? 'Изменения действуют только у вас. Сохранить для всей команды может владелец или редактор приложения.' : 'Изменения действуют только в этом браузере.'}</p>`}` : ''}`;
@@ -538,6 +544,7 @@ async function saveCfg(k) {
   try {
     if (k === 'rules') await db.doc('config/rules').set({ text: S.cfg.rules, updatedAt: now, updatedBy: by });
     else if (k === 'review') await db.doc('config/review').set({ text: S.cfg.reviewRules, updatedAt: now, updatedBy: by });
+    else if (k === 'defect') await db.doc('config/defect').set({ text: S.cfg.defectTpl, updatedAt: now, updatedBy: by });
     else if (k === 'export') await db.doc('config/export').set({ format: S.cfg.exportFormat, updatedAt: now, updatedBy: by });
     else {
       if (!tplInfo(k).ok) return toast('Исправьте JSON примера перед сохранением.', 'err');
@@ -567,6 +574,7 @@ function subscribeCfg() {
       let k = null, value;
       if (d.id === 'rules') { k = 'rules'; value = String(data.text ?? ''); }
       else if (d.id === 'review') { k = 'review'; value = String(data.text ?? ''); }
+      else if (d.id === 'defect') { k = 'defect'; value = String(data.text ?? ''); }
       else if (d.id === 'export') {
         k = 'export';
         value = data.format != null ? String(data.format) : data.structure != null ? 'JSON со структурой:\n' + (typeof data.structure === 'string' ? data.structure : JSON.stringify(data.structure, null, 2)) : '';
@@ -593,7 +601,7 @@ function openEditor(which) {
   const rules = which === 'rules';
   const k = rules ? 'rules' : cfgKeyOfTab();
   const tpl = !rules && S.cfgTab === 'tpl';
-  const src = rules ? '#cfg-rules' : { export: '#cfg-export', review: '#cfg-review' }[S.cfgTab] || '#cfg-example';
+  const src = rules ? '#cfg-rules' : { export: '#cfg-export', review: '#cfg-review', defect: '#cfg-defect' }[S.cfgTab] || '#cfg-example';
   ovKey = { k, src, tpl };
   $('#ov-title').textContent = tpl ? `Пример кейса ${TL[k]} (JSON)` : cfgName(k);
   const ta = $('#ov-text');
@@ -618,21 +626,22 @@ function closeEditor() {
 }
 
 /* ================= tabs ================= */
-const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['review', 'Ревью'], ['export', 'Экспорт'], ['history', 'История']];
+const TABS = [['agent', 'Агент'], ['reqs', 'Требования'], ['specrev', 'Ревью ТЗ'], ['questions', 'Вопросы'], ['draft', 'Черновик'], ['cases', 'Тест-кейсы'], ['checklist', 'Чек-лист'], ['cov', 'Покрытие'], ['auto', 'Автотесты'], ['review', 'Ревью'], ['export', 'Экспорт'], ['history', 'История']];
 const validTab = () => { if (!TABS.some(([id]) => id === S.tab)) S.tab = 'agent'; };
 function renderTabs() {
   validTab();
-  $('#tabs').hidden = S.settings.mode === 'help' || S.settings.mode === 'trace';
+  $('#tabs').hidden = S.settings.mode === 'help' || S.settings.mode === 'trace' || S.settings.mode === 'regress';
   const r = S.run;
-  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
+  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0, specrev: r?.specReview ? r.specReview.items.filter((f) => f.status === 'open').length : 0, cov: r ? covRows(r).filter((x) => x.state !== 'ok').length : 0, auto: r?.auto ? r.auto.items.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
 function renderTab() {
   const body = $('#tab-body');
   if (S.settings.mode === 'help') return renderHelp();
   if (S.settings.mode === 'trace') { body.innerHTML = traceTab(); return; }
+  if (S.settings.mode === 'regress') { body.innerHTML = regressTab(); return; }
   validTab();
-  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, history: historyTab }[S.tab];
+  const fn = { agent: agentTab, reqs: reqsTab, questions: questionsTab, draft: draftTab, cases: casesTab, checklist: checklistTab, review: reviewTab, export: exportTab, history: historyTab, specrev: specTab, cov: covTab, auto: autoTab }[S.tab];
   body.innerHTML = fn();
   if (S.tab === 'cases') { if (prodScope()) renderProdCases(); else { renderCaseList(); renderTmsBar(); } }
   S.pendingCasesRender = false;
@@ -712,8 +721,8 @@ function agentTab() {
   }
   if (S.follow || r.status === 'interrupted' || (r.status === 'stopped' && r.interrupted)) { /* баннер выше */ }
   else if (r.status === 'done') html += `<div class="banner info" style="margin-bottom:16px"><div><b>Готово.</b> ${r.fromHistory ? 'Запуск загружен из истории.' : 'Проверьте вопросы к документации, поправьте кейсы вручную или доработайте с ИИ, затем выгрузите.'}${openBtns}</div></div>`;
-  else if (r.status === 'partial') html += `<div class="banner warn" style="margin-bottom:16px"><div><b>Готово с ошибками.</b> Часть запросов к модели не удалась — их можно повторить.${openBtns}${retry}</div></div>`;
-  else if (r.status === 'stopped') html += `<div class="banner warn" style="margin-bottom:16px"><div><b>Остановлено.</b> Готовые результаты сохранены.${retry}${openBtns}</div></div>`;
+  else if (r.status === 'partial') html += `<div class="banner warn" style="margin-bottom:16px"><div style="min-width:0"><b>Готово с ошибками.</b> Часть запросов к модели не удалась — их можно повторить.${failedListHTML(r)}${openBtns}${retry}</div></div>`;
+  else if (r.status === 'stopped') html += `<div class="banner warn" style="margin-bottom:16px"><div style="min-width:0"><b>Остановлено.</b> Готовые результаты сохранены.${failedListHTML(r)}${retry}${openBtns}</div></div>`;
   else if (r.status === 'error') html += `<div class="banner err" style="margin-bottom:16px"><div><b>Работа прервана.</b> ${esc(r.error || '')}${retry}${openBtns}</div></div>`;
   const steps = stepsOf(r.mode || 'generate').filter((s) => { const st = r.steps[s.id]; return r.fromHistory ? st.log.length > 0 : !(s.optional && st.status === 'pending'); });
   if (steps.length) {
@@ -737,6 +746,13 @@ function agentTab() {
   return html;
 }
 
+/* список неудавшихся пачек с причинами — прямо в баннере, без поиска по журналу шагов */
+function failedListHTML(r) {
+  const list = failedInfo(r);
+  if (!list.length) return '';
+  const n = list.length, shown = list.slice(0, 12);
+  return `<details class="failed-list" open><summary>Не удалось · ${n} ${plural(n, 'запрос', 'запроса', 'запросов')}</summary><ul>${shown.map((f) => `<li><b>${esc(f.where || 'Запрос')}</b>${f.items.length ? ` <span class="muted">— ${esc(f.items.join('; '))}</span>` : ''}<div class="failed-why">${esc(f.error || 'причина не сохранилась')}</div></li>`).join('')}</ul>${n > shown.length ? `<p class="hint">Ещё ${n - shown.length} — в журнале шагов ниже.</p>` : ''}</details>`;
+}
 /* ---------- requirements ---------- */
 /* карточка требования: описание, критерии, покрытие тремя вариантами и правка */
 function reqDetailHTML(r, q, cases) {
@@ -1073,7 +1089,249 @@ function traceTab() {
     <div class="field"><label class="lbl" for="trace-stack">Стек трейс <span class="muted small">(необязательно)</span></label><textarea id="trace-stack" rows="8" class="mono" placeholder="Вставьте стек трейс из логов">${esc(T.stack)}</textarea></div>
     <div class="exp-row"><button class="btn accent" type="button" data-act="trace-run" ${T.busy || !T.description.trim() || !ready ? 'disabled' : ''}>${T.busy ? 'Агент трассирует…' : 'Выполнить трассировку'}</button></div>
     ${T.error ? `<div class="banner err"><div class="banner-body">${esc(T.error)}</div></div>` : ''}
-  </div>${steps}${failure}${response}${result}`;
+  </div>${steps}${failure}${response}${result}${r ? defectHTML() : ''}${defectListHTML()}`;
+}
+/* баг-репорт по трассировке: оформление по шаблону команды, правка, копирование, сохранение в продукт */
+function defectHTML() {
+  const T = S.trace, d = T.defect, ready = aiReady(S.settings.genAI);
+  const tpl = S.cfg.defectTpl.trim() ? 'по шаблону команды' : 'стандартные поля';
+  const err = T.defectError ? `<div class="banner err"><div class="banner-body">${esc(T.defectError)}</div></div>` : '';
+  if (!d) {
+    return `<div class="exp-card" id="defect-card"><div class="exp-row"><b>Баг-репорт</b><span class="muted small">${tpl} · <button class="link inline" type="button" data-act="cfg-defect">шаблон дефекта</button></span></div>
+      <p class="hint">Агент оформит дефект по описанию и трассировке: заголовок, шаги воспроизведения, ожидаемый и фактический результат, серьёзность, анализ причины. Найдёт связанные тест-кейсы продукта и проверит, нет ли уже такого дефекта.</p>
+      <div class="exp-row"><button class="btn accent" type="button" data-act="defect-run" ${T.defectBusy || !ready ? 'disabled' : ''}>${T.defectBusy ? 'Агент оформляет дефект…' : 'Оформить дефект'}</button></div>${err}</div>`;
+  }
+  const canSave = !!(S.productId && S.caps.db && T.defectPid === S.productId);
+  const dupById = new Map(S.defects.items.map((x) => [x.id, x]));
+  const dups = d.duplicates.filter((x) => x.id !== d.id);
+  const dupBanner = dups.length ? `<div class="banner warn defect-dups"><div class="banner-body"><b>Возможно, такой дефект уже заведён</b><ul>${dups.map((x) => `<li><button class="link inline mono" type="button" data-act="defect-open" data-id="${esc(x.id)}">${esc(x.id)}</button> ${esc(dupById.get(x.id)?.title || '')}${x.reason ? ` <span class="muted">— ${esc(x.reason)}</span>` : ''}</li>`).join('')}</ul></div></div>` : '';
+  const sel = (key, vals, ru) => `<select id="def-${key}" data-def="${key}">${vals.map((v) => `<option value="${v}" ${d[key] === v ? 'selected' : ''}>${ru[v]}</option>`).join('')}</select>`;
+  const inp = (key, label, ph = '') => `<div class="field"><label class="lbl" for="def-${key}">${label}</label><input type="text" id="def-${key}" data-def="${key}" value="${esc(d[key])}" placeholder="${esc(ph)}"></div>`;
+  const area = (key, label, rows, hint = '') => `<div class="field"><label class="lbl" for="def-${key}">${label}${hint ? ` <span class="muted small">${hint}</span>` : ''}</label><textarea id="def-${key}" data-def="${key}" rows="${rows}">${esc(Array.isArray(d[key]) ? d[key].join('\n') : d[key])}</textarea></div>`;
+  const saved = d.id ? `<span class="chip">${esc(d.id)}</span>` : '';
+  const state = T.defectSavedAt ? `<span class="muted small">сохранён ${fmtDate(T.defectSavedAt)}</span>` : d.id ? '<span class="muted small warn-hint">есть несохранённые правки</span>' : '';
+  return `<div class="exp-card defect" id="defect-card">
+    <div class="exp-row"><b>Баг-репорт</b>${saved}${state}<span class="muted small" style="margin-left:auto">${tpl}</span></div>
+    ${dupBanner}
+    ${inp('title', 'Заголовок')}
+    <div class="grid2"><div class="field"><label class="lbl" for="def-severity">Серьёзность</label>${sel('severity', SEVERITIES, DSEV_RU)}</div><div class="field"><label class="lbl" for="def-priority">Приоритет</label>${sel('priority', DPRIOS, DPRIO_RU)}</div></div>
+    <div class="grid2">${inp('component', 'Компонент', 'Слой или сервис')}${inp('environment', 'Окружение', 'Стенд, версия, браузер')}</div>
+    ${area('preconditions', 'Предусловия', 2, 'по одному на строку')}
+    ${area('steps', 'Шаги воспроизведения', Math.min(10, Math.max(4, d.steps.length + 1)), 'по одному на строку')}
+    <div class="grid2">${area('expected', 'Ожидаемый результат', 3)}${area('actual', 'Фактический результат', 3)}</div>
+    ${d.fields.map((f, i) => `<div class="field"><label class="lbl" for="def-f${i}">${esc(f.name)}</label><input type="text" id="def-f${i}" data-def-field="${i}" value="${esc(f.value)}"></div>`).join('')}
+    ${area('analysis', 'Анализ', 3)}
+    ${d.relatedCases.length ? `<div class="field"><span class="lbl">Связанные тест-кейсы</span><div class="case-sub">${d.relatedCases.map((id) => `<span class="chip">${esc(id)}</span>`).join('')}</div></div>` : ''}
+    ${d.stack ? '<p class="hint">Стек трейс войдёт в баг-репорт целиком.</p>' : ''}
+    <div class="exp-row defect-acts">
+      ${canSave ? `<button class="btn accent" type="button" data-act="defect-save">${d.id ? 'Сохранить изменения' : 'Сохранить в продукт'}</button>` : ''}
+      <button class="btn" type="button" data-act="defect-copy">Копировать текст</button>
+      <button class="btn" type="button" data-act="defect-copy-md">Копировать Markdown</button>
+      ${S.caps.downloads ? '<button class="btn" type="button" data-act="defect-dl">Скачать .md</button>' : ''}
+      <button class="btn" type="button" data-act="defect-run" ${T.defectBusy || !ready ? 'disabled' : ''}>${T.defectBusy ? 'Агент оформляет…' : 'Оформить заново'}</button>
+      ${d.id ? '' : '<button class="btn" type="button" data-act="defect-clear">Закрыть</button>'}
+    </div>
+    ${canSave || !S.productId ? '' : '<p class="hint">Сохранить дефект можно в продукт, для которого он оформлен.</p>'}
+    ${!S.productId || !S.caps.db ? '<p class="hint">Без продукта дефект не сохраняется: скопируйте его в трекер или скачайте.</p>' : ''}
+    ${err}</div>${sferaTaskHTML()}`;
+}
+/* бета: завести дефект в Сфера.Задачи через загрузчик или мост */
+function sferaTaskHTML() {
+  const T = S.trace, d = T.defect;
+  if (!T.sferaForm) T.sferaForm = sferaTaskDefaults();
+  const f = T.sferaForm;
+  if (d.sfera?.key) return `<div class="exp-card sfera-task"><div class="exp-row"><b>Сфера.Задачи</b><span class="chip ok">${esc(d.sfera.key)}</span><span class="muted small">${esc(d.sfera.status || '')} · заведён ${fmtDate(d.sfera.at)}</span>${d.sfera.url ? `<a class="link inline" href="${esc(d.sfera.url)}" target="_blank" rel="noopener" style="margin-left:auto">Открыть в Сфере</a>` : ''}</div></div>`;
+  const inp = (k, label, ph = '') => `<div class="field"><label class="lbl" for="sf-${k}">${label}</label><input type="text" id="sf-${k}" data-sf="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}"></div>`;
+  const dups = T.sferaDups.length ? `<div class="banner warn"><div class="banner-body"><b>Похожие задачи в Сфере</b><ul class="sf-dups">${T.sferaDups.map((x) => `<li><label class="chk"><input type="checkbox" class="sf-link" data-key="${esc(x.key)}" ${T.sferaLink.has(x.key) ? 'checked' : ''}> связать</label> <span class="mono">${esc(x.key)}</span> ${esc(x.title)}${x.status ? ` <span class="chip">${esc(x.status)}</span>` : ''}${x.url ? ` <a class="link inline" href="${esc(x.url)}" target="_blank" rel="noopener">открыть</a>` : ''}</li>`).join('')}</ul><span class="hint">Если это тот же дефект и он уже исправлен — переоткройте его в Сфере вместо нового.</span></div></div>` : '';
+  return `<div class="exp-card sfera-task"><div class="exp-row"><b>Завести в Сфера.Задачи</b><span class="chip">бета</span><span class="muted small" style="margin-left:auto">через загрузчик Сферы${hostOn() ? ' или мост' : ''}</span></div>
+    <div class="grid2">${inp('project', 'Проект', 'RECOV')}${inp('type', 'Тип задачи', 'Дефект')}</div>
+    <div class="grid2">${inp('assignee', 'Исполнитель', 'по умолчанию — по правилам проекта')}${inp('release', 'Релиз или спринт', '')}</div>
+    ${inp('labels', 'Метки', 'QA_pro')}
+    ${dups}
+    <div class="exp-row"><button class="btn accent" type="button" data-act="sf-create" ${T.sferaBusy ? 'disabled' : ''}>${T.sferaBusy === 'create' ? 'Создаю задачу…' : 'Создать дефект в Сфере'}</button><button class="btn" type="button" data-act="sf-dups" ${T.sferaBusy ? 'disabled' : ''}>${T.sferaBusy === 'search' ? 'Ищу…' : 'Найти похожие в Сфере'}</button></div>
+    <p class="hint">Поля баг-репорта и шаблона команды уходят в описание задачи, стек трейса — вложением, отмеченные похожие задачи — связями. Адреса операций Сферы задаются в настройках загрузчика → «API Сферы для QA pro».</p>
+    ${T.sferaError ? `<div class="banner err"><div class="banner-body">${esc(T.sferaError)}</div></div>` : ''}</div>`;
+}
+function defectListHTML() {
+  const D = S.defects;
+  if (!S.productId || D.pid !== S.productId || !D.items.length) return '';
+  const items = [...D.items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return `<div class="exp-card defect-list"><div class="exp-row"><b>Дефекты продукта · ${items.length}</b><span class="muted small">общие для команды, по ним агент ищет дубли</span>${items.some((x) => x.sfera?.key) ? '<button class="btn sm" type="button" data-act="sf-refresh" style="margin-left:auto">Обновить статусы из Сферы</button>' : ''}</div>
+    <ul class="hist">${items.map((x) => `<li class="hrow"><div style="min-width:0"><h4><span class="mono muted">${esc(x.id)}</span> ${esc(x.title)}</h4><div class="meta"><span class="chip sev-${x.severity === 'blocker' || x.severity === 'critical' ? 'critical' : x.severity === 'major' ? 'major' : 'minor'}">${esc(DSEV_RU[x.severity] || x.severity)}</span>${x.sfera?.key ? `<span class="chip ok">${esc(x.sfera.key)}${x.sfera.status ? ' · ' + esc(x.sfera.status) : ''}</span>` : ''}${x.createdAt ? `<span>${fmtDate(x.createdAt)}</span>` : ''}</div></div>
+      <div class="acts"><button class="btn sm" type="button" data-act="defect-open" data-id="${esc(x.id)}">Открыть</button><button class="btn sm danger" type="button" data-act="defect-del" data-id="${esc(x.id)}">Удалить</button></div></li>`).join('')}</ul></div>`;
+}
+/* ---------- бета: режим «Регресс» ---------- */
+const regCountText = (nd, nf) => `${nd} ${plural(nd, 'документ', 'документа', 'документов')} · ${nf} ${plural(nf, 'дефект', 'дефекта', 'дефектов')}`;
+/* при вводе дефектов — только счётчик и кнопка, без перерисовки: поле не теряет фокус */
+function regControls() {
+  const R = S.regress, nd = docsFor(null).length, nf = regDefects().length, nCases = S.prodIndex.pid === S.productId ? S.prodIndex.cases.length : 0;
+  const c = $('#reg-count'); if (c) c.textContent = regCountText(nd, nf);
+  const b = document.querySelector('[data-act=reg-run]'); if (b) b.disabled = R.busy || !aiReady(S.settings.genAI) || (!nd && !nf) || !nCases;
+}
+function regressTab() {
+  const R = S.regress, res = R.result, ready = aiReady(S.settings.genAI);
+  const docs = docsFor(null), defs = regDefects(), nCases = S.prodIndex.pid === S.productId ? S.prodIndex.cases.length : 0;
+  const prodDefs = S.defects.pid === S.productId ? S.defects.items : [];
+  const input = `<div class="exp-card"><div class="exp-row"><b>Регресс к релизу</b><span class="chip">бета</span><span class="muted small">из ${nCases} ${plural(nCases, 'кейса', 'кейсов', 'кейсов')} продукта</span></div>
+    <p class="hint">Агент анализирует, какую функциональность могли затронуть новая документация и исправленные дефекты — напрямую и через общие сервисы, — и решает по каждому кейсу продукта: обязательно, рекомендуется или пропустить.</p>
+    <div class="grid2">
+      <div class="field"><span class="lbl">Документация релиза · ${docs.length}</span>${docs.length ? `<ul class="reg-docs">${docs.map((d) => `<li><span class="ext">${esc(d.ext || 'doc')}</span>${esc(d.name)}</li>`).join('')}</ul>` : '<p class="hint">Отметьте документы слева в «Документах запуска» — новая функциональность и новые версии ТЗ.</p>'}</div>
+      <div class="field"><label class="lbl" for="reg-defects">Исправленные дефекты</label><textarea id="reg-defects" rows="4" placeholder="По одному на строку: RECOV-311 — Повторный запрос сброса не аннулирует ссылку">${esc(R.defectsText)}</textarea>
+        <div class="exp-row"><input type="text" id="reg-sf-project" placeholder="Проект Сферы" value="${esc(R.sferaProject ?? sferaTaskDefaults().project)}" style="max-width:140px" aria-label="Проект Сферы"><input type="text" id="reg-sf-release" placeholder="Релиз" value="${esc(R.sferaRelease ?? sferaTaskDefaults().release)}" style="max-width:120px" aria-label="Релиз в Сфере"><button class="btn sm" type="button" data-act="reg-sfera" ${S.regress.sferaBusy ? 'disabled' : ''}>${S.regress.sferaBusy ? 'Загружаю…' : 'Добавить из Сфера.Задачи'}</button>${R.sfera.length ? `<span class="muted small">из Сферы: ${R.sfera.length}</span><button class="link inline" type="button" data-act="reg-sfera-clear">убрать</button>` : ''}</div></div>
+    </div>
+    ${prodDefs.length ? `<div class="field"><span class="lbl">Дефекты продукта из трассировки</span><div class="reg-picks">${prodDefs.map((x) => `<label class="chk"><input type="checkbox" class="reg-pick" data-id="${esc(x.id)}" ${R.pick.has(x.id) ? 'checked' : ''}><span class="mono small">${esc(x.sfera?.key || x.id)}</span> ${esc(x.title)}</label>`).join('')}</div></div>` : ''}
+    <div class="field"><span class="lbl">Время на регресс</span><div class="seg reg-budget" role="radiogroup">${Object.entries(REG_BUDGETS).map(([k, b]) => `<button type="button" role="radio" aria-checked="${R.budget === k}" data-act="reg-budget" data-b="${k}">${b.label}</button>`).join('')}</div></div>
+    <div class="exp-row"><button class="btn accent" type="button" data-act="reg-run" ${R.busy || !ready || (!docs.length && !defs.length) || !nCases ? 'disabled' : ''}>${R.busy ? 'Агент анализирует влияние…' : 'Подобрать регресс'}</button><span class="muted small" id="reg-count">${regCountText(docs.length, defs.length)}</span></div>
+    ${!ready ? `<p class="hint warn-hint">${esc(aiProblem(S.settings.genAI))}</p>` : ''}${R.error ? `<div class="banner err"><div class="banner-body">${esc(R.error)}</div></div>` : ''}${R.sferaError ? `<div class="banner err"><div class="banner-body">${esc(R.sferaError)}</div></div>` : ''}</div>`;
+  if (!res) return input;
+  const must = res.cases.filter((c) => c.decision === 'must'), rec = res.cases.filter((c) => c.decision === 'recommended');
+  const list = res.cases.filter((c) => R.filter === 'all' || c.decision === R.filter).sort((a, b) => (a.decision === b.decision ? 0 : a.decision === 'must' ? -1 : 1));
+  const RU = { must: ['no', 'Обязательно'], recommended: ['p-medium', 'Рекомендуется'] };
+  return input + `<div class="sec-h"><h3>Результат</h3><span class="muted small">${fmtDate(res.at)} · ${esc(REG_BUDGETS[res.budget]?.label || '')} · ${esc([...res.docs, ...res.defects.map((d) => d.key || d.title)].join(', ').slice(0, 200))}</span></div>
+    <div class="stats"><div class="stat"><span>Затронуто</span><b>${res.impact.length}</b><small>связей по документации и дефектам</small></div><div class="stat"><span>Обязательно</span><b style="color:var(--fail)">${must.length}</b><small>кейсов</small></div><div class="stat"><span>Рекомендуется</span><b style="color:var(--warn)">${rec.length}</b><small>кейсов</small></div><div class="stat"><span>Можно пропустить</span><b>${Math.max(0, res.total - res.cases.length)}</b><small>не затронуты</small></div></div>
+    ${res.gaps.length ? `<div class="banner warn reg-gaps"><div><b>Пробелы · ${res.gaps.length}</b> — это не проверяет ни один кейс продукта:<ul>${res.gaps.map((g) => `<li>${esc(g.what)} <span class="muted">(${esc(g.source)})</span></li>`).join('')}</ul><span class="hint">Сгенерируйте кейсы в режиме «Генерация» по этой документации.</span></div></div>` : ''}
+    <div class="exp-card"><div class="exp-row"><b>Анализ влияния</b><span class="muted small">что могло задеть изменение и почему</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Источник</th><th>Что изменилось</th><th>Затронутая функциональность</th></tr></thead><tbody>${res.impact.map((x) => `<tr><td><span class="chip ${x.kind === 'defect' ? 'no' : ''}">${esc(x.source)}</span></td><td>${esc(x.change)}</td><td>${esc(x.affected)}${x.direct ? '' : ' <span class="muted small">косвенно</span>'}${x.hypothesis ? ' <span class="chip p-medium">гипотеза</span>' : ''}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="exp-card"><div class="exp-row"><b>Набор регресса · ${res.cases.length}</b><span class="case-sub" style="margin-left:auto">${[['all', `Все · ${res.cases.length}`], ['must', `Обязательно · ${must.length}`], ['recommended', `Рекомендуется · ${rec.length}`]].map(([k, t]) => `<button class="fchip" type="button" data-act="reg-filter" data-f="${k}" aria-pressed="${R.filter === k}">${t}</button>`).join('')}</span></div>
+      <div class="tbl-wrap"><table class="reg-t"><thead><tr><th>Кейс</th><th>Название</th><th>Решение</th><th>Почему</th></tr></thead><tbody>${list.map((c) => `<tr class="reg-${c.decision}"><td class="mono">${esc(c.id)}</td><td>${esc(c.title)}${c.outdated ? ' <span class="chip p-medium">актуализировать</span>' : ''}</td><td><span class="chip ${RU[c.decision][0]}">${RU[c.decision][1]}</span></td><td class="small">${esc(c.reason)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted small">Кейсов нет</td></tr>'}</tbody></table></div>
+      <div class="exp-row">${S.caps.downloads ? '<button class="btn accent" type="button" data-act="reg-xlsx">Скачать .xlsx</button>' : ''}<button class="btn" type="button" data-act="reg-copy">Копировать список</button><span class="muted small">Результат сохранён в продукте и виден команде.</span></div></div>`;
+}
+/* ---------- бета: автотесты ---------- */
+async function autoFromInput(fileList) {
+  const files = [];
+  for (const f of [...fileList]) {
+    const p = (f.webkitRelativePath || f.name).split('/').slice(1).join('/') || f.name;
+    if (files.length >= AUTO_MAX_FILES || AUTO_SKIP.test(p) || !AUTO_TEXT.test(p) || f.size > 300000) continue;
+    files.push({ path: p, text: await f.text() });
+  }
+  const name = (fileList[0]?.webkitRelativePath || '').split('/')[0] || 'папка';
+  autoConnect('files', { files, name });
+}
+async function autoFromZip(file) {
+  try { autoConnect('files', { files: await autoReadZip(file), name: file.name }); }
+  catch { S.autoUI.error = 'Не удалось прочитать архив .zip.'; renderTab(); }
+}
+function highlightJava(code, reused) {
+  // один проход по исходному тексту: строки, аннотации, переиспользованные имена, ключевые слова — без повторной обработки разметки
+  const names = [...new Set(reused.map((r) => r.replace(/\(.*$/, '').trim()).filter(Boolean))].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const rx = new RegExp(`("(?:[^"\\\\\\n]|\\\\.)*")|(@\\w+)|${names.length ? `((?<![\\w.])(?:${names.join('|')})(?![\\w]))|` : '()'}(\\b(?:void|public|private|protected|static|final|class|return|new|for|if|else|int|long|boolean|var|import|package|throws|extends)\\b)`, 'g');
+  let out = '', last = 0, m;
+  while ((m = rx.exec(code))) {
+    if (!m[0]) { rx.lastIndex++; continue; }
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'k-st' : m[2] ? 'k-an' : m[3] ? 'k-re' : 'k-kw';
+    out += `<span class="${cls}">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(code.slice(last));
+}
+function autoProjectHTML() {
+  const U = S.autoUI, P = S.autoProj, src = U.src || (P?.source.kind === 'bridge' ? 'bridge' : P?.source.kind === 'sfera' ? 'sfera' : 'local');
+  const fsOk = typeof window.showDirectoryPicker === 'function';
+  const live = autoSrc.kind ? `<span class="chip ok">подключён · ${autoCanWrite() ? 'чтение и запись' : 'только чтение'}</span>` : P ? '<span class="chip">подключите заново, чтобы записывать</span>' : '';
+  const srcBody = src === 'local' ? `<div class="exp-row">${fsOk ? '<button class="btn accent" type="button" data-act="auto-fs">Выбрать папку репозитория</button>' : ''}<button class="btn" type="button" data-act="auto-pick-dir">${fsOk ? 'Только чтение' : 'Выбрать папку'}</button><button class="btn" type="button" data-act="auto-pick-zip">Архив .zip</button></div>
+      <p class="hint">${fsOk ? 'Браузер спросит разрешение на изменение папки — тогда QA pro сможет записывать автотесты прямо в репозиторий. Коммит и пуш остаются за вами.' : 'В этом окне браузер не даёт писать в папку: автотесты можно скачать архивом. Чтобы записывать прямо в репозиторий — подключите папку через мост приложения Claude или откройте автономную версию QA pro в Chrome.'}</p>
+      <input type="file" id="auto-dir" webkitdirectory directory multiple hidden><input type="file" id="auto-zip" accept=".zip,application/zip" hidden>`
+    : src === 'bridge' ? `<div class="exp-row"><input type="text" id="auto-root" class="mono" placeholder="C:\\work\\autotests или /home/me/autotests" value="${esc(P?.source.root || '')}" style="max-width:420px" aria-label="Путь к репозиторию"><button class="btn accent" type="button" data-act="auto-bridge">Подключить</button></div>
+      <p class="hint">Мост приложения Claude читает и записывает файлы только внутри этой папки. Приложение может спросить подтверждение на запись.${hostOn() ? '' : ' Мост сейчас не подключён: установите его (шестерёнка → ТМС).'}</p>`
+    : `<div class="exp-row"><input type="text" id="auto-sf-project" placeholder="Проект" value="${esc(P?.source.project || '')}" style="max-width:150px" aria-label="Проект Сферы"><input type="text" id="auto-sf-repo" placeholder="Репозиторий" value="${esc(P?.source.repo || '')}" style="max-width:220px" aria-label="Репозиторий Сферы"><input type="text" id="auto-sf-branch" placeholder="main" value="${esc(P?.source.branch || 'main')}" style="max-width:120px" aria-label="Ветка"><button class="btn accent" type="button" data-act="auto-sfera">Импортировать</button></div>
+      <p class="hint">Загрузчик Сферы в Chrome читает репозиторий под вашим входом в Сферу и передаёт файлы в QA pro (из приложения Claude — через мост). Готовые тесты уходят веткой и запросом на слияние. Адреса операций — в настройках загрузчика → «API Сферы для QA pro».</p>`;
+  const head = `<div class="exp-card"><div class="exp-row"><b>Проект автотестов</b><span class="chip">бета</span>${P ? `<span class="muted small">${esc(P.source.name)} · проанализирован ${fmtDate(P.at)}</span>` : ''}${live}<span class="muted small" style="margin-left:auto">общий для продукта</span></div>
+    <div class="case-sub">${[['local', 'Локальная папка'], ...(hostOn() || inDesktopApp ? [['bridge', 'Папка через мост']] : []), ['sfera', 'Репозиторий в Сфере']].map(([k, t]) => `<button class="fchip" type="button" data-act="auto-src" data-k="${k}" aria-pressed="${src === k}">${t}</button>`).join('')}</div>
+    ${srcBody}
+    ${U.log ? `<p class="hint"><b>${esc(U.log)}</b></p>` : ''}${U.error ? `<div class="banner err"><div class="banner-body" style="white-space:pre-line">${esc(U.error)}</div></div>` : ''}
+    ${P && autoSrc.kind ? `<div class="exp-row"><button class="btn" type="button" data-act="auto-reanalyze" ${U.busy ? 'disabled' : ''}>Обновить анализ</button></div>` : ''}</div>`;
+  if (!P) return head + emptyHTML('Проект ещё не подключён', 'Агент прочитает сборку, базовые классы, клиенты, Page Object и типичные тесты и составит профиль: стек, стиль команды и что можно переиспользовать.');
+  const kinds = {};
+  for (const c of P.catalog) (kinds[c.kind] = kinds[c.kind] || []).push(c);
+  const pr = P.profile;
+  return head + `<div class="grid2"><div class="exp-card"><div class="exp-row"><b>Стек</b><span class="muted small">${P.files} файлов · ${P.javaFiles} Java · ${P.testClasses.length} тестовых классов</span></div>
+      <div class="case-sub">${P.stack.map((x) => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="muted small">не определён</span>'}</div>
+      ${pr.summary ? `<p class="small">${esc(pr.summary)}</p>` : ''}
+      <dl class="kv">${Object.entries(pr.conventions).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(AUTO_CONV_RU[k] || k)}</dt><dd class="small">${esc(v)}</dd>`).join('')}</dl></div>
+    <div class="exp-card"><div class="exp-row"><b>Стиль команды</b></div><ul class="auto-style">${pr.style.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>
+    <div class="exp-card"><div class="exp-row"><b>Что можно переиспользовать · ${P.catalog.length}</b><span class="muted small">агент берёт готовое, а не пишет заново</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Вид</th><th>Классы</th><th class="c">Кол-во</th></tr></thead><tbody>${Object.entries(kinds).sort((a, b) => b[1].length - a[1].length).map(([k, list]) => `<tr><td>${esc(k)}</td><td class="mono small">${esc(list.slice(0, 6).map((c) => c.cls).join(', '))}${list.length > 6 ? ' …' : ''}</td><td class="c">${list.length}</td></tr>`).join('')}</tbody></table></div>
+      ${pr.reuse.length ? `<details><summary class="small">Ключевые методы · ${pr.reuse.length}</summary><ul class="auto-style">${pr.reuse.map((x) => `<li><span class="mono">${esc(x.name)}</span> — ${esc(x.what)}</li>`).join('')}</ul></details>` : ''}
+      ${pr.gaps.length ? `<p class="hint"><b>Чего нет в проекте:</b> ${esc(pr.gaps.join('; '))}</p>` : ''}</div>`;
+}
+const AUTO_CONV_RU = { apiTests: 'Тесты API', uiTests: 'Тесты UI', e2eTests: 'Тесты E2E', packageBase: 'Пакет', testClassNaming: 'Классы', methodNaming: 'Методы', baseClasses: 'Базовые классы', placement: 'Куда добавлять' };
+function autoTestsHTML() {
+  const r = S.run, U = S.autoUI, P = S.autoProj;
+  if (!P) return emptyHTML('Сначала подключите проект автотестов', 'Вкладка «Проект».');
+  if (!r || !r.cases.length) return emptyHTML('Нет тест-кейсов', 'Сгенерируйте кейсы или откройте запуск из истории.');
+  const type = U.type || 'all';
+  const list = r.cases.filter((c) => c.status !== 'obsolete' && (type === 'all' || c.type === type));
+  const items = r.auto?.items || [], byUid = new Map(items.map((x) => [x.uid, x]));
+  const sel = list.filter((c) => U.sel.has(c.uid)).length;
+  const picker = `<div class="exp-card"><div class="exp-row"><b>Кейсы для автотестов</b><span class="case-sub" style="margin-left:auto">${[['all', 'Все'], ...TYPES.map((t) => [t, TL[t]])].map(([k, t]) => `<button class="fchip" type="button" data-act="auto-type" data-t="${k}" aria-pressed="${type === k}">${t}</button>`).join('')}</span></div>
+    <div class="auto-cases">${list.map((c) => `<label class="chk"><input type="checkbox" class="auto-sel" data-uid="${c.uid}" ${U.sel.has(c.uid) ? 'checked' : ''}><span class="mono small">${esc(c.dispId)}</span> ${esc(pickTitleText(c.testCase))}${byUid.has(c.uid) ? ' <span class="chip ok">есть</span>' : ''}</label>`).join('')}</div>
+    <div class="exp-row"><button class="link inline" type="button" data-act="auto-all">${list.every((c) => U.sel.has(c.uid)) ? 'Снять все' : 'Выбрать все'}</button><button class="btn accent" type="button" data-act="auto-gen" ${U.busy || !sel ? 'disabled' : ''}>${U.busy ? esc(U.log || 'Агент пишет…') : `Сгенерировать автотесты${sel ? ` · ${sel}` : ''}`}</button></div>
+    ${U.error ? `<div class="banner err"><div class="banner-body" style="white-space:pre-line">${esc(U.error)}</div></div>` : ''}</div>`;
+  if (!items.length) return picker;
+  const reusedN = new Set(items.flatMap((x) => x.reused)).size, addedN = items.reduce((n, x) => n + x.added.length, 0);
+  const summary = `<div class="stats"><div class="stat"><span>Тестов</span><b>${items.length}</b><small>${items.filter((x) => x.written).length} записано</small></div><div class="stat"><span>Переиспользовано</span><b>${reusedN}</b><small>классов и методов проекта</small></div><div class="stat"><span>Добавлено</span><b>${addedN}</b><small>в код проекта</small></div><div class="stat"><span>Куда</span><b style="font-size:15px">${autoCanWrite() ? esc(autoSrc.kind === 'sfera' ? 'Сфера' : autoSrc.kind === 'bridge' ? 'Папка (мост)' : 'Папка') : 'Архив'}</b><small>${autoCanWrite() ? 'запись в репозиторий' : 'подключите папку для записи'}</small></div></div>
+    <div class="exp-row" style="margin-bottom:12px">${autoCanWrite() ? `<button class="btn accent" type="button" data-act="auto-write" ${U.busy ? 'disabled' : ''}>${autoSrc.kind === 'sfera' ? 'Ветка и запрос на слияние в Сфере' : 'Записать все в репозиторий'}</button>` : ''}${S.caps.downloads ? '<button class="btn" type="button" data-act="auto-zip">Скачать .zip</button>' : ''}<span class="legend"><span><i class="lg-re"></i>взято из проекта</span></span></div>`;
+  const cards = items.map((it) => `<div class="exp-card auto-item"><div class="exp-row"><span class="mono">${esc(it.dispId)}</span><b>${esc(it.title)}</b><span class="chip ${it.type}">${TL[it.type]}</span>${it.written ? `<span class="chip ok">записан ${fmtDate(it.written.at)}</span>` : ''}</div>
+      <div class="muted small mono">${esc(it.path)} · ${it.mode === 'append' ? 'дописать в существующий класс' : 'новый файл'}</div>
+      <pre class="code-view">${highlightJava([...(it.mode === 'append' ? it.imports : []), ...(it.mode === 'append' && it.imports.length ? [''] : []), it.code].join('\n'), it.reused)}</pre>
+      <div class="grid2"><div><b class="small">Переиспользовано · ${it.reused.length}</b><ul class="auto-style">${it.reused.map((x) => `<li class="mono small">${esc(x)}</li>`).join('') || '<li class="muted small">ничего</li>'}</ul></div>
+      <div><b class="small">Добавлено · ${it.added.length}</b><ul class="auto-style">${it.added.map((a) => `<li class="small"><span class="mono">${esc(a.what)}</span> — ${esc(a.why)}${a.path ? ` <span class="muted">(${esc(a.path)})</span>` : ''}</li>`).join('') || '<li class="muted small">ничего</li>'}</ul></div></div>
+      <div class="case-acts">${autoCanWrite() ? `<button class="btn sm" type="button" data-act="auto-write" data-uid="${it.uid}" ${U.busy ? 'disabled' : ''}>Записать</button>` : ''}<button class="btn sm" type="button" data-act="auto-copy" data-uid="${it.uid}">Копировать</button><button class="btn sm danger" type="button" data-act="auto-del" data-uid="${it.uid}">Убрать</button></div></div>`).join('');
+  return picker + summary + cards;
+}
+function autoTab() {
+  const U = S.autoUI;
+  const views = `<div class="case-sub" style="margin-bottom:14px"><button class="fchip" type="button" data-act="auto-view" data-v="profile" aria-pressed="${U.view !== 'tests'}">Проект</button><button class="fchip" type="button" data-act="auto-view" data-v="tests" aria-pressed="${U.view === 'tests'}">Тесты${S.run?.auto?.items.length ? ` · ${S.run.auto.items.length}` : ''}</button></div>`;
+  return views + (U.view === 'tests' ? autoTestsHTML() : autoProjectHTML());
+}
+/* ---------- бета: ревью ТЗ ---------- */
+function specTab() {
+  const r = S.run, SR = S.specUI;
+  if (!r || !r.requirements.length) return emptyHTML(S.running ? 'Агент анализирует документы…' : 'Ревью ТЗ появится после анализа требований', 'Запустите генерацию: ревью проверяет выделенные требования и сами документы.');
+  const ready = aiReady(S.settings.genAI), sr = r.specReview;
+  const head = `<div class="exp-card"><div class="exp-row"><b>Ревью ТЗ</b><span class="chip">бета</span><span class="muted small">${esc(r.docs.map((d) => d.name).join(', '))} · ${r.requirements.filter((q) => q.inScope).length} ${plural(r.requirements.length, 'требование', 'требования', 'требований')}</span>
+    <span style="margin-left:auto"><button class="btn ${sr ? '' : 'accent'}" type="button" data-act="spec-run" ${SR.busy || !ready || S.running ? 'disabled' : ''}>${SR.busy ? 'Агент проверяет ТЗ…' : sr ? 'Проверить заново' : 'Проверить ТЗ'}</button></span></div>
+    <p class="hint">Агент ищет, где требования нельзя проверить однозначно: неоднозначные формулировки, противоречия, нет значений, нет негативных сценариев. По каждой находке — цитата, вопрос аналитику и предложенная формулировка.${ready ? '' : ' ' + esc(aiProblem(S.settings.genAI))}</p>
+    ${SR.error ? `<div class="banner err"><div class="banner-body">${esc(SR.error)}</div></div>` : ''}</div>`;
+  if (!sr) return head;
+  if (!sr.items.length) return head + emptyHTML('Проблем не найдено', 'Требования можно проверить однозначно.');
+  const counts = {}; for (const f of sr.items) counts[f.kind] = (counts[f.kind] || 0) + 1;
+  const list = sr.items.filter((f) => SR.filter === 'all' || f.kind === SR.filter || (SR.filter === 'ask' && f.status === 'ask'));
+  const sevCls = { critical: 'sev-critical', major: 'sev-major', minor: 'sev-minor' };
+  const filters = `<div class="case-sub" style="margin:12px 0"><button class="fchip" type="button" data-act="spec-filter" data-f="all" aria-pressed="${SR.filter === 'all'}">Все · ${sr.items.length}</button>${Object.entries(SPEC_KINDS).filter(([k]) => counts[k]).map(([k, n]) => `<button class="fchip" type="button" data-act="spec-filter" data-f="${k}" aria-pressed="${SR.filter === k}">${n} · ${counts[k]}</button>`).join('')}</div>`;
+  const items = list.map((f) => `<div class="fd ${sevCls[f.severity]} spec-item${f.status === 'dismissed' ? ' st-dismissed' : ''}" data-id="${f.id}">
+      <div class="fd-h"><span class="chip ${sevCls[f.severity]}">${esc(SPEC_KINDS[f.kind])}</span><span class="mono small">${esc(f.reqIds.join(' ↔ ') || f.id)}</span>${f.section ? `<span class="muted small">${esc(f.section)}</span>` : ''}<span class="muted small" style="margin-left:auto">${esc(SPEC_SEV[f.severity])}</span></div>
+      ${f.quote ? `<blockquote class="spec-q">«${esc(f.quote)}»</blockquote>` : ''}
+      <p class="fd-s">${esc(f.problem)}</p>
+      ${f.question ? `<div class="spec-ask"><b>Вопрос аналитику:</b> ${esc(f.question)}</div>` : ''}
+      ${f.suggestion ? `<div class="spec-sug"><b>Предложенная формулировка:</b> ${esc(f.suggestion)}</div>` : ''}
+      <div class="case-acts">${f.question ? `<button class="btn sm ${f.status === 'ask' ? 'accent' : ''}" type="button" data-act="spec-set" data-id="${f.id}" data-st="ask">${f.status === 'ask' ? '✓ В вопросах аналитику' : 'В вопросы аналитику'}</button>` : ''}${f.suggestion && f.reqIds.length ? `<button class="btn sm ${f.status === 'accepted' ? 'accent' : ''}" type="button" data-act="spec-set" data-id="${f.id}" data-st="accepted">${f.status === 'accepted' ? '✓ Формулировка принята' : 'Принять формулировку'}</button>` : ''}<button class="btn sm" type="button" data-act="spec-set" data-id="${f.id}" data-st="dismissed">${f.status === 'dismissed' ? 'Вернуть' : 'Не проблема'}</button></div></div>`).join('');
+  const asked = sr.items.filter((f) => f.status === 'ask').length;
+  const foot = `<div class="q-actions"><span class="hint"><b>${asked} ${plural(asked, 'вопрос', 'вопроса', 'вопросов')}</b> для аналитика. Они добавлены на вкладку «Вопросы»: ответы попадут в знания о продукте, а агент поправит затронутые кейсы. «Принять формулировку» добавляет её в критерии требования, «Не проблема» — правило в память агента.</span>
+    <button class="btn accent" type="button" data-act="spec-letter" ${asked ? '' : 'disabled'}>Скопировать письмо</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="spec-md">Скачать .md</button>' : ''}</div>`;
+  return head + filters + `<div class="fd-list">${items || emptyHTML('Нет находок с таким фильтром')}</div>` + foot;
+}
+/* ---------- бета: матрица покрытия ---------- */
+function covTab() {
+  const r = S.run, C = S.covUI;
+  if (!r || !r.requirements.length) return emptyHTML(S.running ? 'Агент анализирует документы…' : 'Матрица появится после анализа требований');
+  const all = covRows(r), n = all.length;
+  const ok = all.filter((x) => x.state === 'ok').length, part = all.filter((x) => x.state === 'part').length, gap = all.filter((x) => x.state === 'gap').length;
+  const q = C.q.trim().toLowerCase();
+  const rows = all.filter((x) => (C.filter === 'all' || (C.filter === 'gaps' && x.state !== 'ok') || (C.filter === 'nosmoke' && !x.smoke)) && (!q || `${x.q.id} ${x.q.title}`.toLowerCase().includes(q)));
+  const can = isDraft(r) && !draftLocked(r) && !S.running;
+  const cell = (v) => (v == null ? '<td class="c na" title="Этот вид тестов к требованию не относится">—</td>' : `<td class="c ${v ? 'ok' : 'gap'}">${v}</td>`);
+  const pct = n ? Math.round(ok / n * 100) : 0;
+  return `<div class="stats"><div class="stat"><span>Требований</span><b>${n}</b><small>в запуске</small></div><div class="stat"><span>Покрыто</span><b style="color:var(--pass)">${ok}</b><small>${pct}%</small><div class="cov-bar"><i style="width:${pct}%"></i></div></div><div class="stat"><span>Частично</span><b style="color:var(--warn)">${part}</b><small>нет нужного вида тестов</small></div><div class="stat"><span>Без кейсов</span><b style="color:var(--fail)">${gap}</b><small>пробелы</small></div></div>
+    <div class="toolbar"><input type="search" id="cov-q" placeholder="Поиск по требованиям" value="${esc(C.q)}" aria-label="Поиск по требованиям">
+      ${[['all', `Все · ${n}`], ['gaps', `Пробелы · ${part + gap}`], ['nosmoke', `Без смоука · ${all.filter((x) => !x.smoke).length}`]].map(([k, t]) => `<button class="fchip" type="button" data-act="cov-filter" data-f="${k}" aria-pressed="${C.filter === k}">${t}</button>`).join('')}
+      <span style="margin-left:auto"></span>${S.caps.downloads ? '<button class="btn" type="button" data-act="cov-xlsx">Скачать .xlsx</button>' : ''}</div>
+    <div class="tbl-wrap"><table class="cov"><thead><tr><th>ID</th><th>Требование</th><th class="c">API</th><th class="c">UI</th><th class="c">E2E</th><th class="c">Смоук</th><th></th></tr></thead><tbody>
+    ${rows.map((x) => `<tr class="cov-${x.state}"><td class="mono">${x.q.id}</td><td>${esc(x.q.title)}${x.state === 'gap' ? ' <span class="chip no">нет кейсов</span>' : x.state === 'part' ? ' <span class="chip p-medium">частично</span>' : x.ex && !x.total ? ' <span class="chip ok">в продукте</span>' : ''}</td>${TYPES.map((t) => cell(x.by[t])).join('')}<td class="c">${x.smoke ? '✓' : ''}</td>
+      <td>${x.state === 'ok' ? '' : `<button class="btn sm" type="button" data-act="cover-req" data-id="${x.q.id}" data-variant="full" ${can ? '' : 'disabled'} title="${can ? 'Агент добавит кейсы в черновик' : 'Покрытие добавляет кейсы в черновик текущего запуска'}">Покрыть</button>`}</td></tr>`).join('') || '<tr><td colspan="7" class="muted small" style="text-align:center">Нет требований с таким фильтром</td></tr>'}
+    </tbody></table></div>
+    <p class="hint" style="margin-top:8px">В ячейке — число кейсов запуска на требование. «—» — вид тестов к требованию не относится. «Покрыть» добавляет в черновик кейсы на позитивные, негативные и граничные проверки.</p>`;
 }
 function exportTab() {
   const r = S.run;
@@ -2255,6 +2513,47 @@ function onTabClick(e) {
     }
     case 'pass-prev': if (armed(el, 'Вернуть прежнюю версию?')) restorePrevPassport(); break;
     case 'trace-run': runTrace(); break;
+    case 'defect-run': if (!S.trace.defect || armed(el, 'Заменить правки?')) runDefect(); break;
+    case 'defect-save': saveDefect(); break;
+    case 'defect-copy': copyText(defectText(S.trace.defect, false)); break;
+    case 'defect-copy-md': copyText(defectText(S.trace.defect, true)); break;
+    case 'defect-dl': { const d = S.trace.defect; downloadFile(`${d.id || 'defect'}_${new Date().toISOString().slice(0, 10)}.md`, defectText(d, true)); break; }
+    case 'defect-clear': S.trace.defect = null; S.trace.defectError = ''; renderTab(); break;
+    case 'defect-open': openDefect(el.dataset.id); break;
+    case 'defect-del': if (armed(el, 'Точно удалить?')) deleteDefect(el.dataset.id); break;
+    case 'cfg-defect': openSettings('defect'); break;
+    case 'spec-run': runSpecReview(); break;
+    case 'spec-filter': S.specUI.filter = el.dataset.f; renderTab(); break;
+    case 'spec-set': specSet(el.dataset.id, el.dataset.st); renderTab(); renderTabs(); break;
+    case 'spec-letter': copyText(specLetter(S.run)); break;
+    case 'spec-md': downloadFile(`spec-review_${new Date().toISOString().slice(0, 10)}.md`, specMarkdown(S.run)); break;
+    case 'cov-filter': S.covUI.filter = el.dataset.f; renderTab(); break;
+    case 'cov-xlsx': downloadOutput(covExport(S.run)); break;
+    case 'reg-run': runRegress(); break;
+    case 'sf-create': sferaCreateTask(); break;
+    case 'sf-dups': sferaDupSearch(); break;
+    case 'sf-refresh': sferaRefreshStatuses(); break;
+    case 'auto-view': S.autoUI.view = el.dataset.v; renderTab(); break;
+    case 'auto-src': S.autoUI.src = el.dataset.k; renderTab(); break;
+    case 'auto-fs': autoConnect('fs'); break;
+    case 'auto-pick-dir': $('#auto-dir')?.click(); break;
+    case 'auto-pick-zip': $('#auto-zip')?.click(); break;
+    case 'auto-bridge': autoConnect('bridge', { root: $('#auto-root')?.value }); break;
+    case 'auto-sfera': autoConnect('sfera', { project: $('#auto-sf-project')?.value, repo: $('#auto-sf-repo')?.value, branch: $('#auto-sf-branch')?.value }); break;
+    case 'auto-reanalyze': if (autoSrc.kind) autoAnalyze({ ...S.autoProj.source }); else toast('Подключите проект заново: доступ к папке действует, пока открыто это окно.', 'err'); break;
+    case 'auto-gen': autoGenerate(); break;
+    case 'auto-all': { const list = S.run?.cases.filter((c) => S.autoUI.type === 'all' || !S.autoUI.type || c.type === S.autoUI.type) || []; const all = list.every((c) => S.autoUI.sel.has(c.uid)); for (const c of list) { if (all) S.autoUI.sel.delete(c.uid); else S.autoUI.sel.add(c.uid); } renderTab(); break; }
+    case 'auto-type': S.autoUI.type = el.dataset.t; renderTab(); break;
+    case 'auto-write': autoWrite(el.dataset.uid ? [el.dataset.uid] : null); break;
+    case 'auto-zip': autoZip(); break;
+    case 'auto-copy': { const it = S.run?.auto?.items.find((x) => x.uid === el.dataset.uid); if (it) copyText([...(it.mode === 'append' ? it.imports : []), it.imports.length && it.mode === 'append' ? '' : null, it.code].filter((x) => x != null).join('\n')); break; }
+    case 'auto-del': if (S.run?.auto) { S.run.auto.items = S.run.auto.items.filter((x) => x.uid !== el.dataset.uid); queueSave(S.run); renderTab(); renderTabs(); } break;
+    case 'reg-budget': S.regress.budget = el.dataset.b; renderTab(); break;
+    case 'reg-filter': S.regress.filter = el.dataset.f; renderTab(); break;
+    case 'reg-xlsx': downloadOutput(regressExport(S.regress.result)); break;
+    case 'reg-copy': copyText(regressExport(S.regress.result).rows.map((r) => `${r[0]}\t${r[3]}\t${r[2]}`).join('\n')); break;
+    case 'reg-sfera': regFromSfera(); break;
+    case 'reg-sfera-clear': S.regress.sfera = []; renderTab(); break;
   }
   renderRunControls(); // любое действие могло изменить черновик: кнопки «Перегенерировать» и «Сократить» пересчитываются
 }
@@ -2416,6 +2715,7 @@ function bind() {
     const t = e.target, ty = S.cfgType;
     if (t.id === 'cfg-export') { S.cfg.exportFormat = t.value; markCfgDirty('export'); }
     else if (t.id === 'cfg-review') { S.cfg.reviewRules = t.value; markCfgDirty('review'); }
+    else if (t.id === 'cfg-defect') { S.cfg.defectTpl = t.value; markCfgDirty('defect'); }
     else if (t.id === 'cfg-example') { S.cfg.tpl[ty].example = t.value; markCfgDirty(ty); }
     else if (t.id === 'cfg-tplrules') { S.cfg.tpl[ty].rules = t.value; markCfgDirty(ty); }
     else if (t.id === 'cfg-prefix') { S.cfg.tpl[ty].idPrefix = t.value; markCfgDirty(ty); }
@@ -2429,6 +2729,7 @@ function bind() {
     if (a === 'expand') openEditor();
     else if (a === 'load') { const f = $('#cfg-file'); f.value = ''; f.click(); }
     else if (a === 'load-md') { const f = $('#cfg-md'); f.value = ''; f.click(); }
+    else if (a === 'load-defect') { const f = $('#cfg-defect-md'); f.value = ''; f.click(); }
     else if (a === 'default') { S.cfg.tpl[S.cfgType] = { ...DEFAULT_TPL[S.cfgType] }; markCfgDirty(S.cfgType); renderCfg(); toast('Подставлен стандартный пример'); }
     else if (a === 'lesson-del') deleteLesson(b.dataset.id);
     else if (a === 'lesson-add') {
@@ -2451,6 +2752,10 @@ function bind() {
       if (f.size > 300000) return toast('Файл слишком большой — до 300 КБ.', 'err');
       S.cfg.reviewRules = text.trim(); markCfgDirty('review'); renderCfg();
       toast(`Правила ревью загружены из ${f.name}`);
+    } else if (e.target.id === 'cfg-defect-md') {
+      if (f.size > 300000) return toast('Файл слишком большой — до 300 КБ.', 'err');
+      S.cfg.defectTpl = text.trim(); markCfgDirty('defect'); renderCfg();
+      toast(`Шаблон дефекта загружен из ${f.name}`);
     }
   });
   $('#cfg-foot').addEventListener('click', (e) => {
@@ -2499,6 +2804,19 @@ function bind() {
   const body = $('#tab-body');
   body.addEventListener('click', onTabClick);
   body.addEventListener('input', (e) => {
+    const t = e.target, d = S.trace.defect;
+    if (d && (t.dataset?.def || t.dataset?.defField != null)) {
+      if (t.dataset.defField != null) { const f = d.fields[Number(t.dataset.defField)]; if (f) f.value = t.value; }
+      else if (Array.isArray(d[t.dataset.def])) d[t.dataset.def] = t.value.split('\n');
+      else d[t.dataset.def] = t.value;
+      if (S.trace.defectSavedAt) { S.trace.defectSavedAt = 0; const st = document.querySelector('#defect-card .exp-row .muted.small'); if (st) { st.textContent = 'есть несохранённые правки'; st.classList.add('warn-hint'); } }
+      return;
+    }
+    if (t.id === 'reg-defects') { S.regress.defectsText = t.value; regControls(); return; }
+    if (t.id === 'reg-sf-project') { S.regress.sferaProject = t.value; return; }
+    if (t.id === 'reg-sf-release') { S.regress.sferaRelease = t.value; return; }
+    if (t.dataset?.sf && S.trace.sferaForm) { S.trace.sferaForm[t.dataset.sf] = t.value; return; }
+    if (t.id === 'cov-q') { S.covUI.q = t.value; const pos = t.selectionStart; renderTab(); const n = $('#cov-q'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return; }
     if (e.target.id !== 'trace-desc' && e.target.id !== 'trace-stack') return;
     S.trace[e.target.id === 'trace-desc' ? 'description' : 'stack'] = e.target.value;
     const run = document.querySelector('[data-act=trace-run]');
@@ -2506,6 +2824,12 @@ function bind() {
   });
   body.addEventListener('change', (e) => {
     const t = e.target;
+    if (t.tagName === 'SELECT' && t.dataset.def && S.trace.defect) { S.trace.defect[t.dataset.def] = t.value; return; }
+    if (t.classList?.contains('sf-link')) { if (t.checked) S.trace.sferaLink.add(t.dataset.key); else S.trace.sferaLink.delete(t.dataset.key); return; }
+    if (t.classList?.contains('auto-sel')) { if (t.checked) S.autoUI.sel.add(t.dataset.uid); else S.autoUI.sel.delete(t.dataset.uid); renderTab(); return; }
+    if (t.id === 'auto-dir' && t.files?.length) { autoFromInput(t.files); return; }
+    if (t.id === 'auto-zip' && t.files?.[0]) { autoFromZip(t.files[0]); return; }
+    if (t.classList?.contains('reg-pick')) { if (t.checked) S.regress.pick.add(t.dataset.id); else S.regress.pick.delete(t.dataset.id); renderTab(); return; }
     if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
     else if (t.classList?.contains('sel-all-cb')) {
       const list = t.dataset.where === 'cases' ? filteredCases() : S.run?.cases || [];
@@ -2647,6 +2971,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, defectText, normDefect, loadDefects, covRows, specLetter, parseDefectLines, scanProject, scanJava, mergeJava, normAutoTest, autoBuildFiles, autoSrc, sferaTaskArgs, defectHtml, autoConnectFiles: (files) => autoConnect('files', { files, name: 'test-project' }), failedInfo }; // только для автотестов
 initCaps();
 })();

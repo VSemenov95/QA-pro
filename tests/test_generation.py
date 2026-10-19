@@ -325,6 +325,30 @@ def test_partial_run_shows_banner_and_can_be_repeated(app):
     assert app.state('S.run.status') == 'done' and app.state('S.run.cases.length') >= 4 and app.state('S.run.failed.length') == 0
 
 
+def test_partial_banner_lists_failed_batches_with_reasons(app):
+    """Баннер «Готово с ошибками» сразу показывает, какие пачки не получились и почему."""
+    app.model.on('promptGenerate', {'cases': []})
+    app.generate()
+    app.tab('agent')
+    n = app.state('S.run.failed.length')
+    box = app.text('.banner.warn .failed-list')
+    assert n >= 1 and f'Не удалось · {n}' in box and 'Модель не вернула ни одного кейса' in box
+    info = app.state('a.failedInfo(S.run)')
+    assert all(f['where'].split(' · ')[0] in ('API', 'UI', 'E2E') and f['items'] for f in info)
+
+
+def test_failed_list_survives_reopening_from_history(app):
+    app.model.on('promptGenerate', {'cases': []})
+    app.generate()
+    app.page.wait_for_timeout(2500)
+    rid = app.state('S.run.id')
+    app.reload()
+    app.call('a.openHistory(arg)', rid)
+    app.page.wait_for_function('() => window.__qa.S.run && window.__qa.S.run.id === ' + repr(rid))
+    app.tab('agent')
+    assert 'Модель не вернула ни одного кейса' in app.text('.banner.warn .failed-list')
+
+
 @pytest.mark.parametrize('shape', ['list', 'testCases', 'flat', 'junk'])
 def test_cases_answer_shapes_are_accepted(app, shape):
     """Модель вернула кейсы не в том виде, что просили: массив, ключ testCases, поля кейса без обёртки testCase, посторонние элементы."""

@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', defect: 'analyze', specreview: 'analyze', regress: 'analyze', autoprofile: 'analyze', autotest: 'generate', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -62,6 +62,7 @@ const LIBS = {
   pdfWorker: ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
   xlsx: ['https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
   yaml: ['https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js', 'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js'],
+  jszip: ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'],
 };
 
 /* ================= default templates (заменяются шаблонами команды) ================= */
@@ -159,7 +160,7 @@ const S = {
     agentTools: saved.agentTools !== false,
     autoResume: saved.autoResume !== false,
     skipExisting: saved.skipExisting !== false,
-    mode: ['update', 'help', 'trace'].includes(saved.mode) ? saved.mode : 'generate',
+    mode: ['update', 'help', 'trace', 'regress'].includes(saved.mode) ? saved.mode : 'generate',
     economy: !!saved.economy,                       // экономный режим: быстрая модель для вспомогательных шагов, меньше контекста
     target: Math.round(Number(saved.target)) >= 1 && Math.round(Number(saved.target)) <= 300 ? Math.round(Number(saved.target)) : null,   // сколько проверок в плане; null — без ограничения
     strictRules: saved.strictRules === true,   // строгий режим: при ревью исправлять нарушения правил запросом к модели (тратит запросы)
@@ -173,9 +174,9 @@ const S = {
   helpView: lsGet('qapro.kbView', 'blocks'),    // база знаний: «Разделы», «Вопросы» или «Материалы»
   kb: { pid: null, index: { blocks: [], docs: {} }, loaded: false, cache: {}, open: null, q: '', queue: [], synthQ: [], job: { busy: false, log: [], error: '', ctl: null, doc: '' }, edit: null },
   // указания агенту: правила, шаблоны API/UI/E2E, формат экспорта
-  cfg: { rules: '', tpl: { api: { ...DEFAULT_TPL.api }, ui: { ...DEFAULT_TPL.ui }, e2e: { ...DEFAULT_TPL.e2e } }, exportFormat: '', reviewRules: '' },
-  cfgTeam: { rules: null, api: null, ui: null, e2e: null, export: null, review: null }, // {updatedAt, value} — сохранённая версия команды
-  cfgDirty: { rules: false, api: false, ui: false, e2e: false, export: false, review: false },
+  cfg: { rules: '', tpl: { api: { ...DEFAULT_TPL.api }, ui: { ...DEFAULT_TPL.ui }, e2e: { ...DEFAULT_TPL.e2e } }, exportFormat: '', reviewRules: '', defectTpl: '' },
+  cfgTeam: { rules: null, api: null, ui: null, e2e: null, export: null, review: null, defect: null }, // {updatedAt, value} — сохранённая версия команды
+  cfgDirty: { rules: false, api: false, ui: false, e2e: false, export: false, review: false, defect: false },
   conns: lsGet('qapro.conns', []),          // подключения к другим ИИ — ключи только в этом браузере
   connEdit: null, connTest: null,
   tms: { kind: 'sfera', baseUrl: '', token: '', user: '', project: '', section: '', state: 'NotReady', duration: 10, url: '', headers: '', mode: 'case', ...lsGet('qapro.tms', {}) },
@@ -183,7 +184,7 @@ const S = {
   qaCtx: { all: '', api: '', ui: '', e2e: '' }, qaCtxType: 'all', ctxDirty: false,   // доп. контекст от QA
   // продукты: общий для команды контекст — документы, доп. контекст, запуски и знания агента
   products: [], productId: null, prodReady: false, prodIndex: { pid: null, cases: [], checklist: [] }, prodKnown: { reqs: [], qa: [], docs: [] },
-  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
+  runDocs: new Set(), runDocsFresh: false, trace: { description: '', stack: '', result: null, error: '', busy: false, defect: null, defectBusy: false, defectError: '', defectPid: null, defectSavedAt: 0, sferaForm: null, sferaBusy: '', sferaError: '', sferaDups: [], sferaLink: new Set() }, defects: { pid: null, items: [], loaded: false, open: null }, specUI: { busy: false, error: '', filter: 'all' }, covUI: { filter: 'all', q: '' }, regress: { defectsText: '', pick: new Set(), sfera: [], budget: 'day', busy: false, error: '', result: null, filter: 'all' }, autoProj: null, autoUI: { busy: false, error: '', log: '', view: 'profile', sel: new Set(), open: null }, caseSel: new Set(), know: { busy: false, log: [], error: '', ctl: null }, passEdit: null, prodDlg: null, legacy: [],
   tabId: rid('tab'), sessionReady: false, follow: null, resume: null,   // сессия: восстановление и продолжение
   lessons: [],                              // память агента: правила из замечаний пользователя
   fdFilter: 'open', fdUI: new Map(),
@@ -211,9 +212,9 @@ const S = {
   pendingCasesRender: false,
 };
 function saveSettings() { lsSet('tca.settings', S.settings); }
-const CFG_KEYS = ['rules', 'api', 'ui', 'e2e', 'export', 'review'];
-function cfgValue(k) { return k === 'rules' ? S.cfg.rules : k === 'export' ? S.cfg.exportFormat : k === 'review' ? S.cfg.reviewRules : S.cfg.tpl[k]; }
-function setCfgValue(k, v) { if (k === 'rules') S.cfg.rules = v; else if (k === 'export') S.cfg.exportFormat = v; else if (k === 'review') S.cfg.reviewRules = v; else S.cfg.tpl[k] = v; }
+const CFG_KEYS = ['rules', 'api', 'ui', 'e2e', 'export', 'review', 'defect'];
+function cfgValue(k) { return k === 'rules' ? S.cfg.rules : k === 'export' ? S.cfg.exportFormat : k === 'review' ? S.cfg.reviewRules : k === 'defect' ? S.cfg.defectTpl : S.cfg.tpl[k]; }
+function setCfgValue(k, v) { if (k === 'rules') S.cfg.rules = v; else if (k === 'export') S.cfg.exportFormat = v; else if (k === 'review') S.cfg.reviewRules = v; else if (k === 'defect') S.cfg.defectTpl = v; else S.cfg.tpl[k] = v; }
 function cfgDefault(k) { return TYPES.includes(k) ? { ...DEFAULT_TPL[k] } : ''; }
 const saveConns = () => lsSet('qapro.conns', S.conns);
 const saveTms = () => lsSet('qapro.tms', S.tms);

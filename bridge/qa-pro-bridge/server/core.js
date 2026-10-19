@@ -11,7 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const PORT = Number(process.env.QA_PRO_BRIDGE_PORT) || 47321;
 const DIR = process.env.QA_PRO_BRIDGE_DIR || path.join(os.homedir(), '.qa-pro-bridge');
 const MAX_WAIT = 25000;            // долгий опрос sfera_job — меньше лимита ответа приложения
@@ -118,6 +118,13 @@ function start({ mode = 'standalone' } = {}) {
     conn.lastSeen = Date.now();
     if (m.t === 'hello') { conn.version = String(m.version || '').slice(0, 20); conn.baseUrl = String(m.baseUrl || '').slice(0, 200); flushQueued(); return; }
     if (m.t === 'hb') return;
+    if (m.t === 'call_result') {
+      const c = calls.get(String(m.id || ''));
+      if (!c) return;
+      calls.delete(m.id); clearTimeout(c.t);
+      if (m.ok) c.resolve({ ok: true, data: m.data ?? null }); else c.reject(Object.assign(new Error(String(m.error || 'Загрузчик вернул ошибку.').slice(0, 600)), { code: m.code || '' }));
+      return;
+    }
     const job = jobs.get(String(m.id || ''));
     if (m.id) wsSend(conn, { t: 'ack', id: m.id, kind: m.t }); // загрузчик убирает сообщение из своей очереди
     if (!job || TERMINAL.has(job.status)) return;
@@ -128,6 +135,60 @@ function start({ mode = 'standalone' } = {}) {
       job.section = m.section || null; touch(job);
     } else if (m.t === 'cancelled') { job.status = 'cancelled'; touch(job); }
     else if (m.t === 'error') { job.status = 'error'; job.error = String(m.error || '').slice(0, 500); touch(job); }
+  }
+
+  /* ---------- операции API Сферы через загрузчик (дефекты в Сфера.Задачи, импорт репозитория) ---------- */
+  const calls = new Map();
+  function extCall(op, args, timeout = 25000) {
+    if (!ext) return Promise.reject(new Error('Загрузчик Сферы в Chrome не подключён к мосту: откройте Chrome с загрузчиком и включите в его настройках связь с приложением Claude.'));
+    const id = 'mc-' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { calls.delete(id); reject(new Error('Загрузчик не ответил за ' + Math.round(timeout / 1000) + ' с.')); }, timeout);
+      calls.set(id, { resolve, reject, t });
+      if (!wsSend(ext, { t: 'call', id, op, args })) { clearTimeout(t); calls.delete(id); reject(new Error('Не удалось передать запрос загрузчику.')); }
+    });
+  }
+
+  /* ---------- локальный репозиторий автотестов: только внутри выбранной пользователем папки ---------- */
+  const SKIP_DIRS = new Set(['.git', 'node_modules', 'build', 'target', 'out', '.idea', '.gradle', '.vscode', 'allure-results', 'allure-report', '.mvn']);
+  const TEXT_EXT = /\.(java|kt|kts|groovy|gradle|xml|properties|ya?ml|json|md|txt|conf|feature|sql|csv)$/i;
+  function rootOf(args) {
+    const root = String(args.root || '').trim();
+    if (!root || !path.isAbsolute(root)) throw new Error('Укажите полный путь к папке репозитория, например C:\\work\\autotests или /home/me/autotests.');
+    let real;
+    try { real = fs.realpathSync(root); } catch { throw new Error('Папка не найдена: ' + root); }
+    if (!fs.statSync(real).isDirectory()) throw new Error('Это не папка: ' + root);
+    return real;
+  }
+  function inside(root, rel) {
+    const relStr = String(rel || '');
+    if (!relStr || path.isAbsolute(relStr) || /^[\\/]|^[a-zA-Z]:/.test(relStr)) throw new Error('Путь вне папки репозитория: ' + rel);
+    const p = path.resolve(root, relStr);
+    const r = path.relative(root, p);
+    if (!r || r.startsWith('..') || path.isAbsolute(r)) throw new Error('Путь вне папки репозитория: ' + rel);
+    let probe = p;
+    while (!fs.existsSync(probe)) probe = path.dirname(probe);
+    const realProbe = fs.realpathSync(probe), rr = path.relative(root, realProbe);
+    if (rr.startsWith('..') || path.isAbsolute(rr)) throw new Error('Путь ведёт за пределы папки репозитория: ' + rel);
+    return p;
+  }
+  function listFiles(root, max = 4000) {
+    const out = [];
+    const walk = (dir) => {
+      let items = [];
+      try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const d of items) {
+        if (out.length >= max) return;
+        if (d.isSymbolicLink()) continue;
+        const full = path.join(dir, d.name);
+        if (d.isDirectory()) { if (!SKIP_DIRS.has(d.name) && !d.name.startsWith('.')) walk(full); continue; }
+        if (!TEXT_EXT.test(d.name)) continue;
+        let size = 0; try { size = fs.statSync(full).size; } catch { continue; }
+        out.push({ path: path.relative(root, full).split(path.sep).join('/'), size });
+      }
+    };
+    walk(root);
+    return out;
   }
 
   /* ---------- инструменты ---------- */
@@ -169,6 +230,45 @@ function start({ mode = 'standalone' } = {}) {
         job.status = 'cancelled'; job.cancelledBy = 'app'; touch(job);
       }
       return pub(job);
+    }
+    if (name === 'sfera_call') {
+      const op = str(args.op, 60);
+      if (!/^(tasks|repo)\.[a-zA-Z]+$/.test(op)) throw new Error('Неизвестная операция Сферы: ' + op);
+      return extCall(op, args.args && typeof args.args === 'object' ? args.args : {}, Math.min(Math.max(Number(args.timeoutMs) || 25000, 1000), 25000));
+    }
+    if (name === 'project_list') {
+      const root = rootOf(args);
+      const files = listFiles(root, Math.min(Number(args.max) || 4000, 6000));
+      return { root, name: path.basename(root), files };
+    }
+    if (name === 'project_read') {
+      const root = rootOf(args);
+      const paths = (Array.isArray(args.paths) ? args.paths : []).slice(0, 400).map((x) => str(x, 400));
+      let total = 0; const files = [];
+      for (const rel of paths) {
+        const p = inside(root, rel);
+        let text = '';
+        try { const st = fs.statSync(p); if (st.size > 300000) { files.push({ path: rel, error: 'файл больше 300 КБ' }); continue; } text = fs.readFileSync(p, 'utf8'); }
+        catch { files.push({ path: rel, error: 'не прочитан' }); continue; }
+        if (total + text.length > 3e6) { files.push({ path: rel, error: 'превышен объём за один запрос' }); continue; }
+        total += text.length; files.push({ path: rel, text });
+      }
+      return { files };
+    }
+    if (name === 'project_write') {
+      const root = rootOf(args);
+      const list = (Array.isArray(args.files) ? args.files : []).slice(0, 100);
+      if (!list.length) throw new Error('Нет файлов для записи.');
+      const written = [];
+      for (const f of list) {
+        const rel = str(f?.path, 400);
+        if (!/\.(java|kt|kts|groovy|properties|json|ya?ml|xml|md|feature)$/i.test(rel)) throw new Error('Запись такого файла не разрешена: ' + rel);
+        const p = inside(root, rel), existed = fs.existsSync(p);
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, String(f?.content ?? ''), 'utf8');
+        written.push({ path: rel, created: !existed });
+      }
+      return { root, written };
     }
     throw new Error('Неизвестный инструмент: ' + name);
   }

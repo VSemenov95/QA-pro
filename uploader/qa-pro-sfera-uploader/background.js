@@ -4,7 +4,7 @@
 //   смоук → метка SMOKE, регресс → поле «Регрессионный» (ti_regressive).
 
 const QA_PRO_URL = 'https://claude.ai/artifact/TrWQGTAs4Wqe5XjZBcQFCp';
-const DEFAULTS = { baseUrl: 'https://sfera-t1.ru', lastSectionUrl: '', qaProOrigins: [], anySite: false, keepQaPro: false, qaProUrl: QA_PRO_URL, desktopBridge: true, bridgePort: 47321 };
+const DEFAULTS = { baseUrl: 'https://sfera-t1.ru', lastSectionUrl: '', qaProOrigins: [], anySite: false, keepQaPro: false, qaProUrl: QA_PRO_URL, desktopBridge: true, bridgePort: 47321, sferaOps: {} };
 const trimBase = (u) => String(u || '').trim().replace(/\/+$/, '');
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
@@ -133,6 +133,62 @@ async function getSections(projectCode) {
   if (!res.ok) throw new Error(`Сфера ответила ${res.status} при получении разделов проекта ${projectCode}.`);
   const data = await res.json();
   return (Array.isArray(data) ? data : data.content || []).map((x) => ({ id: x.id, name: x.name, parentSectionId: x.parentSectionId ?? null }));
+}
+
+// ---------- операции API Сферы для QA pro: дефекты в Сфера.Задачи и импорт репозитория ----------
+// Адреса и тела запросов не зашиты: их задают в настройках загрузчика (раздел «API Сферы») по запросам самой Сферы
+// из DevTools — у разных инсталляций и проектов Сферы они различаются. Описание операции:
+//   { "method": "POST", "path": "/app/tasks/api/v1/...{project}...", "query": {"q": "{text}"}, "body": {...},
+//     "pick": "content", "map": {"key": "code", "title": "name", "status": "status.name", "url": "link"} }
+// {имя} подставляется из аргументов QA pro; значение "{имя}" целиком — с типом (число, массив, объект).
+// pick — путь к результату в ответе; map — поля результата (для массива — для каждого элемента).
+const SFERA_OPS = ['tasks.search', 'tasks.create', 'tasks.get', 'tasks.attach', 'tasks.link', 'repo.branches', 'repo.tree', 'repo.file', 'repo.branch', 'repo.commit', 'repo.mr'];
+const OP_ARGS = {
+  'tasks.search': 'project, text, status, release, limit → [{key, title, status, url}]',
+  'tasks.create': 'project, type, title, description (HTML), severity, priority, assignee, release, labels → {key, url}',
+  'tasks.get': 'key → {key, title, status, url}',
+  'tasks.attach': 'key, filename, content (текст) → {}',
+  'tasks.link': 'key, target, kind → {}',
+  'repo.branches': 'project, repo → [{name}]',
+  'repo.tree': 'project, repo, branch → [{path, type}]',
+  'repo.file': 'project, repo, branch, path → {content}',
+  'repo.branch': 'project, repo, from, name → {}',
+  'repo.commit': 'project, repo, branch, message, files [{path, content}] → {id}',
+  'repo.mr': 'project, repo, source, target, title, description → {url}',
+};
+const pickPath = (o, p) => (!p ? o : String(p).split('.').reduce((a, k) => (a == null ? a : a[/^\d+$/.test(k) ? Number(k) : k]), o));
+function fillStr(t, args, enc) {
+  return String(t).replace(/\{(\w+)\}/g, (m, k) => (args[k] == null ? '' : enc ? encodeURIComponent(String(args[k])) : String(args[k])));
+}
+function fillVal(v, args) {
+  if (typeof v === 'string') { const m = /^\{(\w+)\}$/.exec(v); return m ? (args[m[1]] ?? null) : fillStr(v, args, false); }
+  if (Array.isArray(v)) return v.map((x) => fillVal(x, args));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fillVal(x, args)]));
+  return v;
+}
+function mapOut(data, def) {
+  const r = pickPath(data, def.pick);
+  if (!def.map) return r;
+  const one = (x) => Object.fromEntries(Object.entries(def.map).map(([k, p]) => [k, pickPath(x, p)]));
+  return Array.isArray(r) ? r.map(one) : r && typeof r === 'object' ? one(r) : r;
+}
+async function callOp(op, args = {}) {
+  if (!SFERA_OPS.includes(op)) throw Object.assign(new Error('Неизвестная операция: ' + op), { code: 'bad_op' });
+  const s = await getSettings();
+  const def = (s.sferaOps || {})[op];
+  if (!def || !def.path) throw Object.assign(new Error(`Операция «${op}» не описана: откройте настройки загрузчика → «API Сферы для QA pro» и добавьте её по запросам Сферы из DevTools.`), { code: 'not_configured' });
+  const { base, token } = await sfera();
+  if (!token) throw Object.assign(new Error(NO_TOKEN), { code: 'auth' });
+  const q = def.query ? '?' + Object.entries(def.query).map(([k, v]) => [k, fillStr(v, args, false)]).filter(([, v]) => v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&') : '';
+  const url = base + fillStr(def.path, args, true) + (q.length > 1 ? q : '');
+  const body = def.body !== undefined ? JSON.stringify(fillVal(def.body, args)) : undefined;
+  let res;
+  try { res = await fetch(url, { method: def.method || (body ? 'POST' : 'GET'), headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body }); }
+  catch (e) { throw Object.assign(new Error('Сетевая ошибка: ' + (e?.message || e)), { code: 'network' }); }
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw Object.assign(new Error(`Сфера ответила ${res.status} на «${op}»: ${(typeof data === 'string' ? data : JSON.stringify(data)).slice(0, 300)}`), { code: 'http_' + res.status });
+  return mapOut(data, def);
 }
 
 // ---------- задания от страниц QA pro ----------
@@ -285,6 +341,14 @@ async function onBridgeMessage(m) {
     bridgeSend({ t: 'opened', id: m.id });
     return;
   }
+  if (m.t === 'call' && m.id) {
+    // ответ на операцию — сразу и без очереди: мост ждёт его синхронно
+    let reply;
+    try { reply = { t: 'call_result', id: m.id, ok: true, data: await callOp(String(m.op || ''), m.args || {}) }; }
+    catch (e) { reply = { t: 'call_result', id: m.id, ok: false, error: e?.message || String(e), code: e?.code || '' }; }
+    if (bws && bws.readyState === WebSocket.OPEN) bws.send(JSON.stringify(reply));
+    return;
+  }
   if (m.t === 'cancel' && m.id) {
     const key = 'bridge:' + m.id, local = (await chrome.storage.session.get(key))[key];
     const job = local ? await getJob(local) : null;
@@ -322,6 +386,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (job) await setJob(id, { ...job, windowId });
           return sendResponse({ ok: true, jobId: id });
         }
+        case 'CALL': {
+          try { return sendResponse({ ok: true, data: await callOp(String(msg.op || ''), msg.args || {}) }); }
+          catch (e) { return sendResponse({ ok: false, error: e?.message || String(e), code: e?.code || '' }); }
+        }
+        case 'GET_OPS': return sendResponse({ ok: true, ops: (await getSettings()).sferaOps || {}, names: SFERA_OPS, args: OP_ARGS });
         case 'GET_JOB': return sendResponse({ ok: true, job: msg.jobId ? await getJob(msg.jobId) : null });
         case 'STATUS': {
           const { base, token, settings } = await sfera();
