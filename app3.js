@@ -232,7 +232,7 @@ function renderDocs() {
   const kbN = S.kb.job.busy ? ` ${kp ? `${kp.title}${kp.line ? ' · ' + kp.line : ''}.` : `Разбираю «${S.kb.job.doc || 'документ'}» по разделам базы знаний…`}` : S.kb.note ? ' ' + S.kb.note : '';
   const what = upd ? 'Актуализация' : 'Генерация';
   const text = help
-    ? (!S.docs.length ? (prod ? 'В продукте пока нет документов. Загрузите ТЗ, описания и инструкции — агент разберёт их по разделам базы знаний.' : '') : prod ? 'Из документов продукта агент собирает разделы базы знаний и сводки по ним — их учитывает генерация. Видео .mp4 разбираются в «Материалах».' : '')
+    ? (!S.docs.length ? (prod ? 'В продукте пока нет документов. Загрузите ТЗ, описания и инструкции — агент разберёт их по разделам базы знаний.' : '') : prod ? 'Из документов продукта агент собирает разделы базы знаний и сводки по ним — их учитывает генерация.' : '')
     : (!list.length ? `Загрузите ТЗ и другие документы для этого запуска — ${what.toLowerCase()} пойдёт по ним.` : `${what} идёт по этим документам.`) + (prod ? ' ' + kbRunInfo() : '');
   const kbLink = !help && prod && S.kb.loaded ? ' <button class="link" type="button" data-docs-act="kb">Открыть базу знаний</button>' : '';
   $('#docs-note').innerHTML = esc(text + kbN) + kbLink;
@@ -1179,7 +1179,9 @@ function renderHelp(force) {
   if (!$('#help-view')) {
     body.innerHTML = `<div class="help" id="help-view"><div id="help-head"></div>
       <div id="kb-pane"><div class="kb-tools" id="kb-tools"><input type="search" id="kb-q" placeholder="Найти раздел" aria-label="Найти раздел базы знаний">
+
           <label class="switch small" title="Сразу после загрузки документа: разделы базы знаний, сводки затронутых разделов и «Что агент знает о продукте»"><input type="checkbox" id="kb-auto"><span class="sw"></span><span>Разбирать новые документы автоматически</span></label></div>
+        <div class="kb-add" id="kb-add"><button class="btn accent" type="button" data-act="kb-add-docs" title="Форматы те же, что при генерации: DOCX, PDF, TXT, MD, XLSX, CSV, JSON, YAML">Добавить документы</button><span class="hint">DOCX, PDF, TXT, MD, XLSX, CSV, JSON, YAML — перетащите сюда или выберите файлы. Разделы обновятся сами, если включён автоматический разбор.</span></div>
         <div id="kb-job"></div><div id="kb-body"></div></div>
       <div id="qa-pane"><div class="help-list" id="help-list" aria-live="polite"></div>
         <div class="help-form"><label class="sr" for="help-input">Вопрос к базе знаний</label>
@@ -1230,6 +1232,7 @@ function renderKbPane(force) {
   const J = S.kb.job, pend = S.kb.loaded ? kbPending() : [];
   const v = S.settings.genAI, staleL = S.kb.loaded ? kbStale() : [], staleN = staleL.length;
   $('#kb-tools').hidden = !!S.kb.open || !S.kb.index.blocks.length;
+  $('#kb-add').hidden = !!S.kb.open;
   $('#kb-job').innerHTML = J.busy
     ? `<div class="banner info kb-banner"><div>${kbProgressHTML(J)}${J.log.length ? `<ul class="log">${J.log.slice(-6).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : ''}<span style="margin-top:6px;display:flex"><button class="btn sm" type="button" data-act="kb-stop">Остановить</button></span></div></div>`
     : J.error ? `<div class="banner err kb-banner"><div>${esc(J.error)}</div></div>`
@@ -2039,6 +2042,7 @@ function onTabClick(e) {
     case 'standalone': downloadStandalone(); break;
     case 'stop': S.ctl?.abort(); break;
     case 'toggle-req': { const id = el.dataset.id; S.reqOpen.has(id) ? S.reqOpen.delete(id) : S.reqOpen.add(id); renderTab(); break; }
+    case 'kb-add-docs': $('#file-input').click(); break;
     case 'cover-req': runCover(el.dataset.id, el.dataset.variant); break;
     case 'req-edit': { const q = S.run?.reqById[el.dataset.id]; if (!q) break; S.reqEdit = q.id; S.reqOpen.add(q.id); renderTab(); break; }
     case 'req-cancel': S.reqEdit = null; renderTab(); break;
@@ -2271,6 +2275,11 @@ function bind() {
   ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', (e) => { const files = [...(e.dataTransfer?.files || [])]; if (files.length) addFiles(files); });
+  // в «Базе знаний» файлы можно перетащить прямо в разделы: те же форматы, что и при генерации
+  const kbDrop = (e) => e.target.closest?.('#kb-pane') && S.settings.mode === 'help' && [...(e.dataTransfer?.types || [])].includes('Files');
+  $('#tab-body').addEventListener('dragover', (e) => { if (kbDrop(e)) { e.preventDefault(); $('#kb-pane').classList.add('over'); } });
+  $('#tab-body').addEventListener('dragleave', (e) => { if (e.target.closest?.('#kb-pane') && !e.target.closest('#kb-pane').contains(e.relatedTarget)) $('#kb-pane').classList.remove('over'); });
+  $('#tab-body').addEventListener('drop', (e) => { if (!kbDrop(e)) return; e.preventDefault(); $('#kb-pane')?.classList.remove('over'); const files = [...(e.dataTransfer?.files || [])]; if (files.length) addFiles(files); });
   $('#docs-fold').addEventListener('click', () => toggleDocsFold());
   $('#docs-sum').addEventListener('click', (e) => {
     const b = e.target.closest('[data-docs-act]');
