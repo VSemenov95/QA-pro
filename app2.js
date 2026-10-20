@@ -725,7 +725,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { cover: 'покрытие требования', trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -1185,13 +1185,13 @@ async function runAgent() {
   executeRun(run, false);
 }
 /* шаги, которые уже выполнены, при продолжении пропускаются */
-const MAIN_STEPS = ['parse', 'analyze', 'checklist', 'map', 'actualize', 'plan', 'generate', 'coverage'];
+const MAIN_STEPS = ['parse', 'analyze', 'checklist', 'map', 'actualize', 'plan', ...GEN_STEPS, 'coverage'];
 const srcPending = (run, flag) => (run.srcCases || []).some((c) => !c[flag]);
 /* шаг в статусе error не завершён: при «Продолжить» он запускается заново, уже готовые части (кэш анализа, готовые пачки) не повторяются */
 const stepComplete = (run, id) => { const st = run.steps[id]; return st.status === 'done' || (st.status === 'skipped' && st.note === 'не выбрано'); };
-function pendingParts(run, prefix) {
+function pendingParts(run, prefix, type) {
   const done = new Set(run.doneKeys || []);
-  return makeBatches(run.plan.filter((p) => !prefix || p.id.startsWith(prefix)), done, new Set(run.doneChecks || [])).reduce((a, b) => a + b.items.length, 0);
+  return makeBatches(run.plan.filter((p) => (!prefix || p.id.startsWith(prefix)) && (!type || p.type === type)), done, new Set(run.doneChecks || [])).reduce((a, b) => a + b.items.length, 0);
 }
 function canResume(run) {
   if (!run || S.running || S.follow || run.fromHistory === 'readonly' || !run.steps) return false;
@@ -1199,7 +1199,7 @@ function canResume(run) {
   if (!stepComplete(run, 'analyze')) return true;
   if (out.checklist && !stepComplete(run, 'checklist')) return true;
   if (run.mode === 'update' && (!stepComplete(run, 'map') || !stepComplete(run, 'actualize') || srcPending(run, 'mapped') || srcPending(run, 'done'))) return true;
-  if (out.cases && (!stepComplete(run, 'plan') || !stepComplete(run, 'generate') || !stepComplete(run, 'coverage'))) return true;
+  if (out.cases && (!stepComplete(run, 'plan') || GEN_STEPS.some((id) => !stepComplete(run, id)) || !stepComplete(run, 'coverage'))) return true;
   return !!out.cases && pendingParts(run, 'P-') + pendingParts(run, 'G-') > 0;
 }
 async function pipeline(run) {
@@ -1237,14 +1237,23 @@ async function pipeline(run) {
   } else { skipStep(run, 'map'); skipStep(run, 'actualize'); }
   if (out.cases) {
     if (!stepComplete(run, 'plan')) await stepPlan(run, types);
-    if (!stepComplete(run, 'generate') || pendingParts(run, 'P-')) {
-      sstart(run, 'generate');
-      if (run.mode === 'update' && !run.plan.some((p) => p.id.startsWith('P-'))) slog(run, 'generate', 'Новые кейсы не нужны', 'ok');
-      await generateItems(run, run.plan.filter((p) => p.id.startsWith('P-')), 'generate');
-      send(run, 'generate', run.failed.length ? 'error' : 'done');
+    // отдельный этап на каждый вид тестов: API → UI → E2E, у каждого свой журнал, статус и продолжение
+    for (const t of TYPES) {
+      const id = GEN_STEP[t], items = run.plan.filter((p) => p.id.startsWith('P-') && p.type === t);
+      if (!types.includes(t)) { skipStep(run, id); continue; }
+      if (stepComplete(run, id) && !pendingParts(run, 'P-', t)) continue;
+      if (!items.length) {
+        sstart(run, id);
+        slog(run, id, run.mode === 'update' ? 'Новые кейсы не нужны' : `В плане нет проверок ${TL[t]}`, 'ok');
+        send(run, id);
+        continue;
+      }
+      sstart(run, id);
+      await generateItems(run, items, id);
+      send(run, id, run.failed.some((f) => f.batch?.type === t) ? 'error' : 'done');
     }
     if (!stepComplete(run, 'coverage') || pendingParts(run, 'G-')) await stepCoverage(run);
-  } else { skipStep(run, 'plan'); skipStep(run, 'generate'); skipStep(run, 'coverage'); }
+  } else { skipStep(run, 'plan'); for (const id of GEN_STEPS) skipStep(run, id); skipStep(run, 'coverage'); }
   if (run.productId && !stepComplete(run, 'knowledge') && (run.cases.length || checklistItems(run).length)) await stepKnowledge(run);
 }
 async function executeRun(run, resumed) {
@@ -1252,7 +1261,7 @@ async function executeRun(run, resumed) {
   run.status = 'running'; run.error = null; run.fatal = null; run.finishedAt = null; run.failed = []; run.fromHistory = false; run.interrupted = null;
   if (resumed) {
     run.taskStart = Date.now();
-    const st = MAIN_STEPS.filter((id) => run.mode === 'update' || (id !== 'map' && id !== 'actualize')).find((id) => !stepComplete(run, id)) || 'generate';
+    const st = MAIN_STEPS.filter((id) => run.mode === 'update' || (id !== 'map' && id !== 'actualize')).find((id) => !stepComplete(run, id)) || 'gen_api';
     slog(run, st, 'Продолжаю с места остановки — готовые шаги и запросы не повторяются', 'warn');
   }
   renderAll(); startTicker();
@@ -2206,6 +2215,14 @@ async function openHistory(id, opts = {}) {
     };
     if (meta.steps) for (const s of STEPS) { if (meta.steps[s.id]) run.steps[s.id] = { ...run.steps[s.id], ...meta.steps[s.id], log: meta.steps[s.id].log || [] }; }
     else for (const s of STEPS) run.steps[s.id].status = s.optional ? 'pending' : 'done';
+    // запуски до разделения генерации по видам тестов: общий этап «generate» раскладывается на API, UI и E2E
+    if (meta.steps?.generate && !GEN_STEPS.some((id) => meta.steps[id])) {
+      const g = meta.steps.generate, types = run.settings.types || TYPES;
+      for (const t of TYPES) {
+        const own = (g.log || []).filter((l) => String(l.text || '').startsWith(TL[t] + ' ·'));
+        run.steps[GEN_STEP[t]] = types.includes(t) ? { ...run.steps[GEN_STEP[t]], ...g, log: own } : { ...run.steps[GEN_STEP[t]], status: 'skipped', note: 'не выбрано', log: [] };
+      }
+    }
     if (!run.doneKeys) run.doneKeys = makeBatches(run.plan).flatMap((b) => b.items.map((p) => p.key));
     indexReqs(run);
     const same = S.run?.id === run.id;
@@ -2497,7 +2514,7 @@ function regenDrafts() {
   for (const t of TYPES) run.counters[t] = run.baseCounters?.[t] || 0;
   run.plan = []; run.coveredExisting = []; run.doneKeys = []; run.doneChecks = []; run.failed = [];
   run.noKb = true; // в этом запуске база знаний и паспорт продукта не используются
-  for (const id of ['plan', 'generate', 'coverage']) run.steps[id] = { status: 'pending', log: [], t0: null, t1: null, note: '' };
+  for (const id of ['plan', ...GEN_STEPS, 'coverage']) run.steps[id] = { status: 'pending', log: [], t0: null, t1: null, note: '' };
   queueSave(run);
   toast(`Черновик удалён (${n} ${plural(n, 'кейс', 'кейса', 'кейсов')}), генерирую заново по текущим правилам`);
   stopFollow(); cancelResumeCountdown();

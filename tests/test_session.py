@@ -339,8 +339,8 @@ def test_closed_page_leaves_interrupted_run_with_banner(held):
 def test_interrupted_step_is_marked_in_the_log(held):
     p2 = interrupted_page(held)
     p2.page.wait_for_function("() => window.__qa.S.run && window.__qa.S.run.status === 'interrupted'")
-    assert p2.state('S.run.steps.generate.status') == 'stopped'
-    assert any('прервано при закрытии страницы' in t for t in p2.state('S.run.steps.generate.log.map((l) => l.text)'))
+    assert p2.state('S.run.steps.gen_api.status') == 'stopped'
+    assert any('прервано при закрытии страницы' in t for t in p2.state('S.run.steps.gen_api.log.map((l) => l.text)'))
     assert p2.state('S.running') is False
 
 
@@ -352,7 +352,7 @@ def test_continue_now_repeats_only_unfinished_requests(held):
     p2.wait_idle()
     assert p2.state('S.run.status') == 'done' and p2.state('S.run.cases.length') == 4
     assert [len(p2.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 1]
-    assert 'Продолжаю с места остановки — готовые шаги и запросы не повторяются' in ' '.join(p2.state('S.run.steps.generate.log.map((l) => l.text)'))
+    assert 'Продолжаю с места остановки — готовые шаги и запросы не повторяются' in ' '.join(p2.state('S.run.steps.gen_api.log.map((l) => l.text)'))
 
 
 def test_resumed_cases_have_unique_numbers(held):

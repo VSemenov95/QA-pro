@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
@@ -41,8 +41,12 @@ const STEPS = [
   { id: 'actualize', mode: 'update', title: 'Актуализация', desc: 'Кейсы переписываются по шаблонам команды API, UI и E2E, расхождения с документацией исправляются.' },
   { id: 'plan', title: 'План тестирования', desc: 'Требования распределяются по видам тестов, для каждой группы составляется список проверок с учётом глубины.',
     titleUpd: 'План новых проверок', descUpd: 'Требования, которые не покрыты кейсами из файла, распределяются по видам тестов.' },
-  { id: 'generate', title: 'Генерация тест-кейсов', desc: 'Кейсы пишутся строго по шаблонам и размечаются наборами «Смоук» и «Регресс». В агентном режиме модель сама ищет в документах форматы, коды и тексты ошибок.',
-    titleUpd: 'Новые тест-кейсы', descUpd: 'Агент дописывает кейсы для непокрытых требований по шаблонам команды.' },
+  { id: 'gen_api', type: 'api', title: 'Тест-кейсы API', desc: 'API-кейсы пишутся строго по шаблону и размечаются наборами «Смоук» и «Регресс». В агентном режиме модель сама ищет в документах форматы, коды и тексты ошибок.',
+    titleUpd: 'Новые тест-кейсы API', descUpd: 'Агент дописывает API-кейсы для непокрытых требований по шаблону команды.' },
+  { id: 'gen_ui', type: 'ui', title: 'Тест-кейсы UI', desc: 'UI-кейсы: экраны, формы, сообщения — по шаблону команды, с наборами «Смоук» и «Регресс».',
+    titleUpd: 'Новые тест-кейсы UI', descUpd: 'Агент дописывает UI-кейсы для непокрытых требований по шаблону команды.' },
+  { id: 'gen_e2e', type: 'e2e', title: 'Тест-кейсы E2E', desc: 'Сквозные сценарии через несколько экранов и сервисов — по шаблону команды, с наборами «Смоук» и «Регресс».',
+    titleUpd: 'Новые тест-кейсы E2E', descUpd: 'Агент дописывает E2E-кейсы для непокрытых требований по шаблону команды.' },
   { id: 'coverage', title: 'Проверка покрытия', desc: 'Требования без кейсов находятся автоматически, агент дописывает для них проверки.' },
   { id: 'knowledge', title: 'Знания о продукте', desc: 'Агент дополняет паспорт продукта: модули, роли, экраны, API, бизнес-правила и термины. Следующие генерации опираются на него и не повторяют готовые проверки.', optional: true, auto: true },
   { id: 'answers', title: 'Учёт ответов на вопросы', desc: 'Агент определяет, какие кейсы затрагивают ответы, исправляет их и дописывает недостающие проверки.', optional: true },
@@ -51,6 +55,8 @@ const STEPS = [
   { id: 'cover', mode: 'cover', title: 'Покрытие требования', desc: 'Кейсы по одному требованию из вкладки «Требования». Попадают в черновик.' },
 ];
 const stepsOf = (mode) => STEPS.filter((s) => !s.mode || s.mode === mode);
+const GEN_STEP = { api: 'gen_api', ui: 'gen_ui', e2e: 'gen_e2e' };   // генерация идёт отдельными этапами по видам тестов
+const GEN_STEPS = Object.values(GEN_STEP);
 const stepTitle = (s, mode) => (mode === 'update' && s.titleUpd ? s.titleUpd : s.title);
 const stepDesc = (s, mode) => (mode === 'update' && s.descUpd ? s.descUpd : s.desc);
 const UPD_ST = { same: 'Без изменений', changed: 'Изменён', new: 'Новый', obsolete: 'Устарел' };

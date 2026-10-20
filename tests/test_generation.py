@@ -54,7 +54,8 @@ def test_all_requirements_are_covered(done):
 
 def test_steps_are_marked_by_outcome(done):
     st = done.state("Object.fromEntries(Object.entries(S.run.steps).map(([k, v]) => [k, v.status]))")
-    assert {k: st[k] for k in ('parse', 'analyze', 'checklist', 'plan', 'generate', 'coverage')} == {k: 'done' for k in ('parse', 'analyze', 'checklist', 'plan', 'generate', 'coverage')}
+    keys = ('parse', 'analyze', 'checklist', 'plan', 'gen_api', 'gen_ui', 'gen_e2e', 'coverage')
+    assert {k: st[k] for k in keys} == {k: 'done' for k in keys}
     assert st['map'] == 'skipped' and st['actualize'] == 'skipped'
 
 
@@ -207,7 +208,7 @@ def test_analysis_cache_can_be_switched_off(app):
 def test_usage_counts_every_model_request_by_step(done):
     u = done.state('S.run.usage')
     assert u['calls'] == len(done.model.calls)
-    assert {k: v['calls'] for k, v in u['by'].items()} == {'analyze': 2, 'checklist': 1, 'plan': 1, 'generate': 3, 'coverage': 1, 'knowledge': 1}
+    assert {k: v['calls'] for k, v in u['by'].items()} == {'analyze': 2, 'checklist': 1, 'plan': 1, 'gen_api': 1, 'gen_ui': 1, 'gen_e2e': 1, 'coverage': 1, 'knowledge': 1}
     assert u['in'] > 0 and u['out'] > 0
 
 
@@ -601,12 +602,12 @@ def test_truncated_reply_splits_batch_until_it_fits(app):
 
 def test_split_is_written_to_the_log(app):
     run_with_limit(app, 1)
-    assert 'ответ не уместился — пишу по частям (2)' in ' '.join(app.state("S.run.steps.generate.log.map((l) => l.text)"))
+    assert 'ответ не уместился — пишу по частям (2)' in ' '.join(app.state("S.run.steps.gen_api.log.map((l) => l.text)"))
 
 
 def test_batch_fitting_the_limit_is_not_split(app):
     sizes = run_with_limit(app, 100)
-    assert app.state('S.run.cases.length') == sum(sizes) and 'не уместился' not in ' '.join(app.state("S.run.steps.generate.log.map((l) => l.text)"))
+    assert app.state('S.run.cases.length') == sum(sizes) and 'не уместился' not in ' '.join(app.state("S.run.steps.gen_api.log.map((l) => l.text)"))
 
 
 def plan_with_bad_check():
@@ -619,7 +620,7 @@ def test_check_that_never_fits_does_not_stop_other_cases(app):
     titles = app.state("S.run.cases.map((c) => c.testCase.title)")
     assert '[BE] Кейс: 202 для корректного email' in titles and '[BE] Кейс: 400 для неверного формата' in titles
     assert not any('429' in t for t in titles)
-    assert app.state('S.run.steps.generate.status') == 'error'
+    assert app.state('S.run.steps.gen_api.status') == 'error'
 
 
 @pytest.mark.xfail(strict=True, reason='БАГ: если одна проверка плана так и не уместилась в ответ, запуск всё равно заканчивается «Готово»: '

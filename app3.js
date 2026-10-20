@@ -804,13 +804,57 @@ function questionsTab() {
   if (!r || !r.requirements.length) return emptyHTML('Вопросов пока нет', 'Они появятся после шага «Анализ требований».');
   if (!r.questions.length) return emptyHTML('Вопросов к документации нет', 'Агент не нашёл неясностей и противоречий в документах.');
   const log = r.steps.answers.log;
-  return `<div class="sec-h"><h3>Вопросы к документации · ${r.questions.length}</h3><span class="muted small">ответьте сами или вставьте ответ аналитика</span></div>
+  const open = r.questions.filter((q) => qStatus(q) === 'none').length;
+  return `<div class="sec-h"><h3>Вопросы к документации · ${r.questions.length}</h3><span class="muted small">ответьте сами или вставьте ответ аналитика</span>
+      <span class="sp q-export">${S.caps.downloads ? '<button class="btn" type="button" data-act="q-xlsx" title="Таблица для аналитика: ID, вопрос, ответ, статус. Аналитик заполняет колонку «Ответ» — загрузите файл обратно">Скачать .xlsx</button><button class="btn" type="button" data-act="q-md">Скачать .md</button>' : ''}<button class="btn" type="button" data-act="q-letter" title="${open ? `Письмо с ${open} ${plural(open, 'вопросом', 'вопросами', 'вопросами')} без ответа` : 'Все вопросы уже с ответами'}">Скопировать письмо</button><button class="btn" type="button" data-act="q-import" ${S.running ? 'disabled' : ''} title="Ответы из .xlsx, выгруженного отсюда: колонки «ID» и «Ответ»">Загрузить ответы</button><input type="file" id="q-file" accept=".xlsx,.xls,.csv" hidden></span></div>
     <div class="q-list">${r.questions.map((q) => `<div class="q-item ${qStatus(q)}" id="q-${q.id}">
       <div class="q-h"><span class="mono">${q.id}</span><p>${esc(q.text)}</p><span id="qst-${q.id}">${qChip(q)}</span></div>
       <textarea rows="2" data-q="${q.id}" placeholder="Ответ аналитика или решение команды" aria-label="Ответ на вопрос ${q.id}" ${S.running ? 'disabled' : ''}>${esc(q.answer)}</textarea>
     </div>`).join('')}</div>
     <div class="q-actions" id="q-actions">${qActionsHTML(r)}</div>
     ${log.length ? `<ul class="log" style="margin-top:12px">${log.slice(-40).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : ''}`;
+}
+
+/* выгрузка вопросов аналитику и загрузка ответов из той же таблицы */
+const Q_ST_RU = { none: 'Нет ответа', pending: 'Ответ не учтён', applied: 'Учтён' };
+function qDocs(r) { return (r.docs || []).map((d) => d.name).join(', ') || 'документации'; }
+function questionsExport(r) {
+  return { kind: 'xlsx', sheet: 'Вопросы', filename: `questions_${new Date(r.createdAt).toISOString().slice(0, 10)}`, columns: ['ID', 'Вопрос', 'Ответ', 'Статус', 'Документы'],
+    rows: r.questions.map((q) => [q.id, q.text, q.answer || '', Q_ST_RU[qStatus(q)], qDocs(r)]) };
+}
+function questionsMarkdown(r) {
+  return [`# Вопросы к документации`, '', `Документы: ${qDocs(r)}`, `Продукт: ${curProduct()?.name || '—'}`, '',
+    ...r.questions.map((q) => `## ${q.id}\n\n${q.text}\n\n**Ответ:** ${q.answer?.trim() || '_нет ответа_'}\n`)].join('\n');
+}
+function questionsLetter(r) {
+  const list = r.questions.filter((q) => qStatus(q) === 'none');
+  const qs = list.length ? list : r.questions;
+  return ['Добрый день!', '', `При подготовке тест-кейсов по документации (${qDocs(r)}) возникли вопросы. Ответы нужны, чтобы зафиксировать ожидаемые результаты.`, '',
+    ...qs.map((q, i) => `${i + 1}. [${q.id}] ${q.text}`), '', 'Ответить можно в этом письме или в приложенной таблице (колонка «Ответ»).', '', 'Спасибо!'].join('\n');
+}
+async function importAnswers(file) {
+  const r = S.run;
+  if (!r) return;
+  let rows = [];
+  try {
+    await lib('xlsx');
+    const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+  } catch { return toast('Не удалось прочитать файл. Нужен .xlsx, выгруженный из вкладки «Вопросы».', 'err'); }
+  const head = (rows[0] || []).map((x) => String(x).trim().toLowerCase());
+  const iId = head.findIndex((h) => h === 'id' || h === '№' || h === 'ид'), iAns = head.findIndex((h) => /^ответ/.test(h)), iQ = head.findIndex((h) => /^вопрос/.test(h));
+  if (iAns < 0 || (iId < 0 && iQ < 0)) return toast('В файле нет колонок «ID» и «Ответ».', 'err');
+  let n = 0;
+  for (const row of rows.slice(1)) {
+    const ans = String(row[iAns] ?? '').trim();
+    if (!ans) continue;
+    const id = iId >= 0 ? String(row[iId] ?? '').trim() : '', text = iQ >= 0 ? String(row[iQ] ?? '').trim() : '';
+    const q = r.questions.find((x) => (id && x.id === id) || (!id && text && x.text.trim() === text));
+    if (q && (q.answer || '').trim() !== ans) { q.answer = ans; n++; }
+  }
+  if (!n) return toast('Новых ответов в файле нет.');
+  queueSave(r, 0); renderTab(); renderTabs();
+  toast(`Загружено ответов: ${n}. Нажмите «Учесть ответы», чтобы агент поправил затронутые кейсы.`);
 }
 
 /* ---------- cases ---------- */
@@ -1119,7 +1163,7 @@ async function downloadOutput(o) {
     try {
       await lib('xlsx');
       const X = window.XLSX, ws = X.utils.aoa_to_sheet([o.columns, ...o.rows.map((r) => r.map(unfence))]), wb = X.utils.book_new();
-      X.utils.book_append_sheet(wb, ws, 'Test cases');
+      X.utils.book_append_sheet(wb, ws, o.sheet || 'Test cases');
       return downloadFile(`${o.filename}.xlsx`, new Blob([X.write(wb, { type: 'array', bookType: 'xlsx' })]));
     } catch { return toast('Не удалось сформировать Excel-файл.', 'err'); }
   }
@@ -2255,6 +2299,10 @@ function onTabClick(e) {
     }
     case 'pass-prev': if (armed(el, 'Вернуть прежнюю версию?')) restorePrevPassport(); break;
     case 'trace-run': runTrace(); break;
+    case 'q-xlsx': downloadOutput(questionsExport(S.run)); break;
+    case 'q-md': downloadFile(`questions_${new Date(S.run.createdAt).toISOString().slice(0, 10)}.md`, questionsMarkdown(S.run)); break;
+    case 'q-letter': copyText(questionsLetter(S.run)); break;
+    case 'q-import': { const f = $('#q-file'); if (f) { f.value = ''; f.click(); } break; }
   }
   renderRunControls(); // любое действие могло изменить черновик: кнопки «Перегенерировать» и «Сократить» пересчитываются
 }
@@ -2506,6 +2554,7 @@ function bind() {
   });
   body.addEventListener('change', (e) => {
     const t = e.target;
+    if (t.id === 'q-file' && t.files?.[0]) { importAnswers(t.files[0]); return; }
     if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
     else if (t.classList?.contains('sel-all-cb')) {
       const list = t.dataset.where === 'cases' ? filteredCases() : S.run?.cases || [];
@@ -2647,6 +2696,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown }; // только для автотестов
 initCaps();
 })();
