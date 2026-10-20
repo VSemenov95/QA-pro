@@ -2840,9 +2840,8 @@ function tmsCase(c) {
     if (!s || typeof s !== 'object') return { action: str(s), expected: '', data: '' };
     const sk = Object.keys(s);
     const pick = (re) => { const key = sk.find((x) => re.test(x)); return key ? str(s[key]) : ''; };
-    const sys = pick(/^(system|система)$/i);
     const action = pick(/action|действ|^step_?text$|description|описан|^text$|^name$/i);
-    return { action: (sys ? `[${sys}] ` : '') + action, expected: pick(/expect|ожид|result|результат/i), data: pick(/data|данн/i) };
+    return { action, expected: pick(/expect|ожид|result|результат/i), data: pick(/data|данн/i) };
   });
   const pre = lines(cleanPre(tc[k(/precond|предусл/i)])), post = lines(cleanPre(tc[k(/postcond|постусл/i)]));
   const desc = [];
