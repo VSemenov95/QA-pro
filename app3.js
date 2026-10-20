@@ -993,6 +993,43 @@ function checklistMarkdown(r) {
   }
   return lines.join('\n');
 }
+/* чек-лист для Word и PDF: те же группы и поля, что в Markdown */
+function checklistDoc(r) {
+  return {
+    title: 'Чек-лист', created: new Date(r.createdAt).toISOString().slice(0, 10), sources: r.docs.map((d) => d.name),
+    groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, text: i.check, meta: `${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}` })) })),
+  };
+}
+const xmlText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/* Word (.docx): минимальный пакет WordprocessingML — заголовок, группы и пункты с чекбоксами */
+function checklistDocx(r) {
+  const d = checklistDoc(r);
+  const para = (text, bold = false, size = 0) => `<w:p><w:r>${bold || size ? `<w:rPr>${bold ? '<w:b/>' : ''}${size ? `<w:sz w:val="${size}"/>` : ''}</w:rPr>` : ''}<w:t xml:space="preserve">${xmlText(text)}</w:t></w:r></w:p>`;
+  const body = [para(d.title, true, 36), para(`Создан ${d.created}`), ...(d.sources.length ? [para(`Источники: ${d.sources.join(', ')}`)] : []),
+    ...d.groups.flatMap((g) => [para(g.title, true, 26), ...g.items.map((i) => para(`☐ ${i.id}  ${i.text} — ${i.meta}`))])].join('');
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  return makeZip([
+    { name: '[Content_Types].xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
+    { name: '_rels/.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+    { name: 'word/document.xml', text: doc },
+  ]);
+}
+/* PDF: печать страницы с чек-листом. В диалоге печати выбирается «Сохранить как PDF» — шрифты с кириллицей у браузера уже есть */
+function printChecklist(r) {
+  const d = checklistDoc(r);
+  const groups = d.groups.map((g) => `<h2>${xmlText(g.title)}</h2><ul>${g.items.map((i) => `<li><span class="box"></span><span class="id">${xmlText(i.id)}</span> ${xmlText(i.text)}<div class="m">${xmlText(i.meta)}</div></li>`).join('')}</ul>`).join('');
+  const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${xmlText(d.title)} ${d.created}</title><style>@page{margin:16mm}body{font:12px/1.45 Arial,sans-serif;color:#000;margin:0}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:16px 0 6px;border-bottom:1px solid #999;padding-bottom:3px;break-after:avoid}.meta{color:#444;margin:0 0 6px}ul{list-style:none;margin:0;padding:0}li{margin:0 0 7px;break-inside:avoid}.box{display:inline-block;width:10px;height:10px;border:1px solid #000;margin-right:6px;vertical-align:-1px}.id{font-family:monospace;color:#333}.m{color:#555;font-size:11px;margin-left:16px}</style></head><body><h1>${xmlText(d.title)}</h1><p class="meta">Создан ${d.created}${d.sources.length ? ` · Источники: ${xmlText(d.sources.join(', '))}` : ''}</p>${groups}</body></html>`;
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  frame.onload = () => setTimeout(() => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+    catch { toast('Печать недоступна в этом окне — скачайте Word и сохраните его как PDF.', 'err'); }
+    setTimeout(() => frame.remove(), 60000);
+  }, 100);
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
+}
 const checklistJSON = (r) => ({ generatedAt: new Date(r.createdAt).toISOString(), sources: r.docs.map((d) => d.name), groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, check: i.check, type: i.type, priority: i.priority, suites: i.suites, requirementIds: i.requirementIds })) })) });
 function checklistTab() {
   const r = S.run;
@@ -1023,7 +1060,7 @@ function checklistTab() {
       <div class="cl-acts">${S.clEdit === i.id ? '' : `<button class="icon-btn" type="button" data-act="cl-edit" data-id="${i.id}" aria-label="Изменить пункт ${i.id}" title="Изменить вручную">${ICON.pen}</button><button class="icon-btn" type="button" data-act="cl-refine" data-id="${i.id}" aria-label="Замечание к пункту ${i.id}" title="Замечание — доработать с ИИ">${ICON.chat}</button><button class="icon-btn" type="button" data-act="cl-del" data-id="${i.id}" aria-label="Удалить пункт ${i.id}" title="Удалить">${ICON.x}</button>`}</div></li>`;
   };
   return `<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}
-    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
+    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button><button class="btn" type="button" data-act="cl-dl-docx">Скачать Word</button>' : ''}<button class="btn" type="button" data-act="cl-print">Скачать PDF</button><button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
     ${groups.length ? groups.map(({ g, gi, items: its }) => `<section class="cl-group"><h4>${S.clGroupEdit === gi ? `<span class="cl-edit" style="flex:1"><input type="text" id="clg-input" value="${esc(g.title)}" aria-label="Название группы"><button class="btn accent" type="button" data-act="cl-gsave" data-gi="${gi}">Сохранить</button><button class="btn" type="button" data-act="cl-gcancel">Отмена</button></span>`
       : `${esc(g.title)}<span>${its.length}</span><span class="cl-gacts"><button class="btn sm" type="button" data-act="cl-add" data-gi="${gi}">+ Пункт</button><button class="btn sm" type="button" data-act="cl-gedit" data-gi="${gi}">Переименовать</button><button class="btn sm danger" type="button" data-act="cl-gdel" data-gi="${gi}">Удалить</button></span>`}</h4>
       ${its.length ? `<ul class="cl-items">${its.map(itemHTML).join('')}</ul>` : '<p class="hint" style="padding:10px 12px">В группе нет пунктов.</p>'}</section>`).join('') : emptyHTML('Ничего не найдено', 'Измените фильтр.')}`;
@@ -2208,6 +2245,8 @@ function onTabClick(e) {
     case 'cl-copy': copyText(checklistMarkdown(r)); break;
     case 'cl-dl-md': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.md`, checklistMarkdown(r)); break;
     case 'cl-dl-json': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.json`, JSON.stringify(checklistJSON(r), null, 2)); break;
+    case 'cl-dl-docx': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.docx`, checklistDocx(r)); break;
+    case 'cl-print': printChecklist(r); break;
     // ревью
     case 'start-review': startReview(); break;
     case 'start-review-full': startReview(true); break;
