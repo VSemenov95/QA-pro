@@ -993,6 +993,8 @@ function checklistMarkdown(r) {
   }
   return lines.join('\n');
 }
+/* статусы выполнения пункта чек-листа; пустой — пункт ещё не проверен */
+const CL_STATUS = [['', 'Не проставлен'], ['passed', 'Passed (пройдено)'], ['failed', 'Failed (ошибка)'], ['blocked', 'Blocked (заблокировано)'], ['skipped', 'Skipped (пропущено)']];
 /* чек-лист для Word и PDF: те же группы и поля, что в Markdown */
 function checklistDoc(r) {
   return {
@@ -1052,7 +1054,7 @@ function checklistTab() {
     const fds = openFindingsFor(r, 'checklist', i.id);
     const ref = S.clRefine?.id === i.id ? S.clRefine : null;
     const body = S.clEdit === i.id ? clEditHTML(r, i) : `<div class="cl-text">${i.check ? esc(i.check) : '<span class="muted">Пустой пункт</span>'}</div>
-      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
+      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}<select class="cl-status" data-id="${i.id}" aria-label="Статус выполнения пункта" title="Статус выполнения пункта">${CL_STATUS.map(([v, n]) => `<option value="${v}" ${(i.status || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
       ${ref ? `<div class="case-edit" style="margin-top:8px"><label class="lbl" for="clr-input">Замечание к пункту</label><textarea id="clr-input" rows="2" placeholder="Например: укажи конкретное значение лимита; это проверка API, а не UI" ${ref.busy ? 'disabled' : ''}>${esc(ref.comment || '')}</textarea>
         ${ref.error ? `<p class="case-note err">${esc(ref.error)}</p>` : ''}
         <div class="case-acts">${ref.busy ? '<span class="case-note muted">Модель дорабатывает пункт…</span><button class="btn" type="button" data-act="cl-refine-stop">Остановить</button>' : `<button class="btn accent" type="button" data-act="cl-refine-go" data-id="${i.id}">Доработать с ИИ</button><button class="btn" type="button" data-act="cl-refine-cancel">Отмена</button>`}</div></div>` : ''}`;
@@ -2556,7 +2558,8 @@ function bind() {
   });
   body.addEventListener('change', (e) => {
     const t = e.target;
-    if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
+    if (t.classList?.contains('cl-status')) { const it = findItem(t.dataset.id); if (it) { it.status = t.value || undefined; queueSave(S.run); } }
+    else if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
     else if (t.classList?.contains('sel-all-cb')) {
       const list = t.dataset.where === 'cases' ? filteredCases() : S.run?.cases || [];
       for (const c of list) { if (t.checked) S.caseSel.add(c.uid); else S.caseSel.delete(c.uid); }
