@@ -5007,7 +5007,7 @@ async function kbSynthJob(ids) {
     else if (!J.report?.fail && !J.stop && !J.ctl.signal.aborted) toast('Сводить нечего: у выбранных разделов нет выдержек из документов — их текст и есть сводка.');
   }
   catch (e) { if (e?.code !== 'cancelled') J.error = errText(e); }
-  finally { J.busy = false; J.doc = ''; J.phase = ''; renderKbAny(); }
+  finally { J.busy = false; J.doc = ''; J.phase = ''; renderKbAny(); if (S.kb.queue.length) setTimeout(() => kbRun(), 0); }
   if (arrOf(S.kb.synthQ).length && !J.ctl.signal.aborted) setTimeout(() => kbSynthJob([]), 0);
 }
 // прогресс работы базы знаний — для баннера в «Разделах» и строки под списком документов
@@ -5083,7 +5083,9 @@ const kbChunksOf = (d) => { let n = kbChunkMemo.get(d); if (n == null) { n = bui
 const KB_FRESH_MAX = Math.round(KB_TOTAL_BYTES * 0.6);
 async function kbRun(docs) {
   const pid = S.productId;
-  if (!pid || !S.caps.db || S.kb.job.busy) return;
+  if (!pid || !S.caps.db) return;
+  // работа уже идёт (разбор или сборка сводок): документ встаёт в очередь и разберётся после неё
+  if (S.kb.job.busy) { for (const d of arrOf(docs)) if (!S.kb.queue.some((x) => x.id === d.id)) S.kb.queue.push(d); renderKbAny(); return; }
   if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
   if (!(await kbLease(pid))) { S.kb.note = 'Документы разбирает другое окно QA pro — разделы появятся здесь сами.'; renderKbAny(); setTimeout(() => { if (S.kb.queue.length && !S.kb.job.busy) kbRun(); }, 130000); return; }
   S.kb.note = '';
@@ -5163,6 +5165,7 @@ async function kbRun(docs) {
   finally { J.busy = false; J.doc = ''; J.phase = ''; J.step = null; renderKbAny(); }
   if (processed.length && !J.ctl.signal.aborted && S.productId === pid) kbAutoLearn(processed);
   if (arrOf(S.kb.synthQ).length && !J.ctl.signal.aborted) setTimeout(() => kbSynthJob([]), 0);
+  if (S.kb.queue.length && !J.ctl.signal.aborted) setTimeout(() => kbRun(), 0);
 }
 async function kbRename(id, title) {
   const t = String(title || '').trim().slice(0, 120);
