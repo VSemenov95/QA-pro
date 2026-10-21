@@ -983,12 +983,17 @@ function updBlockHTML(c, ui) {
 }
 
 /* ---------- checklist ---------- */
+/* выгрузка чек-листа: пункты нумеруются 1, 2, 3… по всему чек-листу; ссылки на требования не выгружаются */
+function checklistExport(r) {
+  let n = 0;
+  return r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ n: ++n, check: i.check, type: i.type, priority: i.priority, suites: i.suites })) }));
+}
+const clMeta = (i) => `${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}`;
 function checklistMarkdown(r) {
   const lines = ['# Чек-лист', ''];
-  for (const g of r.checklist.groups) {
-    if (!g.items.length) continue;
+  for (const g of checklistExport(r)) {
     lines.push(`## ${g.title}`, '');
-    for (const i of g.items) lines.push(`- [ ] ${i.id} ${i.check} — ${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}`);
+    for (const i of g.items) lines.push(`- [ ] ${i.n} ${i.check} — ${clMeta(i)}`);
     lines.push('');
   }
   return lines.join('\n');
@@ -999,7 +1004,7 @@ const CL_STATUS = [['', 'Не проставлен'], ['passed', 'Passed (про
 function checklistDoc(r) {
   return {
     title: 'Чек-лист', created: new Date(r.createdAt).toISOString().slice(0, 10), sources: r.docs.map((d) => d.name),
-    groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, text: i.check, meta: `${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}` })) })),
+    groups: checklistExport(r).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.n, text: i.check, meta: clMeta(i) })) })),
   };
 }
 const xmlText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1032,7 +1037,7 @@ function printChecklist(r) {
   frame.srcdoc = html;
   document.body.appendChild(frame);
 }
-const checklistJSON = (r) => ({ generatedAt: new Date(r.createdAt).toISOString(), sources: r.docs.map((d) => d.name), groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, check: i.check, type: i.type, priority: i.priority, suites: i.suites, requirementIds: i.requirementIds })) })) });
+const checklistJSON = (r) => ({ generatedAt: new Date(r.createdAt).toISOString(), sources: r.docs.map((d) => d.name), groups: checklistExport(r).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.n, check: i.check, type: i.type, priority: i.priority, suites: i.suites })) })) });
 function checklistTab() {
   const r = S.run;
   if (!r) return emptyHTML('Чек-листа пока нет', 'Включите «Чек-лист» в параметрах и запустите генерацию.');

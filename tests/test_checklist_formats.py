@@ -41,10 +41,10 @@ def test_word_file_is_a_valid_document_with_checklist(checklist):
     text = ''.join(t.text or '' for t in root.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t'))
     item = first_item(checklist)
     assert 'Чек-лист' in text
-    assert item['id'] in text and item['check'] in text
+    assert f"☐ 1  {item['check']}" in text and 'CL-' not in text and 'R-00' not in text
     import docx  # настоящий разборщик Word: файл должен открываться без ошибок
     paragraphs = [p.text for p in docx.Document(io.BytesIO(data)).paragraphs]
-    assert any(item['id'] in p and item['check'] in p for p in paragraphs)
+    assert any(p.startswith('☐ 1 ') and item['check'] in p for p in paragraphs)
 
 
 def test_pdf_print_page_has_checklist(checklist):
@@ -52,5 +52,5 @@ def test_pdf_print_page_has_checklist(checklist):
     checklist.page.wait_for_function("() => [...document.querySelectorAll('iframe')].some((f) => (f.srcdoc || '').includes('Чек-лист'))")
     srcdoc = checklist.page.evaluate("() => [...document.querySelectorAll('iframe')].map((f) => f.srcdoc || '').find((s) => s.includes('Чек-лист'))")
     item = first_item(checklist)
-    assert item['id'] in srcdoc and item['check'] in srcdoc
+    assert '<span class="id">1</span>' in srcdoc and item['check'] in srcdoc and 'CL-' not in srcdoc and 'R-00' not in srcdoc
     assert 'Источники' in srcdoc

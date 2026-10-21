@@ -374,7 +374,7 @@ def test_copy_case_json(copying):
 def test_copy_checklist_gives_markdown(copying):
     copying.tab('checklist')
     copying.page.click('[data-act=cl-copy]')
-    assert copied(copying).startswith('# Чек-лист\n\n## Форма восстановления\n\n- [ ] CL-001 ')
+    assert copied(copying).startswith('# Чек-лист\n\n## Форма восстановления\n\n- [ ] 1 ')
 
 
 def test_copy_export_gives_the_file_text(copying):
@@ -422,8 +422,8 @@ def test_checklist_markdown_download(checklist):
     assert d['filename'] == f'checklist_{day}.md'
     lines = d['text'].splitlines()
     assert lines[0] == '# Чек-лист' and '## Форма восстановления' in lines
-    assert '- [ ] CL-001 Ссылка «Забыли пароль?» видна под полем пароля — UI, высокий, смоук, регресс (R-001)' in lines
-    assert '- [ ] CL-004 Четвёртый запрос за 15 минут — 429 RATE_LIMIT — API, средний, регресс (R-002)' in lines
+    assert '- [ ] 1 Ссылка «Забыли пароль?» видна под полем пароля — UI, высокий, смоук, регресс' in lines
+    assert '- [ ] 4 Четвёртый запрос за 15 минут — 429 RATE_LIMIT — API, средний, регресс' in lines
 
 
 def test_checklist_json_download(checklist):
@@ -432,7 +432,7 @@ def test_checklist_json_download(checklist):
     out = json.loads(checklist.downloads()[-1]['text'])
     assert out['sources'] == ['Пример — ТЗ восстановление пароля.md']
     assert [g['title'] for g in out['groups']] == ['Форма восстановления', 'API сброса']
-    assert out['groups'][1]['items'][0] == {'id': 'CL-003', 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'P3_HIGH', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']}
+    assert out['groups'][1]['items'][0] == {'id': 3, 'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'P3_HIGH', 'suites': ['smoke', 'regression']}
 
 
 def new_item(app, text, group='0'):
