@@ -401,7 +401,7 @@ function renderRunControls() {
   run.textContent = runLabel();
   const regen = $('#btn-regen');
   if (regen) {
-    const dr = isDraft(S.run) && S.run.cases.length > 0;
+    const dr = isDraft(S.run) && (S.run.cases.length > 0 || checklistItems(S.run).length > 0);
     regen.hidden = S.running || !dr;
     regen.disabled = draftLocked(S.run) || !docsFor(S.run).length || !aiReady(S.run?.settings?.genAI || S.settings.genAI);
   }
@@ -2544,7 +2544,7 @@ function bind() {
     tn.addEventListener('change', () => { const v = Math.round(Number(tn.value)); S.settings.target = v >= 1 && v <= 300 ? v : null; tn.value = S.settings.target || ''; saveSettings(); });
   }
   $('#btn-review').addEventListener('click', startReview);
-  $('#btn-regen').addEventListener('click', (e) => { if (armed(e.currentTarget, 'Заменить кейсы черновика?')) regenDrafts(); });
+  $('#btn-regen').addEventListener('click', (e) => { if (armed(e.currentTarget, 'Заменить черновик?')) regenDrafts(); });
   $('#btn-reduce').addEventListener('click', openReduce);
   $('#reduce-cancel').addEventListener('click', closeReduce);
   $('#reduce-go').addEventListener('click', reduceGo);

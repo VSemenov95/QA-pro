@@ -349,7 +349,9 @@ function promptAnalyzeMore(chunk, i, total, types, found) {
 // сверка покрытия: какие критерии требований не проверяет ни один кейс
 function promptCoverageAudit(run, reqs, types) {
   const caseLine = (c) => { const tc = c.testCase || {}, ek = Object.keys(tc).find((k) => /^(expectedResult|expected_result|ожидаемый_?результат|result)$/i.test(k)); return `  - ${c.dispId} [${c.type}] ${pickTitleText(tc)}${ek ? ` → ${String(typeof tc[ek] === 'string' ? tc[ek] : JSON.stringify(tc[ek])).slice(0, 160)}` : ''}`; };
-  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
+  const rules = rulesText();
+  const e4 = `${rules ? `\nПравила команды: ${rules}\n` : ''}${[TITLE_TAG_RULE, KAFKA_RULE, PRIORITY_RULE, PRECONDITIONS_RULE, API_CALL_RULE, SERVICE_STEPS_RULE, SUITES_RULE, REQ_REF_RULE].join('\n')}`;
+  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e4": e4, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
 ${r.description}${r.criteria.length ? `\nКритерии: ${r.criteria.map((c, k) => `${k + 1}) ${c}`).join('; ')}` : ''}
 Кейсы:
 ${activeCases(run).filter((c) => c.requirementIds.includes(r.id)).map(caseLine).join('\n') || '  - нет'}`).join('\n\n') });
@@ -2490,16 +2492,22 @@ function clearDraft() {
    анализ требований и чек-лист остаются (их не трогаем) */
 function regenDrafts() {
   const run = S.run;
-  if (!run || draftLocked(run) || !isDraft(run) || !run.cases.length || S.running) return;
-  const n = run.cases.length;
+  if (!run || draftLocked(run) || !isDraft(run) || !(run.cases.length || checklistItems(run).length) || S.running) return;
+  const n = run.cases.length, withChecklist = outputsOf(run).checklist && checklistItems(run).length > 0;
+  const nCl = checklistItems(run).length;
   run.cases = []; S.caseUI.clear();
-  if (run.findings) run.findings = run.findings.filter((f) => f.kind !== 'case');
+  if (run.findings) run.findings = run.findings.filter((f) => f.kind !== 'case' && !(withChecklist && f.kind === 'checklist'));
   for (const t of TYPES) run.counters[t] = run.baseCounters?.[t] || 0;
-  run.plan = []; run.coveredExisting = []; run.doneKeys = []; run.doneChecks = []; run.failed = [];
+  run.plan = []; run.coveredExisting = []; run.doneKeys = []; run.doneChecks = []; run.failed = []; run.auditDone = false;
   run.noKb = true; // в этом запуске база знаний и паспорт продукта не используются
   for (const id of ['plan', 'generate', 'coverage']) run.steps[id] = { status: 'pending', log: [], t0: null, t1: null, note: '' };
+  if (withChecklist) { // чек-лист пересоздаётся по тем же правилам: пункты и их статусы заменяются
+    run.checklist = null; run.counters.cl = run.baseCounters?.cl || 0;
+    run.steps.checklist = { status: 'pending', log: [], t0: null, t1: null, note: '' };
+  }
   queueSave(run);
-  toast(`Черновик удалён (${n} ${plural(n, 'кейс', 'кейса', 'кейсов')}), генерирую заново по текущим правилам`);
+  const what = [n ? `${n} ${plural(n, 'кейс', 'кейса', 'кейсов')}` : '', withChecklist ? `${nCl} ${plural(nCl, 'пункт', 'пункта', 'пунктов')} чек-листа` : ''].filter(Boolean).join(' и ');
+  toast(`Черновик удалён (${what}), генерирую заново по текущим правилам`);
   stopFollow(); cancelResumeCountdown();
   S.tab = 'agent';
   executeRun(run, false);

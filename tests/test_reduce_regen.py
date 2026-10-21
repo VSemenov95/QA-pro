@@ -119,7 +119,7 @@ def test_regen_is_disabled_when_documents_are_deleted_from_product(draft):
 # ---------- перегенерация ----------
 def test_regen_asks_for_confirmation(draft):
     draft.page.click('#btn-regen')
-    assert draft.text('#btn-regen') == 'Заменить кейсы черновика?' and not draft.state('S.running')
+    assert draft.text('#btn-regen') == 'Заменить черновик?' and not draft.state('S.running')
     assert draft.state('S.run.cases.length') == 4
 
 
@@ -165,14 +165,15 @@ def test_regen_keeps_requirements(draft):
     assert draft.state('S.run.requirements.map((r) => r.id + r.title)') == before
 
 
-def test_regen_keeps_checklist(app):
+def test_regen_rebuilds_checklist(app):
+    """Перегенерация по правилам касается и чек-листа: пункты пересоздаются с первого номера."""
     app.generate()
     before = app.state('S.run.checklist.groups.flatMap((g) => g.items.map((i) => i.id + i.check))')
     assert before
     app.model.reset()
     regen(app)
+    assert app.model.calls_of('promptChecklist'), 'чек-лист не пересоздан'
     assert app.state('S.run.checklist.groups.flatMap((g) => g.items.map((i) => i.id + i.check))') == before
-    assert not app.model.calls_of('promptChecklist')
 
 
 def test_regen_uses_current_rules(draft):
