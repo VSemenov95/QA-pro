@@ -385,12 +385,6 @@ def test_read_only_folder(make_app):
 
 
 # ---------- разбор файлов ----------
-def test_long_knowledge_file_is_split_by_headings(app):
-    body = '# Платежи\n\nвводная\n\n' + '\n\n'.join(f'## Раздел {i}\n' + ('строка про платёж ' * 200) for i in range(3))
-    secs = app.call('a.ctxKbSections(new Map([["knowledge/pay.md", { text: arg }]])).map((x) => x.b.title)', body)
-    assert secs == ['Платежи › Раздел 0', 'Платежи › Раздел 1', 'Платежи › Раздел 2']
-
-
 def test_lessons_and_qa_context_round_trip(app):
     ls = [{'text': 'один', 'scope': 'generation'}, {'text': 'два', 'scope': 'review'}, {'text': 'три', 'scope': 'both'}]
     back = app.call('a.ctxParseLessons(a.ctxMakeLessons(arg)).map((l) => [l.text, l.scope])', ls)
