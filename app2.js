@@ -129,8 +129,12 @@ function kbToks(d, b) {
 }
 // разделы, загруженные целиком (сводка или выдержки), — для генерации и инструментов агента
 function kbSections(pid) {
-  if (!pid || S.kb.pid !== pid) return [];
-  return S.kb.index.blocks.map((b) => ({ b, d: S.kb.cache[b.id] })).filter((x) => x.d && (x.d.synth || arrOf(x.d.parts).length));
+  const own = !pid || S.kb.pid !== pid ? [] : S.kb.index.blocks.map((b) => ({ b, d: S.kb.cache[b.id] })).filter((x) => x.d && (x.d.synth || arrOf(x.d.parts).length));
+  // источник контекста — репозиторий: его разделы плюс разделы продукта с другими названиями
+  const repo = ctxKbFor(pid);
+  if (!repo.length) return own;
+  const titles = new Set(repo.map((x) => normKey(x.b.title)));
+  return [...repo, ...own.filter((x) => !titles.has(normKey(x.b.title)))];
 }
 function kbRank(focus, secs) {
   const q = new Set(helpTokens(focus));
@@ -2252,7 +2256,9 @@ async function deleteHistory(id, pid) {
 /* ================= память агента: правила из замечаний пользователя ================= */
 function subscribeLessons() {
   S.caps.db.collection('lessons').onSnapshot((snap) => {
-    S.lessons = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) })).filter((l) => l.text).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) })).filter((l) => l.text).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    if (ctxOwnsCfg()) { S.ctx.backup.lessons = list; return; } // память агента сейчас из источника контекста
+    S.lessons = list;
     if (S.setTab === 'review' && !isTyping($('#cfg-body'))) renderCfg(); else renderCfgTabs();
   }, () => { /* хранилище недоступно — правила живут только в этом окне */ });
 }
@@ -2260,6 +2266,7 @@ async function addLesson(text, scope = 'generation', source = 'manual') {
   const t = String(text || '').trim().slice(0, 400);
   if (!t || S.lessons.some((l) => normKey(l.text) === normKey(t))) return false;
   const l = { text: t, scope: ['generation', 'review', 'both'].includes(scope) ? scope : 'generation', source, createdAt: Date.now(), by: S.caps.uid || '' };
+  if (ctxOwnsCfg()) return ctxAddLesson(l);
   const id = rid('l');
   if (S.caps.db) {
     try { await S.caps.db.doc('lessons/' + id).set(l); }
@@ -2271,6 +2278,7 @@ async function addLesson(text, scope = 'generation', source = 'manual') {
 async function deleteLesson(id) {
   const l = S.lessons.find((x) => x.id === id);
   if (!l) return;
+  if (ctxOwnsCfg()) return ctxDeleteLesson(id);
   if (S.caps.db && !l.local) { try { await S.caps.db.doc('lessons/' + id).delete(); } catch { return toast('Не удалось удалить правило — нужны права на изменение.', 'err'); } }
   S.lessons = S.lessons.filter((x) => x.id !== id);
   renderCfg();
@@ -3488,6 +3496,8 @@ function curProduct() { return productById(S.productId); }
 const passRef = (pid) => S.caps.db.doc(`${prodPath(pid)}/meta/passport`);
 const passCache = {}, passLoading = {};
 function hydrateProd(p) {
+  const ov = ctxPassportFor(p?.id); // источник контекста — репозиторий: паспорт из products/<папка>/passport.md
+  if (ov != null) return { ...p, passport: { ...(p.passport || {}), text: ov } };
   if (!p?.passport?.ext) return p;
   const c = passCache[p.id];
   if (c && c.at === p.passport.updatedAt) return { ...p, passport: { ...p.passport, text: c.text }, passportPrev: c.prev || null };
@@ -3723,6 +3733,7 @@ async function switchProduct(pid, { restore = false } = {}) {
   renderProdSelect(); renderAll();
   await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid)]);
   if (tok !== switchTok) return false;
+  await ctxSwitch(pid); // источник контекста продукта: база QA pro, папка, git или GitHub
   if (!restore) saveSession();
   renderAll();
   return true;
@@ -3779,7 +3790,7 @@ function subscribeProducts() {
       if (S.productId && !S.running && !S.switching && list.length) { toast('Текущий продукт удалён — открываю другой.', 'err'); switchProduct(list[0].id); }
       return;
     }
-    if (!S.ctxDirty && !isTyping($('#qa-ctx-box'))) {
+    if (!S.ctxDirty && !isTyping($('#qa-ctx-box')) && !ctxActive(cur.id)) {
       const c = { all: '', api: '', ui: '', e2e: '', ...(cur.qaCtx || {}) };
       if (JSON.stringify(c) !== JSON.stringify(S.qaCtx)) { S.qaCtx = c; renderQaCtx(); }
     }
@@ -3848,6 +3859,7 @@ function queueCtxSave() { S.ctxDirty = true; clearTimeout(ctxTimer); ctxTimer = 
 async function saveProductCtx() {
   clearTimeout(ctxTimer);
   const pid = S.productId;
+  if (ctxActive(pid)) return ctxSaveQaCtx(); // доп. контекст — в products/<папка>/context.md
   if (!pid || !S.caps.db) { S.ctxDirty = false; return; }
   const snap = { ...S.qaCtx };
   try {
@@ -3969,6 +3981,7 @@ async function savePassport(pid, text, runId) {
   const prev = cur?.passport?.text && cur.passport.text !== text ? { text: cur.passport.text, updatedAt: cur.passport.updatedAt || 0 } : (cur?.passportPrev?.text ? cur.passportPrev : null);
   await passRef(pid).set({ text, updatedAt: now, by, runId: runId || null, prev });
   passCache[pid] = { at: now, text, prev };
+  ctxAfterPassport(pid, text); // источник контекста — репозиторий: паспорт пишется и в products/<папка>/passport.md
   return updateProduct(pid, () => ({ passport: { ext: true, text: '', len: text.length, updatedAt: now, by, runId: runId || null }, passportPrev: prev ? { ext: true, updatedAt: prev.updatedAt || 0 } : null }));
 }
 /* один запрос к модели: полный паспорт, если он пуст или переполнен, иначе — только правки */
@@ -5035,4 +5048,5 @@ async function helpExpand(question, signal) {
   return { sections, terms: arrStr(res?.terms).map((t) => t.slice(0, 80)).slice(0, 12) };
 }
 const kbArticleText = (blk) => arrOf(blk?.parts).map((p) => p.md).join('\n\n');
+/*__CTX__*/
 /*__PART3__*/

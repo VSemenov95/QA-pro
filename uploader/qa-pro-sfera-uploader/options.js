@@ -94,3 +94,37 @@ async function saveBridge() {
 $('#bridge-on').addEventListener('change', saveBridge);
 $('#bridge-port').addEventListener('change', saveBridge);
 $('#bridge-check').addEventListener('click', () => { $('#bridge-state').textContent = 'Проверяю мост…'; loadBridge(true); });
+
+// ---------- контекст QA pro: мост, GitHub, разрешения страниц ----------
+const KIND_RU = { roots: 'папка', repos: 'git-репозиторий', gh: 'GitHub' };
+async function renderCtx() {
+  const p = await send({ type: 'CTX_PING' });
+  const el = $('#ctx-bridge');
+  el.className = 'banner ' + (p.bridge ? 'ok' : 'warn');
+  el.textContent = p.bridge ? 'Мост подключён: QA pro в этом браузере может работать с папками и git-репозиториями на компьютере.' : 'Мост не подключён: папки и git недоступны, GitHub по токену работает. Запустите приложение Claude с мостом или ядро моста: node core.js --keep.';
+  const st = await send({ type: 'GET_SETTINGS' });
+  const s = st.settings || {};
+  $('#gh-token').value = '';
+  $('#gh-token').placeholder = s.ghToken ? 'Токен сохранён — введите новый, чтобы заменить' : 'github_pat_…';
+  $('#gh-api').value = s.ghApi || 'https://api.github.com';
+  const g = (await send({ type: 'CTX_GRANTS' })).grants || {};
+  const rows = Object.entries(g).flatMap(([origin, x]) => ['roots', 'repos', 'gh'].flatMap((k) => (x[k] || []).map((t) => ({ origin, k, t }))));
+  $('#grants').innerHTML = rows.length
+    ? '<ol class="pings">' + rows.map((r, i) => `<li><b>${KIND_RU[r.k]}</b> <span class="mono">${esc(r.t)}</span> · ${esc(r.origin)} <button class="link" type="button" data-rev="${i}">Отозвать</button></li>`).join('') + '</ol>'
+    : 'Пока ни одной странице QA pro доступ не давали.';
+  $('#grants').querySelectorAll('[data-rev]').forEach((b) => b.addEventListener('click', async () => { const r = rows[Number(b.dataset.rev)]; await send({ type: 'CTX_REVOKE', origin: r.origin, kind: r.k, target: r.t }); renderCtx(); }));
+}
+renderCtx();
+$('#gh-save').addEventListener('click', async () => {
+  const note = $('#gh-note'), api = originOf($('#gh-api').value) ? $('#gh-api').value.trim().replace(/\/+$/, '') : '';
+  if (!api) { note.textContent = 'Укажите адрес API вида https://api.github.com'; return; }
+  if (!/^https:\/\/api\.github\.com$/i.test(api)) {
+    const granted = await chrome.permissions.request({ origins: [originOf(api) + '/*'] }).catch(() => false);
+    if (!granted) { note.textContent = 'Без разрешения браузера загрузчик не сможет обращаться к этому адресу.'; return; }
+  }
+  const token = $('#gh-token').value.trim();
+  const r = await send({ type: 'SAVE_SETTINGS', patch: { ghApi: api, ...(token ? { ghToken: token } : {}) } });
+  note.textContent = r.ok ? 'Сохранено.' : 'Не сохранилось: ' + (r.error || '');
+  renderCtx();
+});
+$('#gh-clear').addEventListener('click', async () => { await send({ type: 'SAVE_SETTINGS', patch: { ghToken: '' } }); $('#gh-note').textContent = 'Токен удалён.'; renderCtx(); });
