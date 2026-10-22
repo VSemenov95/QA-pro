@@ -27,7 +27,6 @@ const CTX_KINDS = {
 const CTX_BRIDGE = new Set(['local', 'git']);
 const CTX_TEXT_RX = /\.(md|markdown|txt|json|ya?ml)$/i;
 const CTX_TOOLS = ['context_read', 'context_write', 'context_git'];
-const CTX_KB_SPLIT = 8000;      // файл базы знаний длиннее — делится на разделы по заголовкам «##»
 const CTX_CACHE_PART = 60000;   // запись хранилища — до 256 КБ: части по 60 тыс. знаков (даже по 4 байта на знак — меньше предела)
 const ctxBlank = () => ({ kind: 'qa', root: '', url: '', cloned: '', repo: '', branch: '', baseBranch: '', sub: '', slug: '' });
 S.ctx = { pid: null, src: ctxBlank(), draft: null, on: false, busy: '', error: '', files: new Map(), git: null, channel: '', loadedAt: 0, fromCache: false, conflicts: [], pending: new Set(), backup: null, kb: [], kbAt: 0, note: '', confirm: null, lastPush: null, warn: [] };
@@ -47,7 +46,7 @@ const ctxSub = (C = S.ctx) => String(C.src.sub || '').replace(/\\/g, '/').replac
 const ctxFull = (p, C = S.ctx) => (ctxSub(C) ? ctxSub(C) + '/' + p : p);
 const ctxRel = (full, C = S.ctx) => { const s = ctxSub(C); return !s ? full : full.startsWith(s + '/') ? full.slice(s.length + 1) : null; };
 const ctxText = (p) => { const f = S.ctx.files.get(p); return f && f.text != null ? f.text : null; };
-const ctxWanted = (rel, C = S.ctx) => [CP.rules, CP.review, CP.export, CP.claude, ...TYPES.map(CP.tpl), CP.passport(C), CP.context(C), CP.lessons(C)].includes(rel) || rel.startsWith(CP.kbDir(C)) || rel.startsWith('knowledge/');
+const ctxWanted = (rel, C = S.ctx) => [CP.rules, CP.review, CP.export, CP.claude, ...TYPES.map(CP.tpl), CP.passport(C), CP.context(C), CP.lessons(C), `products/${ctxSlug(C)}/qa-pro-docs.json`].includes(rel) || rel.startsWith(CP.kbDir(C)) || rel.startsWith('knowledge/');
 
 /* ---------- состояние ---------- */
 const ctxActive = (pid = S.productId) => S.ctx.on && S.ctx.pid === pid && S.ctx.src.kind !== 'qa';
@@ -119,31 +118,111 @@ QA pro читает его через мост qa-pro-bridge, загрузчик
 Изменения правил и шаблонов — через ветку и запрос на слияние: QA pro отправляет их в ветку \`qa-pro/<дата>\`.
 `;
 }
-// база знаний: файл — раздел; длинный файл — разделы по заголовкам «##»
-function ctxKbSections(files) {
-  const out = [];
-  for (const [rel, f] of files) {
-    const text = String(f.text || '').replace(/\r\n/g, '\n').trim();
-    if (!text) continue;
-    const name = rel.split('/').pop().replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
-    const h1 = (text.match(/^#\s+(.+)$/m) || [])[1];
-    const title = (h1 || name).trim().slice(0, 140);
-    const shared = rel.startsWith('knowledge/');
-    const add = (t, body, i) => {
-      const d = { synth: body, summary: '', parts: [], conflicts: [], links: [], ctx: true, path: rel };
-      out.push({ b: { id: 'ctx:' + rel + (i ? '#' + i : ''), title: t, summary: shared ? 'общая база знаний' : '', ctx: true, path: rel }, d });
-    };
-    if (text.length <= CTX_KB_SPLIT || !/^##\s/m.test(text)) { add(title, text, 0); continue; }
-    const parts = text.split(/^(?=##\s)/m);
-    const lead = parts[0].replace(/^#\s+.+\n?/, '').trim();
-    let i = 0;
-    for (const p of parts.slice(1)) {
-      const h = (p.match(/^##\s+(.+)$/m) || [])[1] || 'раздел';
-      add(`${title} › ${h.trim()}`.slice(0, 160), (i === 0 && lead ? lead + '\n\n' : '') + p.trim(), ++i);
-    }
-    if (!parts.slice(1).length) add(title, text, 0);
+/* ---------- база знаний в файлах источника ----------
+   Раздел — файл products/<папка>/kb/<имя>.md (или общий knowledge/<имя>.md): «# Название», «> краткое описание», текст
+   раздела (сводка агента или то, что написал человек) и в конце служебный блок <!-- qa-pro:kb {…} --> с выдержками
+   из документов, расхождениями, связями и отпечатками — по нему агент дополняет раздел новыми документами. Файл без
+   служебного блока — раздел, написанный человеком: его текст и есть сводка. Человек может править текст и в файле:
+   правка становится сводкой раздела. */
+const KB_META_RX = /\n?<!--\s*qa-pro:kb\s*\n([\s\S]*?)\n-->\s*$/;
+const CTX_KB_FILE_MAX = 1800000;   // мост принимает файл до 2 МБ: лишние уже сведённые выдержки не пишутся
+const ctxKbDir = (rel, C = S.ctx) => rel.startsWith(CP.kbDir(C)) || rel.startsWith('knowledge/');
+const ctxKbFileId = (rel) => 'f' + hash(rel);
+function ctxKbParse(rel, text) {
+  const t = String(text || '').replace(/\r\n/g, '\n');
+  const m = t.match(KB_META_RX);
+  let meta = null;
+  if (m) { try { meta = JSON.parse(m[1]); } catch { meta = null; } }
+  const head = m ? t.slice(0, m.index) : t;
+  const h1 = head.match(/^#\s+(.+)$/m);
+  const name = rel.split('/').pop().replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  const title = String(h1 ? h1[1] : name).trim().slice(0, 140) || name;
+  let rest = h1 ? head.slice(head.indexOf(h1[0]) + h1[0].length) : head;
+  rest = rest.replace(/^\s*\n/, '');
+  let summary = '';
+  const sm = rest.match(/^((?:>[^\n]*(?:\n|$))+)/);
+  if (sm) { summary = sm[1].split('\n').map((l) => l.replace(/^>\s?/, '')).join(' ').trim(); rest = rest.slice(sm[0].length); }
+  const body = rest.trim();
+  if (meta && typeof meta === 'object') {
+    const { bodyIsSynth, ...m2 } = meta;
+    const d = { ...m2, title, summary: summary || '', parts: arrOf(m2.parts), conflicts: arrOf(m2.conflicts), links: arrOf(m2.links) };
+    if (bodyIsSynth) d.synth = body; else delete d.synth;
+    return { id: String(m2.id || ctxKbFileId(rel)), d };
   }
-  return out;
+  return { id: ctxKbFileId(rel), d: { id: ctxKbFileId(rel), title, summary, synth: body, parts: [], conflicts: [], links: [], human: true, updatedAt: 0 } };
+}
+function ctxKbSerialize(d0) {
+  const d = { ...d0 };
+  const ser = (x) => {
+    const { title, summary, synth, ...meta } = x;
+    const hasSynth = !!String(synth || '').trim();
+    const body = hasSynth ? String(synth).trim() : arrOf(x.parts).map((p) => `## ${p.docName || 'Документ'}\n\n${String(p.md || '').trim()}`).join('\n\n');
+    const json = JSON.stringify({ ...meta, bodyIsSynth: hasSynth }).replace(/-->/g, '--\\u003e');
+    return `# ${String(title || 'Раздел').replace(/\n+/g, ' ')}\n\n${String(summary || '').trim() ? '> ' + String(summary).replace(/\s*\n+\s*/g, ' ').trim() + '\n\n' : ''}${body}\n\n<!-- qa-pro:kb\n${json}\n-->\n`;
+  };
+  let text = ser(d);
+  // файл не больше 2 МБ: сначала уходят выдержки, уже вошедшие в сводку, потом самые старые
+  while (new TextEncoder().encode(text).length > CTX_KB_FILE_MAX && arrOf(d.parts).length) {
+    const parts = arrOf(d.parts);
+    const k = parts.findIndex((p) => kbCovered(d, p));
+    d.parts = parts.filter((_, i) => i !== (k >= 0 ? k : 0));
+    text = ser(d);
+  }
+  return text;
+}
+function ctxKbIndex() {
+  const C = S.ctx, blocks = [];
+  C.kbMap = new Map();
+  for (const [rel, f] of C.files) {
+    if (f.text == null || !ctxKbDir(rel) || !/\.(md|markdown|txt)$/i.test(rel)) continue;
+    const { id, d } = ctxKbParse(rel, f.text);
+    if (C.kbMap.has(id)) continue;
+    C.kbMap.set(id, rel);
+    blocks.push(kbIdxEntry(id, d));
+  }
+  let docs = {};
+  try { docs = JSON.parse(ctxText(ctxKbDocsPath()) || '{}') || {}; } catch { docs = {}; }
+  blocks.sort((a, b) => String(a.title).localeCompare(String(b.title), 'ru'));
+  return { blocks, docs: docs && typeof docs === 'object' && !Array.isArray(docs) ? docs : {}, pages: 1, raw: [null], updatedAt: S.ctx.loadedAt || 0 };
+}
+const ctxKbDocsPath = (C = S.ctx) => `products/${ctxSlug(C)}/qa-pro-docs.json`;
+const ctxKbOn = (pid) => ctxActive(pid);
+function ctxKbRead(id) {
+  const C = S.ctx;
+  if (!C.kbMap) ctxKbIndex();
+  const rel = C.kbMap.get(id), t = rel ? ctxText(rel) : null;
+  return t == null ? null : ctxKbParse(rel, t).d;
+}
+function ctxKbWrite(id, next) {
+  const C = S.ctx;
+  if (!C.kbMap) ctxKbIndex();
+  let rel = C.kbMap.get(id);
+  if (!rel) {
+    const used = new Set([...C.files.keys()].filter((p) => ctxText(p) != null));
+    const base = CP.kbDir(C) + (slugName(next.title).slice(0, 60) || 'razdel');
+    rel = base + '.md';
+    for (let i = 2; used.has(rel); i++) rel = `${base}-${i}.md`;
+    C.kbMap.set(id, rel);
+  }
+  ctxPut(rel, ctxKbSerialize({ ...next, id }));
+}
+function ctxKbDelete(id) {
+  const C = S.ctx;
+  if (!C.kbMap) ctxKbIndex();
+  const rel = C.kbMap.get(id);
+  if (rel) { ctxDel(rel); C.kbMap.delete(id); }
+}
+// отметки о разобранных документах — в файле источника (оглавление собирается из файлов разделов)
+function ctxKbDocsWrite(blocks, docs) {
+  const text = JSON.stringify(docs || {}, null, 1) + '\n';
+  if (ctxText(ctxKbDocsPath()) !== text) ctxPut(ctxKbDocsPath(), text);
+  return { blocks, docs, updatedAt: Date.now() };
+}
+// после чтения источника или отключения — база знаний на экране и в запросах пересобирается
+function ctxKbReload(pid) {
+  if (!pid || pid !== S.productId) return;
+  S.kb.cache = {}; S.ctx.kbMap = null;
+  loadKb(pid);
 }
 
 /* ---------- канал: мост (приложение Claude или загрузчик) и загрузчик (GitHub) ---------- */
@@ -235,7 +314,7 @@ async function ctxSaveSrc() {
   const C = S.ctx, pid = C.pid;
   if (!pid) return;
   const src = { ...C.src }, lastPush = C.lastPush || null;
-  const pending = [...C.pending].map((p) => [p, ctxText(p)]).filter((x) => x[1] != null);
+  const pending = [...C.pending].map((p) => [p, ctxText(p)]);   // null — файл удалён
   lsSet('qapro.ctx.' + pid, { src, lastPush });
   if (!ctxDbOk()) return;
   try {
@@ -336,8 +415,7 @@ function ctxApply() {
   S.lessons = lt != null ? ctxParseLessons(lt) : C.backup.lessons.slice();
   const qt = ctxText(CP.context(C));
   if (qt != null && !S.ctxDirty) { S.qaCtx = ctxParseQaCtx(qt); renderQaCtx(true); }
-  C.kb = ctxKbSections([...C.files].filter(([p]) => p.startsWith(CP.kbDir(C)) || p.startsWith('knowledge/')));
-  C.kbAt = Date.now();
+  ctxKbReload(C.pid); // база знаний — из файлов источника
   ctxRehydrate();
   renderCfg(); renderAll();
 }
@@ -352,7 +430,8 @@ function ctxOff() {
     saveDrafts();
   }
   const pid = C.pid;
-  C.on = false; C.backup = null; C.kb = []; C.files = new Map(); C.conflicts = []; C.pending = new Set(); C.git = null; C.warn = [];
+  C.on = false; C.backup = null; C.kbMap = null; C.files = new Map(); C.conflicts = []; C.pending = new Set(); C.git = null; C.warn = [];
+  ctxKbReload(pid); // база знаний — снова из хранилища QA pro
   const prod = productById(pid);
   if (prod && pid === S.productId) { S.qaCtx = { all: '', api: '', ui: '', e2e: '', ...(prod.qaCtx || {}) }; S.ctxDirty = false; renderQaCtx(true); }
   if (pid && S.caps.db) readProduct(pid).then((p) => { if (p) upsertLocalProduct(pid, p); renderAll(); }).catch(() => {});
@@ -363,8 +442,6 @@ function ctxPassportFor(pid) {
   if (!ctxActive(pid)) return null;
   return ctxText(CP.passport(S.ctx));
 }
-// база знаний: разделы из репозитория + разделы продукта с другими названиями
-function ctxKbFor(pid) { return ctxActive(pid) ? S.ctx.kb : []; }
 
 /* ---------- запись ---------- */
 let ctxFlushT = null, ctxDeferNoted = false;
@@ -373,11 +450,19 @@ let ctxFlushT = null, ctxDeferNoted = false;
    по кнопке «Записать в источник»; сразу пишется только то, что пользователь сохраняет сам. В браузере загрузчик
    спрашивает один раз на папку — там запись сразу. */
 const ctxDefer = () => CTX_BRIDGE.has(S.ctx.src.kind) && S.ctx.channel === 'app';
-function ctxPut(rel, text, { now = false } = {}) {
+// файл к удалению: в очереди как запись без текста
+function ctxDel(rel) {
+  const C = S.ctx, cur = C.files.get(rel);
+  if (!cur || cur.text == null) return;
+  C.files.set(rel, { text: null, hash: cur.hash ?? null, dirty: true });
+  ctxPut(rel, null, { del: true });
+}
+const ctxWriteItem = (p) => { const t = ctxText(p), base = S.ctx.files.get(p)?.hash ?? null; return t == null ? { path: ctxFull(p), delete: true, base } : { path: ctxFull(p), text: t, base }; };
+function ctxPut(rel, text, { now = false, del = false } = {}) {
   const C = S.ctx;
   const cur = C.files.get(rel);
-  if (cur && cur.text === text) return;
-  C.files.set(rel, { text, hash: cur?.hash ?? null, dirty: true });
+  if (!del && cur && cur.text === text) return;
+  if (!del) C.files.set(rel, { text, hash: cur?.hash ?? null, dirty: true });
   C.pending.add(rel);
   if (CTX_BRIDGE.has(C.src.kind) && (now || !ctxDefer())) { clearTimeout(ctxFlushT); ctxFlushT = setTimeout(() => ctxFlush().catch(() => {}), 300); }
   else {
@@ -399,10 +484,10 @@ async function ctxFlush({ force = false, only = null } = {}) {
   if (!CTX_BRIDGE.has(C.src.kind) || !C.pending.size) return { written: 0 };
   const paths = [...C.pending].filter((p) => !only || only.includes(p));
   if (!paths.length) return { written: 0 };
-  const files = paths.map((p) => ({ path: ctxFull(p), text: ctxText(p) ?? '', base: C.files.get(p)?.hash ?? null }));
+  const files = paths.map(ctxWriteItem);
   try {
     const r = await ctxCall('context_write', { root: ctxRootOf(), files, ...(force ? { force: true } : {}) });
-    for (const w of r.written || []) { const rel = ctxRel(w.path); const f = C.files.get(rel); if (f) { f.hash = w.hash; f.dirty = false; } C.pending.delete(rel); }
+    for (const w of r.written || []) { const rel = ctxRel(w.path); const f = C.files.get(rel); if (w.deleted || (f && f.text == null)) C.files.delete(rel); else if (f) { f.hash = w.hash; f.dirty = false; } C.pending.delete(rel); }
     const conf = (r.conflicts || []).map((c) => ({ path: ctxRel(c.path), theirs: c.text, hash: c.hash }));
     C.conflicts = [...C.conflicts.filter((c) => !conf.some((x) => x.path === c.path) && C.pending.has(c.path)), ...conf];
     if (conf.length) toast(`Не записано: ${conf.length} ${plural(conf.length, 'файл изменён', 'файла изменены', 'файлов изменены')} в источнике после чтения — выберите версию в настройках «Контекст».`, 'err');
@@ -483,7 +568,7 @@ async function ctxSwitch(pid) {
   C.on = true;
   const cache = await ctxCacheRead(pid);
   if (tok !== ctxTok) return;
-  const pend = new Map((saved?.pending || []).filter((x) => Array.isArray(x) && typeof x[1] === 'string'));
+  const pend = new Map((saved?.pending || []).filter((x) => Array.isArray(x) && (typeof x[1] === 'string' || x[1] === null)));
   if (cache) {
     for (const [p, t] of pend) { const f = cache.files.get(p); cache.files.set(p, { text: t, hash: f?.hash ?? null, dirty: true }); C.pending.add(p); }
     C.git = cache.git; ctxApplyFiles(cache.files, { at: cache.at, fromCache: true });
@@ -594,14 +679,21 @@ async function ctxExportPlan() {
   if (passport) out.set(CP.passport(C), passport + '\n');
   const qc = { all: '', api: '', ui: '', e2e: '', ...(prod?.qaCtx || {}) };
   if (ctxHas(qc)) out.set(CP.context(C), ctxMakeQaCtx(qc));
-  await kbLoadAll(pid).catch(() => 0);
-  const used = new Set();
-  for (const x of kbSections(pid).filter((y) => !y.b.ctx)) {
-    let name = slugName(x.b.title).slice(0, 60) || 'razdel';
-    while (used.has(name)) name += '-2';
-    used.add(name);
-    const body = kbSectionText(x.d).trim();
-    if (body) out.set(CP.kbDir(C) + name + '.md', `# ${x.b.title}\n\n${x.d.summary || x.b.summary ? `> ${String(x.d.summary || x.b.summary).trim()}\n\n` : ''}${body}\n`);
+  // база знаний продукта из хранилища QA pro — разделы с выдержками и сводками (агент сможет дополнять их дальше)
+  if (S.caps.db) {
+    try {
+      const idx = await kbIdxReadDb(pid);
+      const used = new Set();
+      for (const b of idx.blocks) {
+        const d = await kbReadDb(pid, b.id).catch(() => null);
+        if (!d || (!arrOf(d.parts).length && !String(d.synth || '').trim())) continue;
+        let name = slugName(b.title).slice(0, 60) || 'razdel';
+        for (let i = 2; used.has(name); i++) name = (slugName(b.title).slice(0, 60) || 'razdel') + '-' + i;
+        used.add(name);
+        out.set(CP.kbDir(C) + name + '.md', ctxKbSerialize({ ...d, id: b.id, title: d.title || b.title }));
+      }
+      if (Object.keys(idx.docs || {}).length) out.set(ctxKbDocsPath(C), JSON.stringify(idx.docs, null, 1) + '\n');
+    } catch { /* базы знаний в хранилище нет */ }
   }
   if (ctxText(CP.claude) == null) out.set(CP.claude, ctxClaudeMd(ctxSlug(C)));
   return out;
@@ -637,7 +729,7 @@ async function ctxSend() {
     if (C.src.kind === 'github') {
       const paths = [...C.pending];
       if (!paths.length) { toast('Нет изменений для отправки.'); return; }
-      const files = paths.map((p) => ({ path: ctxFull(p), text: ctxText(p) ?? '', base: C.files.get(p)?.hash ?? null }));
+      const files = paths.map(ctxWriteItem);
       const r = await ctxGh('commit', { repo: C.src.repo, branch: C.src.branch, base: C.src.baseBranch, files, message: msg });
       if (!r.committed) {
         C.conflicts = (r.conflicts || []).map((c) => ({ path: ctxRel(c.path), theirs: null, hash: c.hash, gh: true }));
@@ -676,7 +768,7 @@ const ctxAgo = (t) => (t ? new Date(t).toLocaleString('ru-RU', { day: 'numeric',
 function ctxFoundHTML() {
   const C = S.ctx, has = (p) => ctxText(p) != null;
   const tplN = TYPES.filter((t) => has(CP.tpl(t))).length;
-  const kbN = C.kb.length, ln = has(CP.lessons(C)) ? ctxParseLessons(ctxText(CP.lessons(C))).length : 0;
+  const kbN = S.kb.pid === C.pid ? S.kb.index.blocks.length : 0, ln = has(CP.lessons(C)) ? ctxParseLessons(ctxText(CP.lessons(C))).length : 0;
   const row = (ok, name, extra = '') => `<li class="${ok ? 'ok' : 'no'}"><span aria-hidden="true">${ok ? '✓' : '—'}</span> ${name}${extra ? ` <span class="muted">· ${extra}</span>` : ''}</li>`;
   return `<ul class="ctx-found">
     ${row(has(CP.rules), 'Правила для агента', esc(ctxFull(CP.rules)))}
@@ -688,7 +780,7 @@ function ctxFoundHTML() {
     ${row(has(CP.context(C)), 'Доп. контекст QA', esc(ctxFull(CP.context(C))))}
     ${row(kbN > 0, `База знаний: ${kbN} ${plural(kbN, 'раздел', 'раздела', 'разделов')}`, esc(ctxFull(CP.kbDir(C))) + ' и ' + esc(ctxFull('knowledge/')))}
   </ul>
-  <p class="hint">Чего нет в источнике, берётся из базы QA pro. Разделы базы знаний из репозитория добавляются к базе знаний продукта; при совпадении названия используется версия из репозитория.</p>`;
+  <p class="hint">Правила, шаблоны и память, которых нет в источнике, берутся из базы QA pro. База знаний — только из файлов источника: новые документы агент разбирает прямо в них.</p>`;
 }
 function ctxGitHTML() {
   const C = S.ctx, g = C.git, k = C.src.kind;
