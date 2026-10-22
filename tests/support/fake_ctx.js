@@ -21,6 +21,7 @@
     }
     if (tool === 'context_read' && a.op === 'read') return { files: a.paths.map((p) => (p in r.files ? { path: p, text: r.files[p], hash: h(r.files[p]) } : { path: p, missing: true })) };
     if (tool === 'context_read' && a.op === 'status') return r.git;
+    if (tool === 'context_write' && r.failWrite) { const m = r.failWrite; r.failWrite = null; throw Object.assign(new Error(m), { code: 'cancelled' }); }
     if (tool === 'context_write') {
       const conflicts = [];
       if (!a.force) for (const f of a.files) { const cur = f.path in r.files ? h(r.files[f.path]) : null; if (f.base !== undefined && (f.base || null) !== cur && cur !== h(f.text)) conflicts.push({ path: f.path, hash: cur, text: r.files[f.path] ?? null }); }

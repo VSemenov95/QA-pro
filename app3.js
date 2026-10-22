@@ -441,12 +441,12 @@ const SET_TABS = [['model', 'Модель'], ['ctx', 'Контекст'], ['tpl'
 const tmsDirty = () => !!S.tmsDraft && JSON.stringify(S.tmsDraft) !== JSON.stringify(S.tms);
 const cfgKeyOfTab = () => (S.cfgTab === 'tpl' ? S.cfgType : S.cfgTab);
 const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : 'Шаблон ' + TL[k]);
-const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : id === 'ctx' ? S.ctx.conflicts.length > 0 || (S.ctx.src.kind === 'github' && S.ctx.pending.size > 0) : !!S.cfgDirty[id]);
+const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : id === 'ctx' ? S.ctx.conflicts.length > 0 || (S.ctx.src.kind !== 'folder' && S.ctx.pending.size > 0) : !!S.cfgDirty[id]);
 const DOT = '<span class="dot-d" title="Есть несохранённые изменения">•</span>';
 function renderCfgTabs() {
   const nav = $('#set-tabs');
   if (nav) nav.innerHTML = SET_TABS.map(([id, name]) => `<button type="button" role="tab" id="settab-${id}" aria-selected="${S.setTab === id}" data-settab="${id}">${name}${cfgTabDirty(id) ? DOT : ''}</button>`).join('');
-  $('#btn-settings')?.classList.toggle('dirty', ['tpl', 'export', 'review', 'tms'].some(cfgTabDirty));
+  $('#btn-settings')?.classList.toggle('dirty', ['ctx', 'tpl', 'export', 'review', 'tms'].some(cfgTabDirty));
   const rd = $('#h-rules-dot');
   if (rd) rd.hidden = !S.cfgDirty.rules;
 }

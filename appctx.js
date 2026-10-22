@@ -205,7 +205,7 @@ async function ctxLoadSrc(pid) {
 async function ctxSaveSrc() {
   const C = S.ctx, pid = C.pid;
   if (!pid) return;
-  const v = { src: { ...C.src }, pending: [...C.pending].map((p) => [p, ctxText(p)]).filter((x) => x[1] != null && !CTX_BRIDGE.has(C.src.kind)), lastPush: C.lastPush || null, updatedAt: Date.now() };
+  const v = { src: { ...C.src }, pending: [...C.pending].map((p) => [p, ctxText(p)]).filter((x) => x[1] != null), lastPush: C.lastPush || null, updatedAt: Date.now() };
   lsSet('qapro.ctx.' + pid, { src: v.src, lastPush: v.lastPush });
   if (ctxDbOk()) { try { await S.caps.db.doc(ctxDocPath(pid)).set(v); } catch { /* только в этом браузере */ } }
 }
@@ -329,16 +329,32 @@ function ctxPassportFor(pid) {
 function ctxKbFor(pid) { return ctxActive(pid) ? S.ctx.kb : []; }
 
 /* ---------- запись ---------- */
-let ctxFlushT = null;
-function ctxPut(rel, text) {
+let ctxFlushT = null, ctxDeferNoted = false;
+/* В приложении Claude каждый вызов моста, который меняет файлы, приложение подтверждает отдельно. Поэтому там
+   автоматические записи (доп. контекст, паспорт после генерации, память агента) копятся и уходят одним вызовом
+   по кнопке «Записать в источник»; сразу пишется только то, что пользователь сохраняет сам. В браузере загрузчик
+   спрашивает один раз на папку — там запись сразу. */
+const ctxDefer = () => CTX_BRIDGE.has(S.ctx.src.kind) && S.ctx.channel === 'app';
+function ctxPut(rel, text, { now = false } = {}) {
   const C = S.ctx;
   const cur = C.files.get(rel);
   if (cur && cur.text === text) return;
   C.files.set(rel, { text, hash: cur?.hash ?? null, dirty: true });
   C.pending.add(rel);
-  if (CTX_BRIDGE.has(C.src.kind)) { clearTimeout(ctxFlushT); ctxFlushT = setTimeout(() => ctxFlush().catch(() => {}), 300); }
-  else ctxSaveSrc();
+  if (CTX_BRIDGE.has(C.src.kind) && (now || !ctxDefer())) { clearTimeout(ctxFlushT); ctxFlushT = setTimeout(() => ctxFlush().catch(() => {}), 300); }
+  else {
+    ctxSaveSrc();
+    if (ctxDefer() && !ctxDeferNoted) { ctxDeferNoted = true; toast('Изменения контекста ждут записи: шестерёнка → «Контекст» → «Записать в источник». Так приложение Claude спросит подтверждение один раз.'); }
+  }
   renderCtxPane();
+}
+async function ctxFlushNow() {
+  const C = S.ctx;
+  if (C.busy || !C.pending.size) return;
+  C.busy = 'write'; C.error = ''; renderCtxPane();
+  try { const r = await ctxFlush(); if (r.written && !r.conflicts) toast(`Записано в источник: ${r.written} ${plural(r.written, 'файл', 'файла', 'файлов')}.`); }
+  catch { /* ошибка показана во вкладке, изменения остаются в очереди */ }
+  finally { C.busy = ''; ctxSaveSrc(); renderCtxPane(); }
 }
 async function ctxFlush({ force = false, only = null } = {}) {
   const C = S.ctx;
@@ -353,11 +369,11 @@ async function ctxFlush({ force = false, only = null } = {}) {
     C.conflicts = [...C.conflicts.filter((c) => !conf.some((x) => x.path === c.path) && C.pending.has(c.path)), ...conf];
     if (conf.length) toast(`Не записано: ${conf.length} ${plural(conf.length, 'файл изменён', 'файла изменены', 'файлов изменены')} в источнике после чтения — выберите версию в настройках «Контекст».`, 'err');
     C.error = '';
-    ctxCacheWrite();
+    ctxCacheWrite(); ctxSaveSrc();
     renderCtxPane();
     ctxCall('context_read', { op: 'status', root: ctxRootOf() }).then((g) => { C.git = g; renderCtxPane(); }).catch(() => {});
     return { written: (r.written || []).length, conflicts: conf.length };
-  } catch (e) { C.error = 'Не удалось записать в источник: ' + e.message; renderCtxPane(); toast(C.error, 'err'); throw e; }
+  } catch (e) { C.error = 'Не удалось записать в источник: ' + e.message + ' Изменения не потеряны — нажмите «Повторить запись».'; ctxSaveSrc(); renderCtxPane(); toast(C.error, 'err'); throw e; }
 }
 async function ctxResolve(rel, mine) {
   const C = S.ctx, c = C.conflicts.find((x) => x.path === rel);
@@ -376,7 +392,7 @@ async function ctxSaveCfg(k) {
   if (TYPES.includes(k) && !tplInfo(k).ok) return toast('Исправьте JSON примера перед сохранением.', 'err');
   if (S.ctx.src.kind === 'folder') return toast('Папка подключена только для чтения: изменение действует до перезагрузки страницы. Чтобы записывать, подключите папку через мост.', 'err');
   const v = cfgValue(k);
-  ctxPut(ctxCfgPath(k), TYPES.includes(k) ? ctxMakeTpl(k, v) : ctxMakePlain(k, v));
+  ctxPut(ctxCfgPath(k), TYPES.includes(k) ? ctxMakeTpl(k, v) : ctxMakePlain(k, v), { now: true }); // сохраняет сам пользователь — пишем сразу
   S.cfgDirty[k] = false;
   renderCfgTabs(); renderCfgFoot();
   toast(`${cfgName(k)}: ${S.ctx.src.kind === 'github' ? 'сохранено — отправьте изменения в GitHub в настройках «Контекст»' : 'записано в ' + ctxFull(ctxCfgPath(k))}`);
@@ -677,6 +693,8 @@ function ctxPaneHTML() {
   const confirm = cf?.kind === 'export' ? `<div class="banner warn"><div><b>Выгрузить в источник ${cf.plan.size} ${plural(cf.plan.size, 'файл', 'файла', 'файлов')}?</b> Правила, шаблоны и память команды, паспорт, доп. контекст и разделы базы знаний продукта из QA pro${cf.over.length ? `. Будут перезаписаны: ${cf.over.slice(0, 8).map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${cf.over.length > 8 ? ` и ещё ${cf.over.length - 8}` : ''}` : ''}.
       <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="export-run">Выгрузить</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>`
     : cf?.kind === 'off' ? `<div class="banner warn"><div><b>Есть неотправленные изменения: ${C.pending.size}.</b> После отключения они пропадут.<div class="row" style="margin-top:8px"><button class="btn" type="button" data-ctx-act="off-force">Отключить без отправки</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>` : '';
+  const bridgePend = C.pending.size && CTX_BRIDGE.has(C.src.kind) ? `<div class="banner ${C.error ? 'err' : 'info'}"><div>${C.error ? '<b>Не записано в источник.</b> ' : `<b>Ждут записи в источник: ${C.pending.size}.</b> `}${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${ctxDefer() && !C.error ? '<br><span class="hint">В приложении Claude правки копятся и записываются одним вызовом — приложение спросит подтверждение один раз.</span>' : ''}
+      <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="flush" ${C.busy ? 'disabled' : ''}>${C.error ? 'Повторить запись' : 'Записать в источник'}</button></div></div></div>` : '';
   const pend = C.pending.size && !CTX_BRIDGE.has(C.src.kind) ? `<div class="hint">Изменения, ещё не ${C.src.kind === 'github' ? 'отправленные в GitHub' : 'записанные (папка только для чтения)'}: ${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${C.src.kind === 'folder' ? ' · <button class="link" type="button" data-ctx-act="download">скачать файлы</button>' : ''}</div>` : '';
   const canSend = C.src.kind === 'github' ? C.pending.size > 0 : CTX_BRIDGE.has(C.src.kind) && !!C.git?.repo && !!C.git?.remote;
   const acts = `<div class="row">
@@ -689,6 +707,7 @@ function ctxPaneHTML() {
       <div class="exp-row"><b>${CTX_KINDS[C.src.kind].title}</b><span class="muted small mono" style="word-break:break-all">${esc(ctxWhere())}</span></div>
       <div class="hint">Канал: ${channel} · прочитано ${ctxAgo(C.loadedAt)}${C.fromCache ? ' (копия)' : ''} · ${C.files.size} ${plural(C.files.size, 'файл', 'файла', 'файлов')} · папка продукта <span class="mono">products/${esc(ctxSlug())}</span>${C.note ? ` · ${esc(C.note)}` : ''}</div>
       ${ctxGitHTML()}
+      ${bridgePend}
       ${ctxFoundHTML()}
       ${pend}
       ${acts}
@@ -734,5 +753,6 @@ function bindCtxPane() {
     else if (a === 'mine' || a === 'theirs') ctxResolve(b.dataset.p, a === 'mine');
     else if (a === 'base') ctxBackToBase();
     else if (a === 'download') ctxDownloadPending();
+    else if (a === 'flush') ctxFlushNow();
   });
 }

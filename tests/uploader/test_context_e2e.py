@@ -99,10 +99,19 @@ def test_claude_app_reads_the_folder_through_the_bridge(desk_run):
     assert 'context_read' in h.mcp.log
 
 
+def h_calls(run):
+    return list(run[0].mcp.log)
+
+
 def test_claude_app_writes_to_the_folder(desk_run):
     _, desk, folder = desk_run
-    desk.call('a.addLesson("УРОК-ИЗ-ПРИЛОЖЕНИЯ", "generation")')
-    desk.page.wait_for_function('() => !window.__qa.S.ctx.pending.size', timeout=10000)
+    desk.call('a.addLesson("УРОК-ИЗ-ПРИЛОЖЕНИЯ", "generation")')   # в приложении автоматические записи копятся
+    desk.page.wait_for_selector('[data-ctx-act=flush]', timeout=10000)
+    assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' not in (folder / 'products' / 'moi' / 'lessons.md').read_text(encoding='utf-8')
+    calls = len(h_calls(desk_run))
+    desk.page.click('[data-ctx-act=flush]')
+    desk.page.wait_for_function('() => !window.__qa.S.ctx.pending.size && !window.__qa.S.ctx.busy', timeout=10000)
+    assert h_calls(desk_run)[calls:].count('context_write') == 1
     assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' in (folder / 'products' / 'moi' / 'lessons.md').read_text(encoding='utf-8')
 
 

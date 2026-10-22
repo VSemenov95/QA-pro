@@ -173,6 +173,64 @@ def test_take_their_version_on_conflict(cx):
     assert repo(cx, 'rules/generation.md').endswith('ИХ ВЕРСИЯ')
 
 
+# ---------- приложение Claude: автоматические записи копятся ----------
+def as_app(app):
+    """Канал «мост в приложении Claude»: каждая запись там — отдельное подтверждение приложения."""
+    app.call('(S.ctx.channel = "app", true)')
+    return app
+
+
+def test_claude_app_collects_automatic_writes(cx):
+    as_app(cx)
+    cx.close_settings()
+    cx.page.click('[data-ctx=api]')
+    cx.page.fill('#qa-ctx', 'БАЗОВЫЙ-URL https://stage/api')
+    cx.page.wait_for_function('() => window.__qa.S.ctx.pending.size === 1', timeout=8000)
+    cx.call('a.addLesson("УРОК-В-ОЧЕРЕДИ", "generation")')
+    cx.call('a.savePassport(S.productId, "## Термины\\n- ПАСПОРТ-В-ОЧЕРЕДИ", null)')
+    cx.page.wait_for_timeout(1500)
+    assert cx.state('[...S.ctx.pending].sort()') == ['products/moi/context.md', 'products/moi/lessons.md', 'products/moi/passport.md']
+    assert 'БАЗОВЫЙ-URL' not in repo(cx, 'products/moi/context.md')   # в источник ещё не ушло
+    writes = lambda: cx.page.evaluate('() => window.__repo.calls.filter((c) => c[0] === "context_write").length')
+    assert writes() == 0
+    assert any('ждут записи' in t for t in cx.toast_texts())
+    assert cx.state("document.querySelector('#btn-settings').classList.contains('dirty')")
+    cx.open_settings('ctx')
+    assert 'Ждут записи в источник: 3' in cx.text('#ctx-body') and cx.count('#settab-ctx .dot-d') == 1
+    cx.page.click('[data-ctx-act=flush]')
+    cx.page.wait_for_function('() => window.__qa.S.ctx.pending.size === 0 && !window.__qa.S.ctx.busy', timeout=8000)
+    assert writes() == 1   # одна запись — одно подтверждение
+    assert 'БАЗОВЫЙ-URL' in repo(cx, 'products/moi/context.md') and 'УРОК-В-ОЧЕРЕДИ' in repo(cx, 'products/moi/lessons.md')
+    assert 'ПАСПОРТ-В-ОЧЕРЕДИ' in repo(cx, 'products/moi/passport.md')
+
+
+def test_claude_app_writes_explicit_save_at_once(cx):
+    as_app(cx)
+    cx.call('(a.S.cfg.rules = "СОХРАНЕНО-ЯВНО", a.S.cfgDirty.rules = true, a.saveCfg("rules"))')
+    assert 'СОХРАНЕНО-ЯВНО' in wait_repo(cx, 'rules/generation.md', 'СОХРАНЕНО-ЯВНО')
+
+
+def test_claude_app_queue_survives_reload(cx):
+    as_app(cx)
+    cx.call('a.addLesson("УРОК-ДО-ПЕРЕЗАГРУЗКИ", "generation")')
+    cx.page.wait_for_timeout(600)
+    cx.reload()
+    cx.page.wait_for_function('() => window.__qa.S.ctx.on && !window.__qa.S.ctx.busy && window.__qa.S.ctx.files.size > 0', timeout=15000)
+    assert cx.state('[...S.ctx.pending]') == ['products/moi/lessons.md']
+    assert 'УРОК-ДО-ПЕРЕЗАГРУЗКИ' in cx.state('S.lessons.map((l) => l.text).join(" ")')
+
+
+def test_declined_write_keeps_changes_and_offers_retry(cx):
+    cx.page.evaluate('() => { window.__repo.failWrite = "Вызов моста отклонён в окне подтверждения приложения."; }')
+    cx.call('(a.S.cfg.rules = "ПОСЛЕ-ОТКАЗА", a.S.cfgDirty.rules = true, a.saveCfg("rules"))')
+    cx.page.wait_for_function('() => !!window.__qa.S.ctx.error && !window.__qa.S.ctx.busy', timeout=8000)
+    assert 'Повторить запись' in cx.text('#ctx-body') and 'отклонён' in cx.text('#ctx-body')
+    assert cx.state('[...S.ctx.pending]') == ['rules/generation.md'] and repo(cx, 'rules/generation.md') == REPO['rules/generation.md']
+    cx.page.click('[data-ctx-act=flush]')
+    assert 'ПОСЛЕ-ОТКАЗА' in wait_repo(cx, 'rules/generation.md', 'ПОСЛЕ-ОТКАЗА')
+    cx.page.wait_for_function('() => !window.__qa.S.ctx.error && window.__qa.S.ctx.pending.size === 0')
+
+
 # ---------- выгрузка, обновление, отправка ----------
 def test_export_qa_base_into_empty_repository(make_app):
     app = make_app(init=init(files={}))
