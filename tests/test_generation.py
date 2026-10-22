@@ -812,7 +812,7 @@ def test_template_prefix_is_used_in_case_numbers(app):
 def test_template_example_goes_into_cases_prompt(app):
     app.generate()
     p = app.model.prompts_of('promptGenerate')[0]
-    assert 'Образец тест-кейса. Повторяй точно его поля' in p and '[BE] POST /api/v1/password-reset — запрос ссылки для зарегистрированного email' in p
+    assert 'Образец тест-кейса. Повторяй точно его поля' in p and '[BE] POST {baseURL}/api/v1/password-reset — запрос ссылки для зарегистрированного email' in p
 
 
 def test_broken_template_blocks_the_run_and_opens_settings(app):

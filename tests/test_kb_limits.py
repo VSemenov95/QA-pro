@@ -399,7 +399,7 @@ def test_outline_of_a_short_list_shows_everything(app):
     assert o.split('\n') == [f'- kb{i} · Раздел {i} — О разделе {i}' for i in range(5)]
 
 
-# ---------- знания о продукте до 40 000 знаков ----------
+# ---------- знания о продукте: без ограничения длины ----------
 RULES = '## Бизнес-правила и ограничения\n' + '\n'.join(f'- Правило {i}: лимит {i} операций, экран «Платёж {i}», сообщение «Превышен лимит {i}» (ТЗ)' for i in range(470))
 
 
@@ -420,12 +420,46 @@ def test_long_passport_is_available_to_the_page_and_after_reload(app):
     app.page.wait_for_function('() => (window.__qa.S.products.find((p) => p.id === window.__qa.S.productId).passport.text || "").length === 39000')
 
 
-def test_passport_is_cut_to_the_maximum(app):
+def test_passport_is_not_cut(app):
     app.call('a.savePassport(S.productId, arg, null)', RULES)
     app.page.click('[data-act=pass-edit]')
     app.page.fill('#pass-text', 'я' * 45000)
     app.page.click('[data-act=pass-save]')
-    app.page.wait_for_function('() => (window.__qa.S.products.find((p) => p.id === window.__qa.S.productId).passport.len) === 40000')
+    app.page.wait_for_function('() => (window.__qa.S.products.find((p) => p.id === window.__qa.S.productId).passport.len) === 45000')
+    assert app.state('S.products.find((p) => p.id === S.productId).passport.text') == 'я' * 45000
+
+
+BIG = '## Бизнес-правила и ограничения\n' + '\n'.join(f'- Правило {i}: лимит {i} операций, экран «Платёж {i}», сообщение «Превышен лимит {i}» (ТЗ)' for i in range(3000))
+
+
+def test_very_long_passport_is_stored_in_parts_within_record_limit(app):
+    assert len(BIG) > 250000
+    app.call('a.savePassport(S.productId, arg, null)', BIG)
+    app.call('a.savePassport(S.productId, arg, null)', BIG + '\n- Новое правило')
+    pid = app.state('S.productId')
+    recs = {k: v for k, v in app.db.store.items() if k.startswith(f'products/{pid}/meta/passport')}
+    assert len(recs) > 2 and all(nbytes(v) <= REC_LIMIT for v in recs.values())
+    main = recs[f'products/{pid}/meta/passport']
+    assert main['parts'] == 5 and main['prev']['parts'] == 5 and main['prev']['text'] == ''
+    assert app.db.get(f'products/{pid}')['passport']['len'] == len(BIG) + len('\n- Новое правило')
+
+
+def test_very_long_passport_reads_back_after_reload_with_previous_version(app):
+    app.call('a.savePassport(S.productId, arg, null)', BIG)
+    app.call('a.savePassport(S.productId, arg, null)', BIG + '\n- Новое правило')
+    app.reload()
+    n = len(BIG) + len('\n- Новое правило')
+    app.page.wait_for_function('(n) => (window.__qa.S.products.find((p) => p.id === window.__qa.S.productId).passport.text || "").length === n', arg=n)
+    p = app.call('a.readProduct(S.productId)')
+    assert p['passport']['text'].endswith('- Новое правило') and p['passportPrev']['text'] == BIG
+    block = app.call("a.productBlock(null, 'single', 'Платёж 2999 лимит операций')")
+    assert 'Правило 2999' in block and len(block) < 8000 + 400   # в запрос — только пункты по теме
+
+
+def test_short_passport_stays_in_one_record(app):
+    app.call('a.savePassport(S.productId, arg, null)', RULES[:39000])
+    pid = app.state('S.productId')
+    assert [k for k in app.db.store if k.startswith(f'products/{pid}/meta/passport')] == [f'products/{pid}/meta/passport']
 
 
 def test_only_lines_on_the_topic_of_a_long_passport_go_into_the_request(app):

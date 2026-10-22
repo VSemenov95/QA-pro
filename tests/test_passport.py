@@ -179,10 +179,11 @@ def test_model_may_return_the_whole_passport_instead_of_changes(pa):
     assert passport(pa) == '## Термины\n- Токен — ссылка' and log(pa) == ['Документы: паспорт переписан']
 
 
-def test_nearly_full_passport_asks_to_shorten(pa):
-    save(pa, '## Правила\n' + '\n'.join(f'- Правило {i}: лимит {i} операций за {i} минут, экран «Платёж {i}»' for i in range(560))[:38000])
+def test_long_passport_is_not_asked_to_shorten(pa):
+    save(pa, '## Правила\n' + '\n'.join(f'- Правило {i}: лимит {i} операций за {i} минут, экран «Платёж {i}»' for i in range(1500)))
     learn(pa)
-    assert 'Паспорт почти заполнен' in pa.model.prompts_of('promptPassportDelta')[0] and 'стал короче хотя бы на 3000 знаков' in pa.model.prompts_of('promptPassportDelta')[0]
+    p = pa.model.prompts_of('promptPassportDelta')[0]
+    assert 'Паспорт почти заполнен' not in p and 'стал короче' not in p
 
 
 def test_passport_not_nearly_full_does_not_ask_to_shorten(pa):
@@ -232,7 +233,7 @@ def test_big_documents_are_learned_in_parts(pa, tmp_path):
 def test_edit_opens_current_text(pa):
     save(pa, PASSPORT)
     pa.page.click('[data-act=pass-edit]')
-    assert pa.page.input_value('#pass-text') == PASSPORT and 'До 40' in pa.text('#prod-info .case-edit .hint')
+    assert pa.page.input_value('#pass-text') == PASSPORT and 'До 40' not in pa.text('#prod-info .case-edit .hint')
 
 
 def test_manual_edit_is_saved_for_the_team_and_keeps_the_previous_version(pa):
