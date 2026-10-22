@@ -1469,7 +1469,7 @@ function productPanelHTML() {
     ${passActs ? `<div class="pp-acts">${passActs}</div>` : ''}
     <p class="hint">Паспорт продукта пополняется автоматически после каждой генерации и учёта ответов на вопросы. Агент опирается на него в анализе, чек-листах, кейсах и ревью: те же названия экранов, роли и термины, связи между модулями. Готовые кейсы и пункты продукта агент не повторяет${S.settings.skipExisting ? '' : ' — сейчас это отключено в параметрах'}.</p>
     ${K.busy || K.log.length ? `<ul class="log">${K.log.slice(-8).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : ''}${K.error ? `<p class="case-note err">${esc(K.error)}</p>` : ''}
-    ${S.passEdit ? `<div class="case-edit"><label class="lbl" for="pass-text">Паспорт продукта (Markdown)</label><textarea id="pass-text" rows="14">${esc(S.passEdit.text)}</textarea><span class="hint">До ${fmtN(PASSPORT_MAX)} знаков. Правки сразу увидит вся команда и агент.</span>
+    ${S.passEdit ? `<div class="case-edit"><label class="lbl" for="pass-text">Паспорт продукта (Markdown)</label><textarea id="pass-text" rows="14">${esc(S.passEdit.text)}</textarea><span class="hint">Правки сразу увидит вся команда и агент. В запросы к модели идут пункты по теме запроса.</span>
         <div class="case-acts"><button class="btn accent" type="button" data-act="pass-save">Сохранить</button><button class="btn" type="button" data-act="pass-cancel">Отмена</button></div></div>`
       : pass ? `<div class="md pp-md">${mdHTML(pass)}</div>`
         : `<div class="empty pp-empty"><b>Пока пусто</b><span>Знания появятся после первой генерации. Или нажмите «Изучить документы» — агент прочитает документы продукта и составит паспорт сразу.</span><button class="btn" type="button" data-act="pass-new" ${busy ? 'disabled' : ''}>Написать вручную</button></div>`}
@@ -2297,7 +2297,7 @@ function onTabClick(e) {
     case 'pass-new': S.passEdit = { text: PASSPORT_SECTIONS.slice(0, 4).map((h) => `## ${h}\n- `).join('\n\n') }; renderProduct(true); $('#pass-text')?.focus(); break;
     case 'pass-cancel': S.passEdit = null; renderProduct(true); break;
     case 'pass-save': {
-      const text = String(S.passEdit?.text || '').trim().slice(0, PASSPORT_MAX);
+      const text = String(S.passEdit?.text || '').trim();
       el.disabled = true;
       savePassport(S.productId, text, null).then(() => { S.passEdit = null; renderProduct(true); toast('Знания о продукте сохранены'); })
         .catch(() => { el.disabled = false; toast('Не удалось сохранить — нужны права на изменение.', 'err'); });
@@ -2702,6 +2702,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, ctxSwitch, ctxRefresh, ctxConnect, ctxKbSections, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, baseUrlText, ctxSwitch, ctxRefresh, ctxConnect, ctxKbSections, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
 initCaps();
 })();

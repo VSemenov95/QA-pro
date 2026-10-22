@@ -66,7 +66,7 @@ function lessonsBlock(scope) {
   return ls.length ? `\n## Правила из замечаний команды — соблюдай обязательно\n${ls.map((l) => '- ' + l.text).join('\n')}\n` : '';
 }
 /* знания о продукте: паспорт и уже готовые кейсы и пункты чек-листа */
-const PASSPORT_MAX = 40000; // хранится отдельной записью meta/passport; в запросы идут пункты по теме
+// паспорт без ограничения длины: хранится отдельной записью meta/passport (длинный — частями), в запросы идут пункты по теме
 function knowOf(run) {
   const pid = run ? run.productId : S.productId;
   if (!pid || pid !== S.productId) return null;
@@ -268,14 +268,20 @@ const SERVICE_STATE_RX = /(сервис|служб|консьюмер|потре
 const KAFKA_RX = /kafka|кафк|топик|topic/i;
 const HTTP_RX = /\b(GET|POST|PUT|PATCH|DELETE)\b/;
 const KAFKA_BANNED_RX = /подготовь(те)?\s+сообщение|отправить\s+подготовленное\s+сообщение/i;
-const API_CALL_FORM_RX = /^Вызвать (GET|POST|PUT|PATCH|DELETE) \S+/;
+const API_CALL_FORM_RX = /^Вызвать (GET|POST|PUT|PATCH|DELETE) \{baseURL\}\/\S*/;
+/* адрес вызова API везде одинаково: {baseURL}/путь, где {baseURL} — адрес тестового стенда.
+   Код приводит к этому виду «МЕТОД /путь», «МЕТОД https://хост/путь» и другие записи переменной ({{baseUrl}}, {base_url}, ${host}). */
+const BASE_URL_VAR_RX = /\$?\{\{?\s*(?:base[_-]?url|baseurl|base[_-]?uri|host|host[_-]?url|stand|стенд)\s*\}?\}/gi;
+const API_ADDR_RX = /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)(\s+)(?:https?:\/\/[^\s/"'`«»)]+)?(\/[^\s"'`«»),;]*)/g;
+const baseUrlText = (s) => String(s).replace(BASE_URL_VAR_RX, '{baseURL}').replace(API_ADDR_RX, (m, meth, sp, path) => `${meth}${sp}{baseURL}${path}`);
+const baseUrlDeep = (v) => (typeof v === 'string' ? baseUrlText(v) : Array.isArray(v) ? v.map(baseUrlDeep) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, baseUrlDeep(x)])) : v);
 const API_CALL_VERB_RX = /^(отправить|выполнить|сделать|вызвать)(\s|$)/i;
 const REQ_REF_RX = /\bR-\d{3}\b/;
 const RULE_TEXT = {
   'service-state': 'В предусловиях или шагах описано состояние сервиса или подписки (запущен, подписан, подключён). Это окружение, оставьте только действия и проверки.',
   'kafka-method': 'Сообщение в Kafka описано с HTTP-методом. Укажите только топик, ключ и тело сообщения.',
   'kafka-steps': 'Шаги «Подготовь сообщение» и «Отправить подготовленное сообщение» не используются: сообщение указывается в шаге «Отправить сообщение:» с блоком кода.',
-  'api-call': 'Шаг вызова API не в форме «Вызвать МЕТОД ЭНДПОИНТ с телом:» с блоком кода для тела.',
+  'api-call': 'Шаг вызова API не в форме «Вызвать МЕТОД {baseURL}/ЭНДПОИНТ с телом:» с блоком кода для тела.',
   'req-refs': 'В тексте кейса указаны идентификаторы требований (R-NNN). Связь с требованиями хранится отдельно.',
   'scope': 'Кейс выходит за объём тестирования: исследовательская проверка, проверка только в БД или ручная подготовка данных в БД.',
   'priority': 'Приоритет не из четырёх значений: P1_LOW, P2_MEDIUM, P3_HIGH, P4_CRITICAL.',
@@ -293,6 +299,7 @@ function applyRuleFixes(c) {
   const tc = c.testCase || {};
   let n = 0;
   if (c.type === 'api' && 'request' in tc) { delete tc.request; n++; }
+  for (const k of Object.keys(tc)) { const v = baseUrlDeep(tc[k]); if (JSON.stringify(v) !== JSON.stringify(tc[k])) { tc[k] = v; n++; } }   // адрес API — {baseURL}/путь
   if (typeof tc.priority === 'string' && tc.priority !== normPrio(tc.priority)) { tc.priority = normPrio(tc.priority); n++; }
   const suites = withCritical(tc.priority, c.suites || []);
   if (suites.length !== (c.suites || []).length) { c.suites = suites; n++; }
@@ -1129,7 +1136,7 @@ function tagTitle(tc, type) {
 }
 const titleTagOk = (c) => { const tc = { ...(c.testCase || {}) }, was = pickTitle(tc).text; return pickTitle(tagTitle(tc, c.type)).text === was; };
 function orderLikeTemplate(tc, info, type) {
-  tc = noReqDeep(cleanCase(tc)); // без <p>, HTML и буквальных «\n» и без отсылок к требованиям QA pro
+  tc = baseUrlDeep(noReqDeep(cleanCase(tc))); // без <p>, HTML и буквальных «\n», без отсылок к требованиям QA pro; адрес API — {baseURL}/путь
   if (type) tagTitle(tc, type);
   if (typeof tc.priority === 'string') tc.priority = normPrio(tc.priority);
   if (type === 'api') delete tc.request;
@@ -3490,25 +3497,42 @@ const IDX_MAX = 110000;
 const sortProducts = (list) => list.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 const productById = (pid) => S.products.find((p) => p.id === pid) || null;
 function curProduct() { return productById(S.productId); }
-/* «Что агент знает о продукте» хранится отдельной записью meta/passport (до 40 000 знаков вместе с прежней версией),
+/* «Что агент знает о продукте» хранится отдельной записью meta/passport вместе с прежней версией; длинный текст —
+   частями по 60 тыс. знаков (meta/passport_t1…, прежняя версия — meta/passport_p0…): запись хранилища — до 240 КБ,
    а в карточке продукта — только отметка { ext, updatedAt, len }: так карточка не упирается в лимит записи и вмещает
    список из сотен документов. Старые паспорта прямо в карточке читаются как раньше и переезжают при первом сохранении. */
 const passRef = (pid) => S.caps.db.doc(`${prodPath(pid)}/meta/passport`);
 const passCache = {}, passLoading = {};
-function hydrateProd(p) {
-  const ov = ctxPassportFor(p?.id); // источник контекста — репозиторий: паспорт из products/<папка>/passport.md
-  if (ov != null) return { ...p, passport: { ...(p.passport || {}), text: ov } };
-  if (!p?.passport?.ext) return p;
-  const c = passCache[p.id];
-  if (c && c.at === p.passport.updatedAt) return { ...p, passport: { ...p.passport, text: c.text }, passportPrev: c.prev || null };
-  loadPassText(p.id, p.passport.updatedAt);
-  return p;
+const PASSPORT_PART = 60000;      // знаков в одной части: даже по 4 байта на знак — меньше 240 КБ
+const PASSPORT_INLINE = 200000;   // байт: до этого паспорт и прежняя версия — одной записью, как раньше
+const passPartRef = (pid, kind, i) => S.caps.db.doc(`${prodPath(pid)}/meta/passport_${kind}${i}`);
+const passChunks = (s) => { const out = []; for (let i = 0; i < s.length; i += PASSPORT_PART) out.push(s.slice(i, i + PASSPORT_PART)); return out.length ? out : ['']; };
+async function passWrite(pid, rec) {
+  const prevText = String(rec.prev?.text || '');
+  if (new TextEncoder().encode(rec.text + prevText).length <= PASSPORT_INLINE) return passRef(pid).set(rec); // одной записью
+  const t = passChunks(rec.text), p = rec.prev ? passChunks(prevText) : [];
+  for (let i = 1; i < t.length; i++) await passPartRef(pid, 't', i).set({ s: t[i] });
+  for (let i = 0; i < p.length; i++) await passPartRef(pid, 'p', i).set({ s: p[i] });
+  // главная запись — последней: первая часть текста и число частей; прежняя версия — только в частях
+  return passRef(pid).set({ ...rec, text: t[0], parts: t.length, prev: rec.prev ? { updatedAt: rec.prev.updatedAt || 0, text: '', parts: p.length } : null });
+}
+async function passRead(pid) {
+  const d = (await passRef(pid).get()).data() || {};
+  let text = String(d.text || '');
+  for (let i = 1; i < (d.parts || 1); i++) text += ((await passPartRef(pid, 't', i).get()).data() || {}).s || '';
+  let prev = d.prev || null;
+  if (prev && prev.parts) {
+    let pt = '';
+    for (let i = 0; i < prev.parts; i++) pt += ((await passPartRef(pid, 'p', i).get()).data() || {}).s || '';
+    prev = { text: pt, updatedAt: prev.updatedAt || 0 };
+  }
+  return { ...d, text, prev };
 }
 async function loadPassText(pid, at) {
   if (passLoading[pid] === at || !S.caps.db) return;
   passLoading[pid] = at;
   try {
-    const d = (await passRef(pid).get()).data() || {};
+    const d = await passRead(pid);
     passCache[pid] = { at: d.updatedAt || at, text: String(d.text || ''), prev: d.prev || null };
     const cur = S.products.find((x) => x.id === pid);
     if (cur) { upsertLocalProduct(pid, cur); if (S.productId === pid) { renderProduct(); if (S.tab === 'agent' && !S.run) renderTab(); } }
@@ -3525,7 +3549,7 @@ async function readProduct(pid) {
   if (!d) return null;
   const p = { ...d, id: pid };
   if (p.passport?.ext && passCache[pid]?.at !== p.passport.updatedAt) {
-    try { const x = (await passRef(pid).get()).data() || {}; passCache[pid] = { at: x.updatedAt || p.passport.updatedAt, text: String(x.text || ''), prev: x.prev || null }; } catch { /* без текста */ }
+    try { const x = await passRead(pid); passCache[pid] = { at: x.updatedAt || p.passport.updatedAt, text: String(x.text || ''), prev: x.prev || null }; } catch { /* без текста */ }
   }
   return hydrateProd(p);
 }
@@ -3911,14 +3935,13 @@ ${qaCtxBlock(src.ctx || prod.qaCtx)}
 ${body}`;
   const facts = 'Только факты из источников, без домыслов и общих фраз. Конкретика важнее всего: названия экранов, кнопок и полей, пути навигации, роли и права, эндпоинты, коды и тексты ошибок, лимиты, форматы, статусы сущностей, связи между модулями. Где важно, в конце пункта укажи источник в скобках.';
   if (delta) {
-    return renderPrompt("promptPassportDelta", { "head": head, "e2": PASSPORT_SECTIONS.join(', '), "facts": facts, "e4": cur.length > PASSPORT_MAX - 4000 ? `
-Паспорт почти заполнен (${cur.length} из ${PASSPORT_MAX} знаков): кроме новых фактов, верни правки replace и remove, которые объединяют повторяющиеся пункты и убирают устаревшие, — так, чтобы паспорт стал короче хотя бы на 3000 знаков. Значения, названия и тексты сообщений не теряй.` : '' });
+    return renderPrompt("promptPassportDelta", { "head": head, "e2": PASSPORT_SECTIONS.join(', '), "facts": facts, "e4": '' });
   }
-  return renderPrompt("promptPassportFull", { "head": head, "facts": facts, "e3": PASSPORT_SECTIONS.join(', '), "e4": Math.min(PASSPORT_MAX - 2000, 10000) });
+  return renderPrompt("promptPassportFull", { "head": head, "facts": facts, "e3": PASSPORT_SECTIONS.join(', '), "e4": 10000 });
 }
 function normPassport(res) {
   const t = typeof res === 'string' ? res : typeof res?.passport === 'string' ? res.passport : '';
-  return t.replace(/\r/g, '').trim().slice(0, PASSPORT_MAX);
+  return t.replace(/\r/g, '').trim();
 }
 /* применяем правки паспорта локально: добавить пункт в раздел, заменить или убрать строку */
 function applyPassportOps(text, ops) {
@@ -3973,13 +3996,13 @@ function applyPassportOps(text, ops) {
     if (!body) continue;
     out.push(s.head ? `## ${s.head}\n${body}` : body);
   }
-  return { text: out.join('\n\n').slice(0, PASSPORT_MAX), applied };
+  return { text: out.join('\n\n'), applied };
 }
 async function savePassport(pid, text, runId) {
   const cur = await readProduct(pid);
   const now = Date.now(), by = S.caps.uid || '';
   const prev = cur?.passport?.text && cur.passport.text !== text ? { text: cur.passport.text, updatedAt: cur.passport.updatedAt || 0 } : (cur?.passportPrev?.text ? cur.passportPrev : null);
-  await passRef(pid).set({ text, updatedAt: now, by, runId: runId || null, prev });
+  await passWrite(pid, { text, updatedAt: now, by, runId: runId || null, prev });
   passCache[pid] = { at: now, text, prev };
   ctxAfterPassport(pid, text); // источник контекста — репозиторий: паспорт пишется и в products/<папка>/passport.md
   return updateProduct(pid, () => ({ passport: { ext: true, text: '', len: text.length, updatedAt: now, by, runId: runId || null }, passportPrev: prev ? { ext: true, updatedAt: prev.updatedAt || 0 } : null }));
@@ -4211,7 +4234,7 @@ async function importProduct(file) {
       docs.push({ ...base, chars: text.length, parts: n, sample: false });
     }
     await createProduct(name, d.product.description || '', { id, docs, qaCtx: d.product.qaCtx || {} });
-    if (d.product.passport?.text) { await savePassport(id, String(d.product.passport.text).slice(0, PASSPORT_MAX), null); }
+    if (d.product.passport?.text) { await savePassport(id, String(d.product.passport.text), null); }
     await db.doc(prodPath(id)).update({ ...(d.product.passport?.text ? {} : { passport: null, passportPrev: null }), counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(d.product.counters || {}) }, stats: { cases: 0, checklist: 0, lastRunAt: 0, ...(d.product.stats || {}) }, caseSections: cleanSections(d.product.caseSections) });
     const fresh = (await db.doc(prodPath(id)).get()).data(); if (fresh) upsertLocalProduct(id, fresh);   // локальная копия продукта — с названиями разделов и счётчиками
     if (d.index) {

@@ -60,7 +60,8 @@ def test_kafka_send_step_is_fine(app):
 
 def test_api_call_must_use_the_form(app):
     assert 'api-call' in ids(app, case('api', '[BE] POST', steps=[('Отправить POST /api/v1/orders', 'ok')]))
-    assert 'api-call' not in ids(app, case('api', '[BE] POST', steps=[('Вызвать POST /api/v1/orders с телом:', 'ok')]))
+    assert 'api-call' not in ids(app, case('api', '[BE] POST', steps=[('Вызвать POST {baseURL}/api/v1/orders с телом:', 'ok')]))
+    assert 'api-call' in ids(app, case('api', '[BE] POST', steps=[('Вызвать POST orders с телом:', 'ok')]))   # без {baseURL}/
 
 
 def test_requirement_ids_in_text(app):
@@ -76,7 +77,8 @@ def test_fixes_apply_in_place(app):
     c = case('api', 'POST /x', steps=[('Вызвать POST /x с телом:', 'ok')], priority='High', request={'method': 'POST'})
     c['suites'] = []
     n, x = fixed(app, c)
-    assert n == 2  # блок request и приоритет; название и наборы здесь не меняются
+    assert n == 4  # блок request, адрес API в названии и в шагах ({baseURL}/x), приоритет; наборы здесь не меняются
+    assert x['testCase']['steps'][0]['action'] == 'Вызвать POST {baseURL}/x с телом:'
     assert x['testCase']['priority'] == 'P3_HIGH' and 'request' not in x['testCase']
 
 
