@@ -29,7 +29,7 @@ const STAGES = [
     why: 'Короткие ответы и несложные решения (3–9 тыс. токенов на вызов), поэтому быстрой, как правило, хватает, а экономия заметна. Если справка отвечает неточно или сокращение оставляет лишнее, поднимите до стандартной.' },
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
-const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
+const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', etalon: 'analyze', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
 const CHUNK = 24000;          // знаков на один вызов анализа
 const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
 const CONCURRENCY = 2;
