@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Доступ к контексту QA pro</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div class="wrap" style="max-width:520px">
+  <header class="top">
+    <div class="mark" aria-hidden="true">QA</div>
+    <div><h1>Доступ к контексту</h1><p class="sub">QA pro → загрузчик</p></div>
+  </header>
+  <section class="card">
+    <p id="what">Загружаю запрос…</p>
+    <div class="field"><span class="lbl" id="target-lbl">Папка</span><div class="mono banner" id="target" style="word-break:break-all"></div></div>
+    <div class="field"><span class="lbl">Страница</span><div class="mono hint" id="origin" style="word-break:break-all"></div></div>
+    <p class="hint" id="note"></p>
+    <div class="row"><button class="primary" type="button" id="allow">Разрешить</button><button class="btn" type="button" id="deny">Отклонить</button></div>
+    <p class="hint">Разрешение действует только для этой страницы QA pro. Отозвать его можно в настройках загрузчика, раздел «Контекст QA pro».</p>
+  </section>
+</div>
+<script src="ctx-allow.js"></script>
+</body>
+</html>

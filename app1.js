@@ -224,6 +224,7 @@ function cfgDefault(k) { return TYPES.includes(k) ? { ...DEFAULT_TPL[k] } : ''; 
 const saveConns = () => lsSet('qapro.conns', S.conns);
 const saveTms = () => lsSet('qapro.tms', S.tms);
 function saveDrafts() {
+  if (S.ctx?.on && S.ctx.backup) return; // источник контекста — репозиторий: черновики команды не трогаем
   const d = {};
   for (const k of CFG_KEYS) if (S.cfgDirty[k]) d[k] = cfgValue(k);
   lsSet('qapro.cfgDraft', d);

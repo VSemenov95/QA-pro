@@ -418,6 +418,18 @@ tr.req-row:hover td{background:var(--sunken)}
 .lessons{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto}
 .lessons li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:start;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px}
 .lessons li .chip{margin-top:4px}
+.ctx-kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.type-opt[data-t=ctx]{--tc:var(--stamp-text);--tcs:var(--stamp-soft)}
+.ctx-found{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px 14px;font-size:13px}
+.ctx-found li{min-width:0;overflow-wrap:anywhere}
+.ctx-found li span[aria-hidden]{display:inline-block;width:14px;font-weight:600}
+.ctx-found li.ok span[aria-hidden]{color:var(--pass,var(--stamp-text))}
+.ctx-found li.no{color:var(--ink-3)}
+.ctx-found .muted,.ctx-git .mono{font-size:12px}
+.ctx-git{font-size:13px;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.ctx-git>div{min-width:0}
+.ctx-conf{margin:6px 0 0;padding-left:18px}
+.ctx-conf li{overflow-wrap:anywhere}
 .lessons li.muted{display:block;border-style:dashed}
 .lesson-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
 .lesson-add input{grid-column:1/-1}
@@ -567,7 +579,8 @@ tr.req-row:hover td{background:var(--sunken)}
 #btn-settings .gear-dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn);display:none}
 #btn-settings.dirty .gear-dot{display:block}
 .set-dlg{width:min(820px,100%);max-height:min(86vh,860px)}
-.set-tabs{grid-template-columns:repeat(6,minmax(0,1fr))!important}
+.set-tabs{grid-template-columns:repeat(7,minmax(0,1fr))!important}
+@media (max-width:760px){.set-tabs{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media (max-width:600px){.set-tabs{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
 .set-pane{display:flex;flex-direction:column;gap:12px;min-width:0}
 .set-pane[hidden]{display:none}
@@ -1064,6 +1077,7 @@ tr.req-row:hover td{background:var(--hover)}
       </div>
       <div class="set-pane" id="set-tms" hidden><div class="cfg-body" id="tms-body"></div></div>
       <div class="set-pane" id="set-bg" hidden><div class="cfg-body" id="bg-body"></div></div>
+      <div class="set-pane" id="set-ctx" hidden><div class="cfg-body" id="ctx-body"></div></div>
       <div class="set-pane" id="set-cfg" hidden>
         <div class="cfg-body" id="cfg-body"></div>
         <div class="cfg-foot" id="cfg-foot"></div>

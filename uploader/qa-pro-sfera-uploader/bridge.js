@@ -38,6 +38,11 @@
       const r = await ask({ type: 'UPLOAD_REQUEST', requestId: d.id, cases: d.cases, title: d.title });
       if (!r?.ok) reply(d.id, 'SFERA_ERROR', { error: r?.error || 'Расширение не ответило.' });
       else reply(d.id, 'SFERA_OPENED', { jobId: r.jobId });
+    } else if (d.type === 'CTX_PING' || d.type === 'CTX_CALL' || d.type === 'CTX_GH') {
+      // источник контекста QA pro: папка или git через мост, GitHub через API. Доступ — после «Разрешить» в окне загрузчика.
+      const r = await ask(d.type === 'CTX_PING' ? { type: 'CTX_PING' } : d.type === 'CTX_CALL' ? { type: 'CTX_CALL', tool: d.tool, args: d.args } : { type: 'CTX_GH', op: d.op, args: d.args });
+      if (r?.ok) reply(d.id, 'CTX_RESULT', d.type === 'CTX_PING' ? { data: { version: r.version, bridge: !!r.bridge, gh: !!r.gh } } : { data: r.data });
+      else reply(d.id, 'CTX_ERROR', { error: r?.error || 'Расширение не ответило.', code: r?.code || '' });
     }
   }
 

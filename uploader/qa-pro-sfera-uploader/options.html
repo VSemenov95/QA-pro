@@ -46,6 +46,21 @@
     <div class="row"><span class="hint" id="keep-note"></span></div>
   </section>
   <section class="card">
+    <h2>Контекст QA pro</h2>
+    <p class="hint">QA pro в браузере берёт правила, шаблоны, память агента и базу знаний из папки или git-репозитория. Папки и git — через мост <span class="mono">qa-pro-bridge</span> на этом компьютере: если приложения Claude нет, запустите ядро моста командой <span class="mono">node core.js --keep</span>. GitHub можно подключить и без моста — по токену ниже.</p>
+    <div class="banner" id="ctx-bridge">Проверяю мост…</div>
+    <div class="grid2">
+      <div class="field"><label class="lbl" for="gh-token">Токен GitHub</label><input type="text" id="gh-token" class="mono" spellcheck="false" autocomplete="off" placeholder="github_pat_…"></div>
+      <div class="field"><label class="lbl" for="gh-api">Адрес API GitHub</label><input type="url" id="gh-api" class="mono" spellcheck="false" placeholder="https://api.github.com"></div>
+    </div>
+    <p class="hint">Достаточно fine-grained токена с доступом к одному репозиторию: Contents — Read and write. Для GitHub Enterprise укажите адрес вида https://github.company.ru/api/v3.</p>
+    <div class="row"><button class="btn" type="button" id="gh-save">Сохранить</button><button class="link" type="button" id="gh-clear">Удалить токен</button><span class="hint" id="gh-note"></span></div>
+    <div class="field">
+      <span class="lbl">Разрешения страниц QA pro</span>
+      <div id="grants" class="hint"></div>
+    </div>
+  </section>
+  <section class="card">
     <h2>Если QA pro пишет «загрузчик не найден»</h2>
     <ol class="hint steps">
       <li>Обновите страницу QA pro (Ctrl+F5) или нажмите «Подключить к открытым вкладкам».</li>

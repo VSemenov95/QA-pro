@@ -123,13 +123,13 @@ def make_tools(app):
     return app.call("""(async () => {
       await a.kbLoadAll(S.productId);
       const run = a.newRun();
-      return a.makeTools(run, 'generate').map((t) => t.name);
+      return a.makeTools(run, 'gen_api').map((t) => t.name);
     })()""")
 
 
 def call_tool(app, name, arg):
     return app.call("""(async () => {
-      const t = a.makeTools(a.newRun(), 'generate').find((x) => x.name === arg.name);
+      const t = a.makeTools(a.newRun(), 'gen_api').find((x) => x.name === arg.name);
       return await t.execute(arg.input);
     })()""", {'name': name, 'input': arg})
 
@@ -139,7 +139,7 @@ def test_agent_tools_include_knowledge_base_when_sections_exist(scenario):
 
 
 def test_agent_has_only_document_tools_without_a_base(app):
-    assert app.call("a.makeTools(a.newRun(), 'generate').map((t) => t.name)") == ['search_documents', 'read_document']
+    assert app.call("a.makeTools(a.newRun(), 'gen_api').map((t) => t.name)") == ['search_documents', 'read_document']
 
 
 def test_search_returns_the_best_section_with_conflicts(scenario):
@@ -181,7 +181,7 @@ def test_long_summary_is_read_by_parts(app):
     got = app.call("""(async () => {
       const id = S.kb.index.blocks.find((b) => b.title === 'API сброса пароля').id;
       S.kb.cache[id].synth = Array.from({ length: 400 }, (_, i) => '- Пункт ' + i + ': ' + 'ы'.repeat(40)).join('\\n');
-      const t = a.makeTools(a.newRun(), 'generate').find((x) => x.name === 'read_knowledge_section');
+      const t = a.makeTools(a.newRun(), 'gen_api').find((x) => x.name === 'read_knowledge_section');
       const p1 = await t.execute({ id }), p2 = await t.execute({ id, part: 2 }), far = await t.execute({ id, part: 99 });
       return { n: p1.parts, lens: [p1.text.length, p2.text.length], p2: p2.part, far: far.part, firstOnly: ['conflicts' in p1, 'conflicts' in p2] };
     })()""")

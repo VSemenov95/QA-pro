@@ -3,26 +3,34 @@
 // из приложения Claude: загрузчик в Chrome остаётся на связи, задания и результаты хранятся на диске.
 //  • Загрузчику — WebSocket 127.0.0.1:<порт>/ext (только с адреса расширения браузера).
 //  • Обёртке MCP (server/index.js) — POST /rpc с секретом из ~/.qa-pro-bridge/token.
+//  • Источник контекста QA pro (context.js): чтение и запись файлов в разрешённых папках и git — и для приложения
+//    Claude (инструменты context_*), и для QA pro в браузере (через загрузчик, сообщения ctx по WebSocket).
 // Только встроенные модули Node.js. В Сферу ядро ничего не отправляет и токенов не видит.
+//
+// Без приложения Claude (QA pro только в браузере): node core.js --keep — ядро не завершается само;
+// node core.js --allow "<папка>" — разрешить папку контекста; node core.js --roots — список разрешённых папок.
 'use strict';
 const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const context = require('./context.js');
 
-const VERSION = '1.3.0';
+const VERSION = '1.5.0';
 const PORT = Number(process.env.QA_PRO_BRIDGE_PORT) || 47321;
 const DIR = process.env.QA_PRO_BRIDGE_DIR || path.join(os.homedir(), '.qa-pro-bridge');
 const MAX_WAIT = 25000;            // долгий опрос sfera_job — меньше лимита ответа приложения
 const JOB_TTL = 24 * 3600e3;       // задания и результаты хранятся сутки
 const HB_EVERY = 20000;            // сердцебиение: держит фоновую часть расширения активной
-const IDLE_EXIT = 72 * 3600e3;     // фоновое ядро само завершится, если приложение Claude не появлялось трое суток
+const IDLE_EXIT = 72 * 3600e3;     // фоновое ядро само завершится, если приложение Claude и QA pro не обращались трое суток
+const KEEP = process.argv.includes('--keep') || process.env.QA_PRO_BRIDGE_KEEP === '1'; // запуск для QA pro в браузере: не завершаться
 const TERMINAL = new Set(['done', 'cancelled', 'error']);
 
 function start({ mode = 'standalone' } = {}) {
   const log = (...a) => { const line = `[qa-pro-bridge ${mode}] ${a.join(' ')}\n`; if (mode === 'inprocess') process.stderr.write(line); else { try { fs.appendFileSync(path.join(DIR, 'bridge.log'), new Date().toISOString() + ' ' + line); } catch { /* без журнала */ } } };
   try { fs.mkdirSync(DIR, { recursive: true, mode: 0o700 }); } catch { /* ниже станет ясно */ }
+  const ctx = context.create({ dir: DIR, log });
 
 
   /* ---------- секрет для обёртки MCP ---------- */
@@ -118,6 +126,21 @@ function start({ mode = 'standalone' } = {}) {
     conn.lastSeen = Date.now();
     if (m.t === 'hello') { conn.version = String(m.version || '').slice(0, 20); conn.baseUrl = String(m.baseUrl || '').slice(0, 200); flushQueued(); return; }
     if (m.t === 'hb') return;
+    // источник контекста для QA pro в браузере: загрузчик передаёт вызовы страницы, ядро отвечает ctx_result
+    if (m.t === 'ctx' && m.id) {
+      lastMcp = Date.now();
+      const tool = String(m.tool || '');
+      const reply = (r) => wsSend(conn, { t: 'ctx_result', id: m.id, ...r });
+      if (!/^context_(read|write|git)$/.test(tool)) { reply({ ok: false, error: 'Неизвестный инструмент: ' + tool, code: 'bad_tool' }); return; }
+      ctx.tool(tool, m.args && typeof m.args === 'object' ? m.args : {}).then((data) => reply({ ok: true, data }), (e) => reply({ ok: false, error: String(e?.message || e), code: e?.code || '' }));
+      return;
+    }
+    // папку разрешил пользователь в окне загрузчика
+    if ((m.t === 'ctx_allow' || m.t === 'ctx_forget') && m.id) {
+      try { wsSend(conn, { t: 'ctx_result', id: m.id, ok: true, data: m.t === 'ctx_allow' ? ctx.allow(m.root) : ctx.forget(m.root) }); }
+      catch (e) { wsSend(conn, { t: 'ctx_result', id: m.id, ok: false, error: String(e?.message || e), code: e?.code || '' }); }
+      return;
+    }
     const job = jobs.get(String(m.id || ''));
     if (m.id) wsSend(conn, { t: 'ack', id: m.id, kind: m.t }); // загрузчик убирает сообщение из своей очереди
     if (!job || TERMINAL.has(job.status)) return;
@@ -134,7 +157,8 @@ function start({ mode = 'standalone' } = {}) {
   const str = (v, n) => String(v ?? '').slice(0, n);
   async function callTool(name, args = {}, { fromExt = false } = {}) {
     if (!fromExt) lastMcp = Date.now();
-    if (name === 'ping') return { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, port: PORT, listening, error: listenError, extension: extInfo(), pending: [...jobs.values()].filter((j) => !TERMINAL.has(j.status)).length };
+    if (name === 'ping') return { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, port: PORT, listening, error: listenError, extension: extInfo(), pending: [...jobs.values()].filter((j) => !TERMINAL.has(j.status)).length, context: true };
+    if (/^context_(read|write|git)$/.test(name)) return ctx.tool(name, args);
     if (name === 'sfera_upload') {
       if (!listening) throw new Error(listenError || 'Мост не слушает порт — перезапустите приложение Claude.');
       const cases = Array.isArray(args.cases) ? args.cases.slice(0, 2000) : [];
@@ -177,7 +201,7 @@ function start({ mode = 'standalone' } = {}) {
   const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
   const authed = (req) => !req.headers.origin && crypto.timingSafeEqual(Buffer.from(String(req.headers['x-qa-pro-bridge-token'] || '').padEnd(64).slice(0, 64)), Buffer.from(token));
   const server = http.createServer((req, res) => {
-    if (req.method === 'GET' && req.url === '/health') return json(res, 200, { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, pid: process.pid });
+    if (req.method === 'GET' && req.url === '/health') return json(res, 200, { ok: true, name: 'qa-pro-bridge', version: VERSION, mode, pid: process.pid, keep: KEEP });
     if (req.method !== 'POST' || !['/rpc', '/shutdown'].includes(req.url)) return json(res, 404, { error: 'not found' });
     if (!authed(req)) return json(res, 403, { error: 'forbidden' });
     if (req.url === '/shutdown') {
@@ -219,7 +243,7 @@ function start({ mode = 'standalone' } = {}) {
       if (Date.now() - ext.lastSeen > 3 * HB_EVERY) { try { ext.sock.destroy(); } catch { /* уже закрыт */ } }
       else wsSend(ext, { t: 'hb', at: Date.now() });
     }
-    if (mode === 'standalone' && Date.now() - lastMcp > IDLE_EXIT) { log('приложение Claude давно не появлялось — завершаюсь'); process.exit(0); }
+    if (mode === 'standalone' && !KEEP && Date.now() - lastMcp > IDLE_EXIT) { log('приложение Claude давно не появлялось — завершаюсь'); process.exit(0); }
   }, HB_EVERY);
   hb.unref?.();
   const ready = new Promise((resolve) => {
@@ -237,4 +261,17 @@ function start({ mode = 'standalone' } = {}) {
 }
 
 module.exports = { start, VERSION, PORT, DIR };
-if (require.main === module) start({ mode: 'standalone' });
+if (require.main === module) {
+  const argv = process.argv.slice(2), at = argv.indexOf('--allow');
+  if (at >= 0 || argv.includes('--roots')) {
+    // настройка без запуска: разрешить папку контекста или показать список
+    try {
+      fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+      const c = context.create({ dir: DIR });
+      if (at >= 0) { const r = c.allow(argv[at + 1]); process.stdout.write('Разрешена папка контекста: ' + r.root + '\n'); }
+      process.stdout.write('Разрешённые папки:\n' + c.allowedRoots().map((x) => '  ' + x).join('\n') + '\n');
+      process.exit(0);
+    } catch (e) { process.stderr.write(String(e?.message || e) + '\n'); process.exit(1); }
+  }
+  start({ mode: 'standalone' });
+}

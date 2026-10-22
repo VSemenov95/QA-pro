@@ -23,6 +23,9 @@ def _prompts():
     return out
 p2 = p2.replace('/*@prompts*/null', _json0.dumps(_prompts(), ensure_ascii=False, indent=1))
 assert '/*@prompts*/' not in p2
+# источник контекста (папка, git, GitHub) — отдельный файл, вставляется в конец второй части
+p2 = p2.replace('/*__CTX__*/', open('appctx.js', encoding='utf-8').read())
+assert '/*__CTX__*/' not in p2
 import os, json as _json
 _up='uploader/qa-pro-sfera-uploader'
 _files={f: open(os.path.join(_up,f),encoding='utf-8').read() for f in sorted(os.listdir(_up)) if os.path.isfile(os.path.join(_up,f))}

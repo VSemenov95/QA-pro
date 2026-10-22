@@ -258,7 +258,7 @@ def test_agent_tools_search_only_run_documents(app, tmp_path):
     app.upload(files.write(tmp_path / 'склад.md', '# Склад\nОстатки товара пересчитываются ночью, код операции STOCK-77.\n'))
     app.mode('generate')
     got = app.call("""(async () => {
-      const t = a.makeTools(a.newRun(), 'generate'), s = t.find((x) => x.name === 'search_documents'), r = t.find((x) => x.name === 'read_document');
+      const t = a.makeTools(a.newRun(), 'gen_api'), s = t.find((x) => x.name === 'search_documents'), r = t.find((x) => x.name === 'read_document');
       let err = '';
       try { r.execute({ document: 'склад', offset: 0 }); } catch (e) { err = e.message; }
       return { outside: s.execute({ query: 'STOCK-77' }), inside: [...new Set(s.execute({ query: 'Забыли пароль' }).map((x) => x.document))], err };

@@ -122,6 +122,45 @@ const TOOLS = [
     annotations: { title: 'Состояние задания', readOnlyHint: true, openWorldHint: false },
   },
   {
+    name: 'context_read', title: 'Прочитать контекст QA pro',
+    description: 'Источник контекста QA pro на компьютере: op=list — список .md/.txt/.json/.yaml в папке и состояние git; op=read — тексты файлов (paths); op=status — состояние git (fetch: true — сначала получить изменения с удалённого); op=roots — разрешённые папки. Только внутри разрешённых папок.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        op: { type: 'string', enum: ['list', 'read', 'status', 'roots'] }, root: { type: 'string', description: 'Полный путь к папке контекста' },
+        sub: { type: 'string', description: 'Подпапка для op=list' }, paths: { type: 'array', items: { type: 'string' }, maxItems: 500 }, fetch: { type: 'boolean' },
+      },
+      required: ['op'], additionalProperties: false,
+    },
+    annotations: { title: 'Прочитать контекст QA pro', readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'context_write', title: 'Записать контекст QA pro',
+    description: 'Записать файлы контекста QA pro (правила, шаблоны, память агента, паспорт, база знаний) в разрешённую папку. base — отпечаток версии, которую видела страница: если файл изменили после чтения, он не перезаписывается и возвращается в conflicts. force — перезаписать.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        root: { type: 'string' }, force: { type: 'boolean' },
+        files: { type: 'array', maxItems: 300, items: { type: 'object', properties: { path: { type: 'string' }, text: { type: 'string' }, base: { type: ['string', 'null'] }, delete: { type: 'boolean' } }, required: ['path'] } },
+      },
+      required: ['root', 'files'], additionalProperties: false,
+    },
+    annotations: { title: 'Записать контекст QA pro', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'context_git', title: 'git для контекста QA pro',
+    description: 'git в папке контекста: clone (url — https или ssh, клон в ~/.qa-pro-bridge/repos), pull (только fast-forward), commit (в ветку qa-pro/<дата>, если сейчас main или master), push (текущая ветка в origin, кроме main и master), status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        op: { type: 'string', enum: ['clone', 'pull', 'commit', 'push', 'status'] }, root: { type: 'string' }, url: { type: 'string' }, branch: { type: 'string' },
+        message: { type: 'string' }, paths: { type: 'array', items: { type: 'string' }, maxItems: 300 }, fetch: { type: 'boolean' },
+      },
+      required: ['op'], additionalProperties: false,
+    },
+    annotations: { title: 'git для контекста QA pro', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
     name: 'sfera_cancel', title: 'Отменить задание',
     description: 'Отменить задание на загрузку: если окно загрузчика уже открыто, оно закроется без загрузки.',
     inputSchema: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'], additionalProperties: false },
@@ -151,7 +190,7 @@ async function handle(msg) {
           protocolVersion: params?.protocolVersion || '2025-06-18',
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: 'qa-pro-bridge', title: 'QA pro — мост к загрузчику Сферы ФТ', version: VERSION },
-          instructions: 'Мост для страницы QA pro: передаёт тест-кейсы загрузчику в Сферу ФТ (расширение Chrome) и возвращает результат.',
+          instructions: 'Мост для страницы QA pro: передаёт тест-кейсы загрузчику в Сферу ФТ (расширение Chrome) и возвращает результат; читает и пишет контекст QA pro (правила, шаблоны, память агента, базу знаний) в разрешённой папке или git-репозитории.',
         } });
       case 'ping': return send({ jsonrpc: '2.0', id, result: {} });
       case 'tools/list': return send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });

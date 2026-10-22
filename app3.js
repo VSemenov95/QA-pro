@@ -437,11 +437,11 @@ function renderRunControls() {
 }
 
 /* ---------- правила для агента (левая колонка) и настройки под шестерёнкой ---------- */
-const SET_TABS = [['model', 'Модель'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['tms', 'ТМС'], ['bg', 'Фон']];
+const SET_TABS = [['model', 'Модель'], ['ctx', 'Контекст'], ['tpl', 'Шаблоны'], ['export', 'Формат экспорта'], ['review', 'Правила ревью'], ['tms', 'ТМС'], ['bg', 'Фон']];
 const tmsDirty = () => !!S.tmsDraft && JSON.stringify(S.tmsDraft) !== JSON.stringify(S.tms);
 const cfgKeyOfTab = () => (S.cfgTab === 'tpl' ? S.cfgType : S.cfgTab);
 const cfgName = (k) => (k === 'rules' ? 'Правила для агента' : k === 'export' ? 'Формат экспорта' : k === 'review' ? 'Правила ревью' : 'Шаблон ' + TL[k]);
-const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : !!S.cfgDirty[id]);
+const cfgTabDirty = (id) => (id === 'tpl' ? TYPES.some((t) => S.cfgDirty[t]) : id === 'model' ? false : id === 'tms' ? tmsDirty() : id === 'ctx' ? S.ctx.conflicts.length > 0 || (S.ctx.src.kind === 'github' && S.ctx.pending.size > 0) : !!S.cfgDirty[id]);
 const DOT = '<span class="dot-d" title="Есть несохранённые изменения">•</span>';
 function renderCfgTabs() {
   const nav = $('#set-tabs');
@@ -464,12 +464,14 @@ function renderRules() {
 function renderCfg() {
   renderCfgTabs();
   renderRules();
-  const model = S.setTab === 'model', tms = S.setTab === 'tms', bg = S.setTab === 'bg';
+  const model = S.setTab === 'model', tms = S.setTab === 'tms', bg = S.setTab === 'bg', cx = S.setTab === 'ctx';
   $('#set-model').hidden = !model;
   $('#set-tms').hidden = !tms;
   $('#set-bg').hidden = !bg;
-  $('#set-cfg').hidden = model || tms || bg;
+  $('#set-ctx').hidden = !cx;
+  $('#set-cfg').hidden = model || tms || bg || cx;
   if (model) { renderProviders(true); return; }
+  if (cx) { bindCtxPane(); renderCtxPane(); return; }
   if (bg) { renderBgPane(true); return; }
   if (tms) { if (!S.tmsDraft) S.tmsDraft = { ...S.tms }; renderTmsDialog(); return; }
   S.cfgTab = S.setTab;
@@ -504,6 +506,7 @@ function renderCfg() {
   updateCfgValidity();
 }
 function cfgFootHTML(k) {
+  if (ctxOwnsCfg()) return ctxCfgFoot(k); // источник контекста — репозиторий
   const team = S.cfgTeam[k], dirty = S.cfgDirty[k];
   const canSave = !!(S.caps.db && S.caps.canEdit);
   const state = dirty ? '<b>Изменено в этом окне</b>' : team ? `<b>Версия команды</b><span>· обновлена ${fmtDate(team.updatedAt)}</span>` : `<b>${k === 'rules' || k === 'export' || k === 'review' ? 'Не задано' : 'Стандартный шаблон'}</b>`;
@@ -532,6 +535,7 @@ function markCfgDirty(k) {
   if (k === 'export' && S.tab === 'export') renderTab();
 }
 async function saveCfg(k) {
+  if (ctxOwnsCfg()) return ctxSaveCfg(k);
   const db = S.caps.db;
   if (!db) return;
   const now = Date.now(), by = S.caps.uid || '';
@@ -554,6 +558,7 @@ async function saveCfg(k) {
   }
 }
 function revertCfg(k) {
+  if (ctxOwnsCfg()) return ctxRevertCfg(k);
   const team = S.cfgTeam[k];
   setCfgValue(k, team ? (typeof team.value === 'object' ? { ...team.value } : team.value) : cfgDefault(k));
   S.cfgDirty[k] = false; saveDrafts(); renderCfg();
@@ -577,10 +582,11 @@ function subscribeCfg() {
       if (!k) continue;
       present.add(k);
       S.cfgTeam[k] = { updatedAt: data.updatedAt || Date.now(), value };
+      if (ctxOwnsCfg()) { ctxTeamCfg(k, value); continue; } // действует источник контекста — версия команды в резерв
       if (!S.cfgDirty[k]) setCfgValue(k, typeof value === 'object' ? { ...value } : value);
       else if (JSON.stringify(cfgValue(k)) === JSON.stringify(value)) S.cfgDirty[k] = false;
     }
-    for (const k of CFG_KEYS) if (!present.has(k) && S.cfgTeam[k]) { S.cfgTeam[k] = null; if (!S.cfgDirty[k]) setCfgValue(k, cfgDefault(k)); }
+    for (const k of CFG_KEYS) if (!present.has(k) && S.cfgTeam[k]) { S.cfgTeam[k] = null; if (ctxOwnsCfg()) ctxTeamCfg(k, cfgDefault(k)); else if (!S.cfgDirty[k]) setCfgValue(k, cfgDefault(k)); }
     saveDrafts();
     if (isTyping($('#cfg-body'))) { renderCfgTabs(); renderCfgFoot(); } else renderCfg();
     if (S.tab === 'export') renderTab();
@@ -2696,6 +2702,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, ctxSwitch, ctxRefresh, ctxConnect, ctxKbSections, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
 initCaps();
 })();

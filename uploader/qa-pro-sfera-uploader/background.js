@@ -4,7 +4,8 @@
 //   смоук → метка SMOKE, регресс → поле «Регрессионный» (ti_regressive).
 
 const QA_PRO_URL = 'https://claude.ai/artifact/TrWQGTAs4Wqe5XjZBcQFCp';
-const DEFAULTS = { baseUrl: 'https://sfera-t1.ru', lastSectionUrl: '', qaProOrigins: [], anySite: false, keepQaPro: false, qaProUrl: QA_PRO_URL, desktopBridge: true, bridgePort: 47321 };
+const DEFAULTS = { baseUrl: 'https://sfera-t1.ru', lastSectionUrl: '', qaProOrigins: [], anySite: false, keepQaPro: false, qaProUrl: QA_PRO_URL, desktopBridge: true, bridgePort: 47321, ghToken: '', ghApi: 'https://api.github.com', ctxGrants: {} };
+importScripts('context.js'); // источник контекста QA pro: папка или git через мост, GitHub через API
 const trimBase = (u) => String(u || '').trim().replace(/\/+$/, '');
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
@@ -217,6 +218,7 @@ chrome.runtime.onStartup.addListener(() => { setTimeout(() => ensureQaProTab().c
 // задания сюда по WebSocket. Соединение держим постоянно: сердцебиение моста не даёт фоновой части уснуть,
 // а таймер раз в 30 секунд переподключается, если мост или браузер перезапускались.
 let bws = null, bwsState = { connected: false, at: 0, version: '', error: '' }, bwsProbing = false, bwsVersion = '';
+const bridgeSocket = () => bws; // для context.js
 async function bridgeConnect() {
   const s = await getSettings();
   if (!s.desktopBridge) { try { bws?.close(); } catch { /* уже закрыт */ } bws = null; return; }
@@ -271,6 +273,7 @@ async function tickQaPro() {
   for (const t of tabs) chrome.tabs.sendMessage(t.id, { type: 'QA_TICK' }).catch(() => {});
 }
 async function onBridgeMessage(m) {
+  if (ctxOnCoreMessage(m)) return; // ответ ядра на вызов источника контекста
   if (m.t === 'hb') { bridgeSend({ t: 'hb' }); tickQaPro(); return; }
   if (m.t === 'ack' && m.id) { outboxEdit((list) => list.filter((x) => !(x.id === m.id && x.t === m.kind))); return; }
   if (m.t === 'job' && m.id && Array.isArray(m.cases)) {
@@ -306,11 +309,18 @@ async function notePing(sender) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (String(msg?.type || '').startsWith('CTX_')) {
+        // настройки и окно разрешения — страницы самого расширения; CTX_GRANTS и CTX_REVOKE страницам QA pro недоступны
+        const own = !sender.tab || String(sender.url || '').startsWith(chrome.runtime.getURL(''));
+        if (['CTX_DECIDE', 'CTX_ASK_INFO', 'CTX_GRANTS', 'CTX_REVOKE'].includes(msg.type) && !own) return sendResponse({ ok: false, error: 'Недоступно для страницы.' });
+        const r = await ctxMessage(msg, sender);
+        return sendResponse(r || { ok: false, error: 'Неизвестная команда' });
+      }
       switch (msg?.type) {
         case 'PING': {
           notePing(sender).catch(() => {});
           const s = await getSettings();
-          return sendResponse({ ok: true, version: chrome.runtime.getManifest().version, baseUrl: trimBase(s.baseUrl), bridge: !!bwsState.connected, bridgeVersion: bwsState.connected ? bwsState.version || '' : '' });
+          return sendResponse({ ok: true, version: chrome.runtime.getManifest().version, baseUrl: trimBase(s.baseUrl), bridge: !!bwsState.connected, bridgeVersion: bwsState.connected ? bwsState.version || '' : '', context: true });
         }
         case 'UPLOAD_REQUEST': {
           const cases = Array.isArray(msg.cases) ? msg.cases.slice(0, 2000) : [];
@@ -352,7 +362,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if ('keepQaPro' in (msg.patch || {}) || 'qaProUrl' in (msg.patch || {})) { try { tab = await ensureQaProTab(); } catch (e) { return sendResponse({ ok: false, error: e?.message || String(e) }); } }
           return sendResponse({ ok: true, settings: s, injected, tabOpened: !!tab });
         }
-        case 'GET_SETTINGS': return sendResponse({ ok: true, settings: await getSettings() });
+        case 'GET_SETTINGS': { const st = await getSettings(); return sendResponse({ ok: true, settings: { ...st, ghToken: st.ghToken ? '••••' : '' } }); }
         case 'GET_DIAG': {
           const { pings = [] } = await chrome.storage.session.get('pings');
           return sendResponse({ ok: true, version: chrome.runtime.getManifest().version, pings, settings: await getSettings(), bridge: bwsState });
@@ -362,7 +372,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         default: return sendResponse({ ok: false, error: 'Неизвестная команда' });
       }
     } catch (e) {
-      sendResponse({ ok: false, error: e?.message || String(e) });
+      sendResponse({ ok: false, error: e?.message || String(e), code: e?.code || '' });
     }
   })();
   return true;
