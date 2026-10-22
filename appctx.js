@@ -223,6 +223,16 @@ function ctxKbReload(pid) {
   if (!pid || pid !== S.productId) return;
   S.kb.cache = {}; S.ctx.kbMap = null;
   loadKb(pid);
+  // в папке нет отметок о разобранных документах (её наполнили до этой версии) — берём их из хранилища QA pro,
+  // иначе агент разобрал бы все документы продукта заново
+  if (ctxActive(pid) && ctxText(ctxKbDocsPath()) == null && S.caps.db && !S.ctx.docsSeeded) {
+    S.ctx.docsSeeded = true;
+    kbIdxReadDb(pid).then((idx) => {
+      if (!ctxActive(pid) || ctxText(ctxKbDocsPath()) != null || !Object.keys(idx.docs || {}).length) return;
+      ctxKbDocsWrite(null, idx.docs);
+      if (S.kb.pid === pid) S.kb.index = { ...S.kb.index, docs: { ...idx.docs } };
+    }).catch(() => {});
+  }
 }
 
 /* ---------- канал: мост (приложение Claude или загрузчик) и загрузчик (GitHub) ---------- */
@@ -430,7 +440,7 @@ function ctxOff() {
     saveDrafts();
   }
   const pid = C.pid;
-  C.on = false; C.backup = null; C.kbMap = null; C.files = new Map(); C.conflicts = []; C.pending = new Set(); C.git = null; C.warn = [];
+  C.on = false; C.backup = null; C.kbMap = null; C.docsSeeded = false; C.files = new Map(); C.conflicts = []; C.pending = new Set(); C.git = null; C.warn = [];
   ctxKbReload(pid); // база знаний — снова из хранилища QA pro
   const prod = productById(pid);
   if (prod && pid === S.productId) { S.qaCtx = { all: '', api: '', ui: '', e2e: '', ...(prod.qaCtx || {}) }; S.ctxDirty = false; renderQaCtx(true); }

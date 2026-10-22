@@ -200,3 +200,17 @@ def test_huge_section_is_trimmed_to_file_limit(app):
     parts = [{'docId': f'd{i}', 'docName': 'ТЗ', 'chunk': i, 'md': 'я' * 50000, 'at': i} for i in range(30)]
     text = app.call('a.ctxKbSerialize(arg)', {'id': 'k', 'title': 'Большой', 'synth': 'сводка', 'synthAt': 99, 'synthV': 2, 'parts': parts})
     assert len(text.encode('utf-8')) <= 1800000 and 'Большой' in text
+
+
+def test_folder_without_parse_marks_takes_them_from_qa_pro(make_app):
+    """Папку наполнили до этой версии (без qa-pro-docs.json): разобранные в QA pro документы не разбираются заново."""
+    app = make_app(init=init())
+    model_kb.install(app.model)
+    app.mode('help')
+    parse_sample(app)
+    sample = app.state('S.docs.find((d) => d.sample).id')
+    connect(app)
+    app.page.wait_for_function('(id) => !!(window.__qa.S.kb.index.docs || {})[id]', arg=sample, timeout=10000)
+    app.page.wait_for_function('() => !window.__qa.S.ctx.pending.size', timeout=10000)
+    assert sample in json.loads(repo(app, 'products/moi/qa-pro-docs.json'))
+    assert app.state('S.docs.filter((d) => d.sample && (S.kb.index.docs || {})[d.id]).length') == 1
