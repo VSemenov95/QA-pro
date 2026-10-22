@@ -3731,9 +3731,10 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.pc = freshPc(); S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
-  await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid)]);
+  // источник контекста продукта (база QA pro, папка, git или GitHub) подключается, даже если что-то из данных продукта не загрузилось
+  try { await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid)]); }
+  finally { if (tok === switchTok) await ctxSwitch(pid).catch(() => {}); }
   if (tok !== switchTok) return false;
-  await ctxSwitch(pid); // источник контекста продукта: база QA pro, папка, git или GitHub
   if (!restore) saveSession();
   renderAll();
   return true;
