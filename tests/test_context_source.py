@@ -27,7 +27,8 @@ REPO = {
 
 
 def init(files=None, gh=None):
-    pre = f'window.__repo = {{ root: "/home/qa/ctx", files: {json.dumps(files if files is not None else REPO, ensure_ascii=False)}, git: {{ repo: true, branch: "main", remote: "https://git.test/qa/ctx.git", ahead: 0, behind: 0, changed: [] }}, calls: [], pulls: 0 }};'
+    pre = 'window.__ctxAutoDelay = window.__ctxAutoDelay ?? 600000;'   # автозапись проверяется в test_context_autowrite
+    pre += f'window.__repo = {{ root: "/home/qa/ctx", files: {json.dumps(files if files is not None else REPO, ensure_ascii=False)}, git: {{ repo: true, branch: "main", remote: "https://git.test/qa/ctx.git", ahead: 0, behind: 0, changed: [] }}, calls: [], pulls: 0 }};'
     if gh is not None:
         pre += f'window.__gh = {{ repo: "team/qa-context", branch: "main", files: {json.dumps(gh, ensure_ascii=False)}, branches: {{}}, calls: [] }};'
     return pre + FAKE
@@ -181,7 +182,9 @@ def as_app(app):
 
 
 def test_claude_app_collects_automatic_writes(cx):
+    """Автозапись выключена: правки копятся до кнопки «Записать в источник» (автозапись — test_context_autowrite)."""
     as_app(cx)
+    cx.call('(S.ctx.src = { ...S.ctx.src, auto: false }, true)')
     cx.close_settings()
     cx.page.click('[data-ctx=api]')
     cx.page.fill('#qa-ctx', 'БАЗОВЫЙ-URL https://stage/api')

@@ -14,7 +14,7 @@ KB = {f'products/moi/kb/razdel-{i:03d}.md': f'# Раздел {i}\n\n' + ('Пол
 
 
 def init(files, offline=False, extra=''):
-    pre = 'window.__dbLimit = true;' + extra
+    pre = 'window.__dbLimit = true; window.__ctxAutoDelay = 600000;' + extra
     pre += f'window.__repo = {{ root: "/home/qa/ctx", files: {json.dumps(files, ensure_ascii=False)}, git: {{ repo: false }}, calls: [], pulls: 0 }};'
     if offline:
         pre += 'window.__ctxOffline = true;'
