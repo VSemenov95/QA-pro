@@ -312,6 +312,9 @@ def test_generation_after_manual_edit_sends_only_changes(pa):
 @pytest.mark.parametrize('kind', ['promptAnalyze', 'promptChecklist', 'promptPlan', 'promptGenerate'])
 def test_passport_goes_into_generation_requests(pa, kind):
     save(pa, PASSPORT)
+    if kind == 'promptPlan':
+        from tests.test_generation import set_outputs
+        set_outputs(pa, checklist=False)   # план по требованиям — только без чек-листа
     pa.generate()
     ps = pa.model.prompts_of(kind)
     assert ps and all('## Знания о продукте «Мой продукт»' in p and '- Не более 3 запросов на сброс за 15 минут' in p for p in ps)

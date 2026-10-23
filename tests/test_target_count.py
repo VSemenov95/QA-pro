@@ -1,6 +1,9 @@
-"""Количество тестов задаётся перед генерацией: план ограничивается этим числом проверок."""
+"""Количество тестов задаётся перед генерацией: план ограничивается этим числом проверок.
+Здесь — план по требованиям (без чек-листа); лимит чек-листа — в test_checklist_flow."""
 import re
 import pytest
+
+from tests.test_generation import set_outputs
 
 
 def plan_log(app):
@@ -20,6 +23,7 @@ def test_target_limits_the_plan(app, n):
     app.page.dispatch_event('#target-n', 'change')
     assert app.state('S.settings.target') == n
     app.add_sample()
+    set_outputs(app, checklist=False)
     app.generate()
     assert f'План ограничен числом проверок: {n} (было 6)' in plan_log(app)
 
@@ -83,6 +87,7 @@ def test_target_caps_cases_to_the_number(app, n):
     app.page.fill('#target-n', str(n))
     app.page.dispatch_event('#target-n', 'change')
     app.add_sample()
+    set_outputs(app, checklist=False)
     app.generate()
     assert cases_count(app) == n
 

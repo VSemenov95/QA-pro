@@ -56,8 +56,8 @@ def test_service_steps_use_the_fast_model(app):
 def test_main_steps_keep_the_main_model(app):
     toggle(app)
     app.generate()
-    t = tiers(app, 'promptAnalyze', 'promptChecklist', 'promptPlan', 'promptGenerate')
-    assert set(t.values()) == {'default'} and len(t) == 4
+    t = tiers(app, 'promptAnalyze', 'promptChecklist', 'promptGenerate')   # план — из чек-листа, без запроса
+    assert set(t.values()) == {'default'} and len(t) == 3
 
 
 def test_without_economy_service_steps_use_the_main_model(app):

@@ -35,12 +35,20 @@ def scenario(browser, tmp_path_factory):
     prepare(app, tmp_path_factory.mktemp('kbgen'))
     intro = app.page.eval_on_selector_all('#tab-body .banner', 'els => els.map(e => e.innerText)')
     app.generate()
-    gen = {k: app.model.prompts_of(k) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan', 'promptGenerate')}
+    gen = {k: app.model.prompts_of(k) for k in ('promptAnalyze', 'promptChecklist', 'promptGenerate')}
     log = app.state('S.run.steps.parse.log.map((l) => l.text)')
     app.tab('review')
     app.page.click('[data-act=start-review]')
     app.wait_idle()
     rev = {k: app.model.prompts_of(k) for k in ('promptReviewCases', 'promptReviewChecklist')}
+    # план по требованиям строится только без чек-листа — второй запуск
+    from tests.test_generation import set_outputs
+    app.page.click('#btn-newses')
+    app.page.wait_for_function('() => !window.__qa.S.run')
+    app.js("() => { const S = window.__qa.S; for (const d of S.docs) S.runDocs.add(d.id); window.__qa.renderAll(); }")
+    set_outputs(app, checklist=False)
+    app.generate()
+    gen['promptPlan'] = app.model.prompts_of('promptPlan')
     yield SimpleNamespace(app=app, intro=intro, gen=gen, log=log, rev=rev)
     errors = list(app.errors)
     app.ctx.close()

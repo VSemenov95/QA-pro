@@ -21,6 +21,8 @@ def test_generated_critical_cases_get_smoke_even_if_model_says_regression(app):
                                         'steps': [{'step': 1, 'action': 'a', 'expected': 'b'}]}} for pid in ids]}
     app.model.on('promptGenerate', critical_cases)
     app.add_sample()
+    from tests.test_generation import set_outputs
+    set_outputs(app, checklist=False)   # по чек-листу приоритет кейса берётся из пункта
     app.generate()
     suites = app.state('S.run.cases.map((c) => c.suites)')
     assert suites and all(s == ['smoke', 'regression'] for s in suites), suites
