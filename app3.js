@@ -1015,7 +1015,7 @@ function caseHTML(c) {
     <div class="case-h sel" role="button" tabindex="0" aria-expanded="${ui.open}" data-act="toggle-case" data-uid="${c.uid}">
       ${selCB(c)}<span class="case-id t-${c.type}">${esc(c.dispId)}</span>
       <div style="min-width:0"><div class="case-t${c.status === 'obsolete' ? ' obs' : ''}">${esc(t.text)}</div>
-        <div class="case-sub">${c.status ? `<span class="chip ust-${c.status}" title="${esc(c.note || '')}">${UPD_ST[c.status]}</span>` : ''}${String(c.dispId || '').toUpperCase().startsWith(TL[c.type].toUpperCase()) ? '' : `<span class="chip ${c.type}">${TL[c.type]}</span>`}${suiteChips(c.suites)}${prio != null ? `<span class="chip ${prioClass(prio)}">${esc(prio)}</span>` : ''}${c.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${missing.length ? `<span class="chip p-medium" title="Поля шаблона, которых нет в кейсе">нет полей: ${esc(missing.join(', '))}</span>` : ''}${fds.length ? `<span class="chip fd-chip sev-${fds[0].severity}" title="Открытые замечания ревьюера">замечаний: ${fds.length}</span>` : ''}${c.tms ? `<span class="chip ok" title="Загружен в ТМС">в ТМС${c.tms.id ? ' · ' + esc(c.tms.id) : ''}</span>` : ''}${c.manual ? '<span class="chip">вручную</span>' : ''}</div></div>
+        <div class="case-sub">${c.status ? `<span class="chip ust-${c.status}" title="${esc(c.note || '')}">${UPD_ST[c.status]}</span>` : ''}${String(c.dispId || '').toUpperCase().startsWith(TL[c.type].toUpperCase()) ? '' : `<span class="chip ${c.type}">${TL[c.type]}</span>`}${suiteChips(c.suites)}${prio != null ? `<span class="chip ${prioClass(prio)}">${esc(prio)}</span>` : ''}${c.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${c.checklistId ? `<button class="chip cl-link" type="button" data-act="go-cl" data-id="${esc(c.checklistId)}" title="Кейс написан по пункту чек-листа">${esc(c.checklistId)}</button>` : ''}${missing.length ? `<span class="chip p-medium" title="Поля шаблона, которых нет в кейсе">нет полей: ${esc(missing.join(', '))}</span>` : ''}${fds.length ? `<span class="chip fd-chip sev-${fds[0].severity}" title="Открытые замечания ревьюера">замечаний: ${fds.length}</span>` : ''}${c.tms ? `<span class="chip ok" title="Загружен в ТМС">в ТМС${c.tms.id ? ' · ' + esc(c.tms.id) : ''}</span>` : ''}${c.manual ? '<span class="chip">вручную</span>' : ''}</div></div>
       <span class="muted" style="transform:rotate(${ui.open ? 180 : 0}deg);display:grid">${ICON.chev}</span>
     </div>
     ${ui.open ? `<div class="case-b">${body}</div>` : ''}
@@ -1032,17 +1032,56 @@ function updBlockHTML(c, ui) {
 }
 
 /* ---------- checklist ---------- */
+/* Выгрузка чек-листа — таблица: одна строка — одна проверка. Компонент: E2E — сквозные, FE — интерфейс, BE — API. */
+const CL_COMPONENT = { e2e: 'E2E', ui: 'FE', api: 'BE' };
+const CL_COLS = ['№', 'Название', 'Приоритет', 'Компонент', 'Ожидаемый результат'];
+const checklistRows = (r) => checklistItems(r).filter((i) => i.check).map((i, k) => [String(k + 1), i.check, (PRIO_RU[normPrio(i.priority)] || 'Средний').toLowerCase(), CL_COMPONENT[i.type] || 'FE', i.expected || '']);
+const clFileName = (r, ext) => `checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.${ext}`;
 function checklistMarkdown(r) {
-  const lines = ['# Чек-лист', ''];
-  for (const g of r.checklist.groups) {
-    if (!g.items.length) continue;
-    lines.push(`## ${g.title}`, '');
-    for (const i of g.items) lines.push(`- [ ] ${i.id} ${i.check} — ${TL[i.type]}, ${prioRu(i.priority).toLowerCase()}${i.suites.length ? ', ' + i.suites.map((s) => SUITE_RU[s].toLowerCase()).join(', ') : ''}${i.requirementIds.length ? ' (' + i.requirementIds.join(', ') + ')' : ''}`);
-    lines.push('');
-  }
-  return lines.join('\n');
+  const cell = (x) => String(x).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+  return ['# Чек-лист', '', `| ${CL_COLS.join(' | ')} |`, `|${CL_COLS.map((c, k) => (k === 0 ? '---:' : '---')).join('|')}|`, ...checklistRows(r).map((row) => `| ${row.map(cell).join(' | ')} |`), ''].join('\n');
 }
-const checklistJSON = (r) => ({ generatedAt: new Date(r.createdAt).toISOString(), sources: r.docs.map((d) => d.name), groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, check: i.check, type: i.type, priority: i.priority, suites: i.suites, requirementIds: i.requirementIds })) })) });
+const checklistJSON = (r) => ({ generatedAt: new Date(r.createdAt).toISOString(), sources: r.docs.map((d) => d.name), groups: r.checklist.groups.filter((g) => g.items.length).map((g) => ({ title: g.title, items: g.items.map((i) => ({ id: i.id, check: i.check, expected: i.expected || '', kind: i.kind || 'positive', type: i.type, component: CL_COMPONENT[i.type] || 'FE', priority: i.priority, suites: i.suites, requirementIds: i.requirementIds })) })) });
+async function checklistXlsx(r) {
+  try {
+    await lib('xlsx');
+    const X = window.XLSX, ws = X.utils.aoa_to_sheet([CL_COLS, ...checklistRows(r).map((row) => [Number(row[0]), ...row.slice(1)])]), wb = X.utils.book_new();
+    ws['!cols'] = [{ wch: 5 }, { wch: 60 }, { wch: 12 }, { wch: 11 }, { wch: 70 }];
+    X.utils.book_append_sheet(wb, ws, 'Чек-лист');
+    return downloadFile(clFileName(r, 'xlsx'), new Blob([X.write(wb, { type: 'array', bookType: 'xlsx' })]));
+  } catch { return toast('Не удалось сформировать Excel-файл.', 'err'); }
+}
+const CL_PRIO_FILL = { критический: '#fde2e1', высокий: '#feefd9', средний: '#fdf8d8', низкий: '#eef1f4' };
+function checklistPdfDoc(r) {
+  const rows = checklistRows(r), d = new Date(r.createdAt);
+  const src = (r.docs || []).map((x) => x.name).filter(Boolean);
+  const head = CL_COLS.map((t) => ({ text: t, style: 'th' }));
+  return {
+    pageSize: 'A4', pageOrientation: 'landscape', pageMargins: [28, 32, 28, 34],
+    info: { title: 'Чек-лист', creator: 'QA pro' },
+    defaultStyle: { font: 'Roboto', fontSize: 9, lineHeight: 1.15 },
+    styles: { h: { fontSize: 15, bold: true, margin: [0, 0, 0, 2] }, sub: { fontSize: 8.5, color: '#5b6470', margin: [0, 0, 0, 10] }, th: { bold: true, color: '#ffffff', fillColor: '#2f3a48', margin: [2, 3, 2, 3] } },
+    footer: (cur, all) => ({ text: `${cur} / ${all}`, alignment: 'right', fontSize: 8, color: '#8a929c', margin: [0, 8, 28, 0] }),
+    content: [
+      { text: 'Чек-лист', style: 'h' },
+      { text: [`${d.toLocaleDateString('ru-RU')} · проверок: ${rows.length}`, src.length ? ` · документы: ${src.slice(0, 5).join(', ')}${src.length > 5 ? ` и ещё ${src.length - 5}` : ''}` : ''].join(''), style: 'sub' },
+      { table: { headerRows: 1, dontBreakRows: true, widths: [22, '*', 62, 58, '*'],
+        body: [head, ...rows.map((row) => [{ text: row[0], alignment: 'right' }, row[1], { text: row[2], fillColor: CL_PRIO_FILL[row[2]] }, { text: row[3], alignment: 'center' }, row[4] || { text: '—', color: '#8a929c' }])] },
+        layout: { hLineWidth: () => 0.5, vLineWidth: () => 0.5, hLineColor: () => '#c9ced6', vLineColor: () => '#c9ced6', paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 3, paddingBottom: () => 3 } },
+    ],
+  };
+}
+async function checklistPdfBlob(r) {
+  await lib('pdfmake');
+  await lib('pdfmakeFonts');
+  const pm = window.pdfMake;
+  if (!pm?.createPdf) throw new Error('pdfmake');
+  return new Promise((resolve, reject) => { try { pm.createPdf(checklistPdfDoc(r)).getBlob((b) => resolve(b)); } catch (e) { reject(e); } });
+}
+async function checklistPdf(r) {
+  try { return downloadFile(clFileName(r, 'pdf'), await checklistPdfBlob(r)); }
+  catch { return toast('Не удалось сформировать PDF-файл. Проверьте подключение и попробуйте снова.', 'err'); }
+}
 function checklistTab() {
   const r = S.run;
   if (!r) return emptyHTML('Чек-листа пока нет', 'Включите «Чек-лист» в параметрах и запустите генерацию.');
@@ -1064,7 +1103,8 @@ function checklistTab() {
     const fds = openFindingsFor(r, 'checklist', i.id);
     const ref = S.clRefine?.id === i.id ? S.clRefine : null;
     const body = S.clEdit === i.id ? clEditHTML(r, i) : `<div class="cl-text">${i.check ? esc(i.check) : '<span class="muted">Пустой пункт</span>'}</div>
-      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
+      ${i.expected ? `<div class="cl-exp"><span class="muted">Ожидаемый результат:</span> ${esc(i.expected)}</div>` : ''}
+      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${i.kind === 'negative' ? '<span class="chip cl-neg">Негативная</span>' : ''}${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
       ${ref ? `<div class="case-edit" style="margin-top:8px"><label class="lbl" for="clr-input">Замечание к пункту</label><textarea id="clr-input" rows="2" placeholder="Например: укажи конкретное значение лимита; это проверка API, а не UI" ${ref.busy ? 'disabled' : ''}>${esc(ref.comment || '')}</textarea>
         ${ref.error ? `<p class="case-note err">${esc(ref.error)}</p>` : ''}
         <div class="case-acts">${ref.busy ? '<span class="case-note muted">Модель дорабатывает пункт…</span><button class="btn" type="button" data-act="cl-refine-stop">Остановить</button>' : `<button class="btn accent" type="button" data-act="cl-refine-go" data-id="${i.id}">Доработать с ИИ</button><button class="btn" type="button" data-act="cl-refine-cancel">Отмена</button>`}</div></div>` : ''}`;
@@ -1072,15 +1112,17 @@ function checklistTab() {
       <div class="cl-acts">${S.clEdit === i.id ? '' : `<button class="icon-btn" type="button" data-act="cl-edit" data-id="${i.id}" aria-label="Изменить пункт ${i.id}" title="Изменить вручную">${ICON.pen}</button><button class="icon-btn" type="button" data-act="cl-refine" data-id="${i.id}" aria-label="Замечание к пункту ${i.id}" title="Замечание — доработать с ИИ">${ICON.chat}</button><button class="icon-btn" type="button" data-act="cl-del" data-id="${i.id}" aria-label="Удалить пункт ${i.id}" title="Удалить">${ICON.x}</button>`}</div></li>`;
   };
   return `<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}
-    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
+    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-pdf">Скачать .pdf</button><button class="btn" type="button" data-act="cl-dl-xlsx">Скачать .xlsx</button><button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
     ${groups.length ? groups.map(({ g, gi, items: its }) => `<section class="cl-group"><h4>${S.clGroupEdit === gi ? `<span class="cl-edit" style="flex:1"><input type="text" id="clg-input" value="${esc(g.title)}" aria-label="Название группы"><button class="btn accent" type="button" data-act="cl-gsave" data-gi="${gi}">Сохранить</button><button class="btn" type="button" data-act="cl-gcancel">Отмена</button></span>`
       : `${esc(g.title)}<span>${its.length}</span><span class="cl-gacts"><button class="btn sm" type="button" data-act="cl-add" data-gi="${gi}">+ Пункт</button><button class="btn sm" type="button" data-act="cl-gedit" data-gi="${gi}">Переименовать</button><button class="btn sm danger" type="button" data-act="cl-gdel" data-gi="${gi}">Удалить</button></span>`}</h4>
       ${its.length ? `<ul class="cl-items">${its.map(itemHTML).join('')}</ul>` : '<p class="hint" style="padding:10px 12px">В группе нет пунктов.</p>'}</section>`).join('') : emptyHTML('Ничего не найдено', 'Измените фильтр.')}`;
 }
 function clEditHTML(r, it) {
   const gIdx = r.checklist.groups.findIndex((g) => g.items.includes(it));
-  return `<div class="cl-form"><textarea id="cl-input" rows="2" aria-label="Формулировка пункта ${it.id}" placeholder="Формулировка проверки">${esc(it.check)}</textarea>
+  return `<div class="cl-form"><textarea id="cl-input" rows="2" aria-label="Название проверки ${it.id}" placeholder="Название проверки">${esc(it.check)}</textarea>
+    <textarea id="cl-exp" rows="2" aria-label="Ожидаемый результат ${it.id}" placeholder="Ожидаемый результат">${esc(it.expected || '')}</textarea>
     <div class="cl-form-row"><select id="cl-type" aria-label="Вид">${TYPES.map((t) => `<option value="${t}" ${t === it.type ? 'selected' : ''}>${TL[t]}</option>`).join('')}</select>
+      <select id="cl-kind" aria-label="Позитивная или негативная"><option value="positive" ${it.kind !== 'negative' ? 'selected' : ''}>Позитивная</option><option value="negative" ${it.kind === 'negative' ? 'selected' : ''}>Негативная</option></select>
       <select id="cl-prio" aria-label="Приоритет">${PRIOS.map((p) => `<option value="${p}" ${p === normPrio(it.priority) ? 'selected' : ''}>${PRIO_RU[p]}</option>`).join('')}</select>
       <select id="cl-group" aria-label="Группа">${r.checklist.groups.map((g, i) => `<option value="${i}" ${i === gIdx ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select>
       <input id="cl-reqs" type="text" class="mono" placeholder="R-001, R-002" value="${esc(it.requirementIds.join(', '))}" aria-label="Требования"></div>
@@ -1092,7 +1134,7 @@ function removeChecklistItem(r, id) {
 function newChecklistItem(r, gi) {
   const g = r.checklist.groups[gi];
   if (!g) return;
-  const it = { id: 'CL-' + pad(++r.counters.cl), check: '', type: (r.settings.types || TYPES)[0] || 'ui', priority: 'P2_MEDIUM', suites: ['regression'], requirementIds: [], manual: true };
+  const it = { id: 'CL-' + pad(++r.counters.cl), check: '', expected: '', kind: 'positive', type: (r.settings.types || TYPES)[0] || 'ui', priority: 'P2_MEDIUM', suites: ['regression'], requirementIds: [], manual: true };
   g.items.push(it);
   S.clEdit = it.id; S.clNewId = it.id; S.clFilter = { type: 'all', suite: 'all' };
   renderTabs(); renderTab(); $('#cl-input')?.focus();
@@ -2213,6 +2255,7 @@ function onTabClick(e) {
     // чек-лист
     case 'gen-checklist': generateChecklistNow(); break;
     case 'cl-regen': if (armed(el, 'Заменить чек-лист?')) generateChecklistNow(); break;
+    case 'go-cl': { S.tab = 'checklist'; S.clFilter = { type: 'all', suite: 'all' }; renderTabs(); renderTab(); const n = document.getElementById('cl-' + el.dataset.id); if (n) { n.scrollIntoView({ block: 'center' }); n.classList.add('flash'); setTimeout(() => n.classList.remove('flash'), 1600); } break; }
     case 'cl-new-manual': r.checklist = { groups: [{ title: 'Проверки', items: [] }] }; r.settings.outputs = { ...outputsOf(r), checklist: true }; newChecklistItem(r, 0); break;
     case 'cl-newgroup': r.checklist.groups.push({ title: 'Новая группа', items: [] }); S.clGroupEdit = r.checklist.groups.length - 1; S.clFilter = { type: 'all', suite: 'all' }; renderTab(); $('#clg-input')?.select(); break;
     case 'cl-gedit': S.clGroupEdit = Number(el.dataset.gi); renderTab(); $('#clg-input')?.select(); break;
@@ -2236,7 +2279,7 @@ function onTabClick(e) {
       const it = findItem(el.dataset.id), v = $('#cl-input')?.value.trim();
       if (!it) break;
       if (!v) { toast('Введите формулировку пункта.', 'err'); break; }
-      it.check = v; it.type = $('#cl-type').value; it.priority = $('#cl-prio').value; it.suites = withCritical(it.priority, it.suites || []);
+      it.check = v; it.expected = ($('#cl-exp')?.value || '').trim(); it.kind = $('#cl-kind')?.value === 'negative' ? 'negative' : 'positive'; it.type = $('#cl-type').value; it.priority = $('#cl-prio').value; it.suites = withCritical(it.priority, it.suites || []);
       it.requirementIds = $('#cl-reqs').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       const gi = Number($('#cl-group').value), from = r.checklist.groups.find((g) => g.items.includes(it)), to = r.checklist.groups[gi];
       if (to && from !== to) { from.items = from.items.filter((x) => x !== it); to.items.push(it); }
@@ -2255,7 +2298,9 @@ function onTabClick(e) {
       refineItemUI(it, comment); break;
     }
     case 'cl-copy': copyText(checklistMarkdown(r)); break;
-    case 'cl-dl-md': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.md`, checklistMarkdown(r)); break;
+    case 'cl-dl-md': downloadFile(clFileName(r, 'md'), checklistMarkdown(r)); break;
+    case 'cl-dl-pdf': checklistPdf(r); break;
+    case 'cl-dl-xlsx': checklistXlsx(r); break;
     case 'cl-dl-json': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.json`, JSON.stringify(checklistJSON(r), null, 2)); break;
     // ревью
     case 'start-review': startReview(); break;
@@ -2709,6 +2754,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
+if (window.__qaTest) window.__qa = { parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
 initCaps();
 })();

@@ -33,11 +33,14 @@ def first_run(app):
     return app
 
 
-def second_run(app):
+def second_run(app, checklist=True):
     app.page.click('#btn-newses')
     app.page.wait_for_function('() => !window.__qa.S.run')
     app.js("() => { const S = window.__qa.S; for (const d of S.docs) S.runDocs.add(d.id); window.__qa.renderAll(); }")   # документ снова в запуск
     app.model.reset()
+    if not checklist:
+        from tests.test_generation import set_outputs
+        set_outputs(app, checklist=False)   # план по требованиям: видит кейсы продукта и помечает уже покрытое
     app.generate()
 
 
@@ -258,7 +261,7 @@ def test_run_is_saved_inside_the_product(app):
 
 def test_second_run_continues_numbering(app):
     first_run(app)
-    second_run(app)
+    second_run(app, checklist=False)   # план по требованиям помечает E2E-001 как уже покрытый
     ids = app.state('S.run.cases.map((c) => c.dispId)')
     assert ids == ['API-003', 'API-004', 'UI-002']   # E2E-001 уже есть в продукте, поэтому нового сквозного кейса нет
     add_draft(app)
@@ -267,8 +270,8 @@ def test_second_run_continues_numbering(app):
 
 def test_second_run_sees_existing_cases_and_knowledge(app):
     first_run(app)
-    second_run(app)
-    for kind in ('promptChecklist', 'promptPlan', 'promptGenerate'):
+    second_run(app, checklist=False)
+    for kind in ('promptPlan', 'promptGenerate'):
         ps = app.model.prompts_of(kind)
         assert ps and all('## Знания о продукте' in p for p in ps), kind
     assert '## Уже есть в продукте' in app.model.prompts_of('promptPlan')[0] and '- E2E-001 [e2e]' in app.model.prompts_of('promptPlan')[0]
@@ -277,7 +280,7 @@ def test_second_run_sees_existing_cases_and_knowledge(app):
 
 def test_requirement_covered_by_product_is_marked_in_requirements(app):
     first_run(app)
-    second_run(app)
+    second_run(app, checklist=False)
     assert app.state('S.run.coveredExisting') == [{'requirementId': 'R-003', 'caseIds': ['E2E-001']}]
     app.tab('reqs')
     row = app.page.eval_on_selector_all('#tab-body tr', "rows => rows.map((r) => r.innerText.replace(/\\s+/g, ' ')).find((t) => t.startsWith('R-003'))")
@@ -418,6 +421,8 @@ def test_numbering_continues_in_the_copy(copy):
         copy.page.click('#btn-newses')
         copy.page.wait_for_function('() => !window.__qa.S.run')
     copy.js("() => { const S = window.__qa.S; for (const d of S.docs) S.runDocs.add(d.id); window.__qa.renderAll(); }")
+    from tests.test_generation import set_outputs
+    set_outputs(copy, checklist=False)   # план по требованиям помечает E2E-001 как уже покрытый
     copy.generate()
     assert copy.state('S.run.cases.map((c) => c.dispId)') == ['API-003', 'API-004', 'UI-002']
 

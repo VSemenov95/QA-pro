@@ -351,7 +351,7 @@ def test_continue_now_repeats_only_unfinished_requests(held):
     p2.page.click('[data-act=resume-run]')
     p2.wait_idle()
     assert p2.state('S.run.status') == 'done' and p2.state('S.run.cases.length') == 4
-    assert [len(p2.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 1]
+    assert [len(p2.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 0]   # план — из чек-листа
     assert 'Продолжаю с места остановки — готовые шаги и запросы не повторяются' in ' '.join(p2.state('S.run.steps.gen_api.log.map((l) => l.text)'))
 
 

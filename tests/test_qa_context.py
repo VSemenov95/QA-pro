@@ -101,9 +101,18 @@ def test_generation_prompt_has_general_and_own_type_context_only(generated):
     assert got == {'api': ['all', 'api'], 'ui': ['all', 'ui'], 'e2e': ['all', 'e2e']}
 
 
-@pytest.mark.parametrize('kind', ['promptAnalyze', 'promptChecklist', 'promptPlan'])
+@pytest.mark.parametrize('kind', ['promptAnalyze', 'promptChecklist'])
 def test_prompts_for_all_types_have_every_context(generated, kind):
     prompts = generated.model.prompts_of(kind)
+    assert prompts and all(marks(p) == ['all', 'api', 'ui', 'e2e'] for p in prompts)
+
+
+def test_plan_prompt_has_every_context(app):
+    from tests.test_generation import set_outputs
+    full(app)
+    set_outputs(app, checklist=False)   # план по требованиям — только без чек-листа
+    app.generate()
+    prompts = app.model.prompts_of('promptPlan')
     assert prompts and all(marks(p) == ['all', 'api', 'ui', 'e2e'] for p in prompts)
 
 

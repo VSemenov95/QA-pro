@@ -412,7 +412,13 @@ function promptChecklist(run, reqs, types, depth) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
   const rules = rulesText();
   const ex = relevantExisting(run, 'checklist', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' '));
-  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": d.prompt, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "e11": ex.length ? ', кроме уже полностью проверенных существующими пунктами продукта' : '' });
+  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": d.prompt, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length) });
+}
+/* лимит проверок: в чек-лист сначала самые приоритетные позитивные, затем негативные */
+function checklistLimitRule(run, hasExisting) {
+  const n = strictTarget(run) ? run.settings.target : 0;
+  if (!n) return `Каждое требование должно попасть хотя бы в один пункт${hasExisting ? ', кроме уже полностью проверенных существующими пунктами продукта' : ''}.`;
+  return `Не больше ${n} ${plural(n, 'пункта', 'пунктов', 'пунктов')} во всём ответе — это строгий лимит. Сначала самые приоритетные позитивные проверки основного сценария (P4_CRITICAL, затем P3_HIGH, P2_MEDIUM, P1_LOW), негативные — только после них, пока не наберётся ${n}. Если пунктов не хватает на все требования, без проверок остаются наименее важные.`;
 }
 function promptPlan(run, reqs, types, depth) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
@@ -567,7 +573,7 @@ function promptGenerate(run, b, mode = {}) {
   const rules = rulesText();
   return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
-${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}
+${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}${it.checks.some(clIdOf) ? '\nЭто пункты чек-листа. Кейс пиши по названию и ожидаемому результату пункта, приоритет кейса — как у пункта. В объекте ответа рядом с planItem укажи checklistId — номер пункта (CL-…), по которому написан кейс.' : ''}
 Требования:
 ${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n\n'), "e13": knowBlocks(run, 'batch', focus), "e14": existingBlock(ex, 'cases', 'Не повторяй эти кейсы. Называй экраны, кнопки, роли и сущности так же, как в них и в знаниях о продукте.'), "e15": mode.fullDocs !== false ? docsBlock(run, focus, mode) : '', "e16": mode.tools ? `\n## Инструменты
 Если для конкретики не хватает деталей (форматы полей, лимиты, коды и тексты ошибок, названия элементов), найди их в исходных документах инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '' });
@@ -1139,6 +1145,10 @@ function acceptCases(run, b, res) {
   const info = tplInfo(b.type);
   const arr = Array.isArray(res) ? res : Array.isArray(res?.cases) ? res.cases : Array.isArray(res?.testCases) ? res.testCases : [];
   const itemIds = b.items.map((i) => i.id);
+  // пункты чек-листа в пачке: planItem → номера пунктов; каждый пункт достаётся одному кейсу
+  const clIn = new Map(), clUsed = new Set();
+  for (const it of b.items) for (const ch of it.checks) { const id = clIdOf(ch); if (id) { if (!clIn.has(it.id)) clIn.set(it.id, []); clIn.get(it.id).push(id); } }
+  const clAll = new Set([...clIn.values()].flat());
   let added = 0;
   for (const c of arr) {
     if (!c || typeof c !== 'object') continue;
@@ -1152,7 +1162,19 @@ function acceptCases(run, b, res) {
     const dispId = nextDispId(run, b.type);
     if (info.ok && info.idField) tc[info.idField] = dispId;
     tc = orderLikeTemplate(tc, info, b.type);
-    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: withCritical(tc.priority, normSuites(c.suites)), testCase: tc, dispId };
+    let clId = '';
+    if (clAll.size) {
+      clId = String(c.checklistId || '').trim().toUpperCase();
+      // номер не указан или чужой — следующий свободный пункт той же группы плана; у группы без пунктов чек-листа связи нет
+      if (!clAll.has(clId) || clUsed.has(clId)) clId = (clIn.get(planItem) || []).find((x) => !clUsed.has(x)) || '';
+    }
+    const cl = clId ? checklistItems(run).find((i) => i.id === clId) : null;
+    if (cl) {
+      clUsed.add(clId);
+      if (typeof tc.priority === 'string') tc.priority = normPrio(cl.priority); // приоритет — как у пункта чек-листа
+      if (!arrStr(c.requirementIds).some((id) => run.reqById[id]) && cl.requirementIds.length) reqIds = cl.requirementIds.slice();
+    }
+    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: withCritical(tc.priority, normSuites(c.suites).length ? normSuites(c.suites) : cl?.suites || []), testCase: tc, dispId, ...(cl ? { checklistId: clId } : {}) };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
     added++;
@@ -1384,12 +1406,24 @@ async function stepAnalyze(run, docs, types) {
   send(run, 'analyze', results.filter(Boolean).length < chunks.length ? 'error' : 'done');
   if (!run.requirements.some((r) => r.inScope)) throw new Error('Ни одно требование не относится к выбранным видам тестов.');
 }
+const clKind = (k) => (/negat|негатив|boundary|гранич|error|ошиб/i.test(String(k || '')) ? 'negative' : 'positive');
 function normChecklistItem(run, it, types) {
   const type = String(it?.type || '').toLowerCase();
   return {
-    id: '', check: String(it?.check || it?.text || '').trim(), type: types.includes(type) ? type : types[0],
+    id: '', check: String(it?.check || it?.title || it?.text || '').trim(), expected: String(it?.expected || it?.expectedResult || '').trim(), kind: clKind(it?.kind),
+    type: types.includes(type) ? type : types[0],
     priority: normPrio(it?.priority), suites: withCritical(it?.priority, normSuites(it?.suites)), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
   };
+}
+/* порядок отбора при лимите: позитивные по убыванию приоритета, затем негативные */
+const PRIO_RANK = { P4_CRITICAL: 0, P3_HIGH: 1, P2_MEDIUM: 2, P1_LOW: 3 };
+const clRank = (i) => (i.kind === 'negative' ? 10 : 0) + (PRIO_RANK[normPrio(i.priority)] ?? 2);
+function capChecklist(groups, n) {
+  const all = groups.flatMap((g, gi) => g.items.map((it, k) => ({ it, gi, k })));
+  if (all.length <= n) return { groups, total: all.length };
+  const keep = new Set(all.slice().sort((a, b) => clRank(a.it) - clRank(b.it) || a.gi - b.gi || a.k - b.k).slice(0, n).map((x) => x.it));
+  const out = groups.map((g) => ({ ...g, items: g.items.filter((it) => keep.has(it)).sort((a, b) => clRank(a) - clRank(b)) })).filter((g) => g.items.length);
+  return { groups: out, total: all.length };
 }
 function addChecklistGroup(run, title, items) {
   run.checklist = run.checklist || { groups: [] };
@@ -1419,13 +1453,24 @@ async function stepChecklist(run) {
   }, S.ctl.signal);
   if (S.ctl.signal.aborted) throw abortErr();
   run.checklist = { groups: [] };
+  let groups = [];
   for (const res of results) {
     for (const g of arrOf(res?.groups)) {
       const items = arrOf(g?.items).map((it) => normChecklistItem(run, it, types)).filter((it) => it.check && !outOfScope(it.check));
-      if (items.length) addChecklistGroup(run, String(g?.title || 'Проверки'), items);
+      if (items.length) groups.push({ title: String(g?.title || 'Проверки'), items });
     }
   }
+  if (strictTarget(run)) {
+    const n = run.settings.target, cap = capChecklist(groups, n);
+    groups = cap.groups;
+    if (cap.total > n) slog(run, 'checklist', `Чек-лист ограничен числом проверок: ${n} (было ${cap.total}) — сначала самые приоритетные позитивные, затем негативные`, 'ok');
+  }
+  for (const g of groups) addChecklistGroup(run, g.title, g.items);
   const items = checklistItems(run);
+  if (strictTarget(run)) {
+    const got = new Set(items.flatMap((i) => i.requirementIds)), gaps = reqs.filter((r) => !got.has(r.id)).map((r) => r.id);
+    if (gaps.length && items.length) slog(run, 'checklist', `Строгое число проверок (${run.settings.target}): без пунктов чек-листа остались требования ${gaps.join(', ')}`, 'warn');
+  }
   const smoke = items.filter((i) => i.suites.includes('smoke')).length;
   if (items.length) slog(run, 'checklist', `Итого ${items.length} ${plural(items.length, 'пункт', 'пункта', 'пунктов')} в ${run.checklist.groups.length} ${plural(run.checklist.groups.length, 'группе', 'группах', 'группах')}, смоук: ${smoke}`, 'ok');
   send(run, 'checklist', items.length && results.filter(Boolean).length === chunks.length ? 'done' : 'error');
@@ -1440,8 +1485,40 @@ function capChecks(items, n) {
   items.forEach((it, i) => { for (let k = 1; k < it.checks.length && left > 0; k++) { out[i].checks.push(it.checks[k]); left--; } });
   return out.filter((it) => it.checks.length);
 }
-async function stepPlan(run, types) {
+/* Выбраны и чек-лист, и тест-кейсы: кейсы пишутся по пунктам чек-листа — один пункт, один кейс. Номер пункта идёт
+   в начале проверки («CL-012 · …»), по нему кейс связывается с пунктом. */
+const clCheckText = (i) => `${i.id} · ${i.check}${i.expected ? `. Ожидаемый результат: ${i.expected}` : ''} (приоритет: ${PRIO_RU[normPrio(i.priority)].toLowerCase()}, ${i.kind === 'negative' ? 'негативная' : 'позитивная'})`;
+const clIdOf = (check) => (/^(CL-\d+) · /.exec(String(check || '')) || [])[1] || '';
+const planFromChecklistOn = (run) => run.mode !== 'update' && !!outputsOf(run).checklist && checklistItems(run).some((i) => i.check);
+function planFromChecklist(run, types) {
   sstart(run, 'plan');
+  const items = [];
+  for (const g of run.checklist.groups) for (const t of TYPES) {
+    const its = g.items.filter((i) => i.type === t && i.check);
+    if (!its.length) continue;
+    if (!types.includes(t)) continue;
+    items.push({ type: t, title: g.title, requirementIds: [...new Set(its.flatMap((i) => i.requirementIds))], checks: its.map(clCheckText), fromChecklist: true });
+  }
+  const n = items.reduce((a, it) => a + it.checks.length, 0);
+  // требования, которых нет в чек-листе, — как в обычном плане: по критериям приёмки (при строгом лимите не добавляем)
+  const got = new Set(items.flatMap((it) => it.requirementIds));
+  const miss = strictTarget(run) ? [] : run.requirements.filter((r) => r.inScope && r.types.some((t) => types.includes(t)) && !got.has(r.id));
+  if (miss.length) items.push(...fallbackItems(miss, types));
+  items.forEach((it, i) => { it.id = 'P-' + pad(i + 1, 2); });
+  run.plan = items; run.coveredExisting = [];
+  if (miss.length) slog(run, 'plan', `Нет в чек-листе: ${miss.map((r) => r.id).join(', ')} — добавлены по критериям приёмки`, 'warn');
+  const off = checklistItems(run).filter((i) => i.check && !types.includes(i.type)).length;
+  slog(run, 'plan', `План — по чек-листу: ${n} ${plural(n, 'пункт', 'пункта', 'пунктов')} → ${n} ${plural(n, 'тест-кейс', 'тест-кейса', 'тест-кейсов')}${off ? `; пропущено пунктов невыбранных видов: ${off}` : ''}`, 'ok');
+  for (const t of types) {
+    const g = items.filter((x) => x.type === t);
+    if (g.length) slog(run, 'plan', `${TL[t]}: ${g.reduce((a, x) => a + x.checks.length, 0)} ${plural(g.reduce((a, x) => a + x.checks.length, 0), 'пункт', 'пункта', 'пунктов')} чек-листа`);
+  }
+  send(run, 'plan');
+}
+async function stepPlan(run, types) {
+  if (planFromChecklistOn(run)) return planFromChecklist(run, types);
+  sstart(run, 'plan');
+  if (run.mode !== 'update' && outputsOf(run).checklist) slog(run, 'plan', 'Чек-лист пуст — план составлен по требованиям', 'warn');
   const reqs = run.mode === 'update' ? uncovered(run) : run.requirements.filter((r) => r.inScope);
   if (run.mode === 'update' && !reqs.length) {
     run.plan = []; run.coveredExisting = [];
@@ -2427,13 +2504,15 @@ function startReview(full = false, tab = 'review') {
 }
 /* исправление замечаний */
 function promptRefineItem(run, it, comment) {
-  return renderPrompt("promptRefineItem", { "e1": it.requirementIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e2": clarBlock(run), "e3": qaCtxBlock(ctxOf(run), it.type), "e4": knowBlocks(run, 'batch', `${it.check} ${comment}`), "it_id": it.id, "it_type": it.type, "it_priority": it.priority, "e8": it.suites.join(','), "it_check": it.check, "comment": comment });
+  return renderPrompt("promptRefineItem", { "e1": it.requirementIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e2": clarBlock(run), "e3": qaCtxBlock(ctxOf(run), it.type), "e4": knowBlocks(run, 'batch', `${it.check} ${comment}`), "it_id": it.id, "it_type": it.type, "it_priority": it.priority, "e8": it.suites.join(','), "it_check": it.check, "it_kind": it.kind === 'negative' ? 'негативная' : 'позитивная', "it_expected": it.expected || 'не указан', "comment": comment });
 }
 async function refineItemCore(run, it, comment, signal) {
   const res = await ask(promptRefineItem(run, it, comment), { step: 'refine', cache: false, signal });
   const check = String(res?.check || '').trim();
   if (!check) throw new Error('Модель не вернула формулировку пункта.');
   it.prevCheck = it.check; it.check = check;
+  if (typeof res.expected === 'string' && res.expected.trim()) it.expected = res.expected.trim();
+  if (res.kind) it.kind = clKind(res.kind);
   if (res.priority) it.priority = normPrio(res.priority);
   it.suites = withCritical(it.priority, it.suites || []);
   if (res.suites !== undefined) it.suites = normSuites(res.suites);

@@ -110,11 +110,11 @@ def _plan(c):
 def _checklist(c):
     return {'groups': [
         {'title': 'Форма восстановления', 'items': [
-            {'check': 'Ссылка «Забыли пароль?» видна под полем пароля', 'type': 'ui', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-001']},
-            {'check': 'Email без @ — сообщение «Введите корректный email»', 'type': 'ui', 'priority': 'medium', 'suites': ['regression'], 'requirementIds': ['R-001']}]},
+            {'check': 'Отображение ссылки «Забыли пароль?»', 'expected': 'Ссылка видна под полем пароля', 'kind': 'positive', 'type': 'ui', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-001']},
+            {'check': 'Email без @ в форме восстановления', 'expected': 'Сообщение «Введите корректный email»', 'kind': 'negative', 'type': 'ui', 'priority': 'medium', 'suites': ['regression'], 'requirementIds': ['R-001']}]},
         {'title': 'API сброса', 'items': [
-            {'check': 'POST /api/v1/password-reset с корректным email — 202', 'type': 'api', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']},
-            {'check': 'Четвёртый запрос за 15 минут — 429 RATE_LIMIT', 'type': 'api', 'priority': 'medium', 'suites': ['regression'], 'requirementIds': ['R-002']}]},
+            {'check': 'Запрос сброса с корректным email', 'expected': 'POST /api/v1/password-reset — 202', 'kind': 'positive', 'type': 'api', 'priority': 'high', 'suites': ['smoke', 'regression'], 'requirementIds': ['R-002']},
+            {'check': 'Четвёртый запрос за 15 минут', 'expected': '429 RATE_LIMIT', 'kind': 'negative', 'type': 'api', 'priority': 'medium', 'suites': ['regression'], 'requirementIds': ['R-002']}]},
     ]}
 
 
@@ -124,9 +124,25 @@ def case_body(title, check='проверка'):
 
 
 def _generate(c):
+    """Один кейс на пункт плана; если пункт плана собран из чек-листа — кейс связан с первым его пунктом."""
     items = re.findall(r'### ([A-Z]+-\d+)\.', c.prompt)
-    return {'cases': [{'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 else ['regression'],
-                       'testCase': case_body(f'Кейс для {pid}: проверка восстановления пароля')} for k, pid in enumerate(items)]}
+    out = []
+    for k, pid in enumerate(items):
+        cl = re.findall(r'(?m)^\d+\. (CL-\d+) · ', re.search(r'### ' + re.escape(pid) + r'\.(.*?)(?=\n### |\Z)', c.prompt, re.S).group(1))
+        out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 else ['regression'],
+                    **({'checklistId': cl[0]} if cl else {}), 'testCase': case_body(f'Кейс для {pid}: проверка восстановления пароля')})
+    return {'cases': out}
+
+
+def generate_per_check(c):
+    """Кейс на каждый пункт чек-листа в запросе (как просит промпт)."""
+    out = []
+    for k, pid in enumerate(re.findall(r'### ([A-Z]+-\d+)\.', c.prompt)):
+        block = re.search(r'### ' + re.escape(pid) + r'\.(.*?)(?=\n### |\Z)', c.prompt, re.S).group(1)
+        for j, cl in enumerate(re.findall(r'(?m)^\d+\. (CL-\d+) · ', block) or [None]):
+            out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 and j == 0 else ['regression'],
+                        **({'checklistId': cl} if cl else {}), 'testCase': case_body(f'Кейс для {pid}{" " + cl if cl else ""}: проверка восстановления пароля')})
+    return {'cases': out}
 
 
 def _review(c):

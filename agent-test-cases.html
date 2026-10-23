@@ -390,6 +390,11 @@ tr.req-row:hover td{background:var(--sunken)}
 .cl-id{font:500 11.5px/1.7 var(--f-mono);color:var(--ink-3);white-space:nowrap}
 .cl-text{line-height:1.45}
 .cl-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;align-items:center}
+.cl-exp{line-height:1.45;margin-top:3px;font-size:13px}
+.chip.cl-neg{background:var(--fail-soft);color:var(--fail)}
+.chip.cl-link{cursor:pointer}
+.cl-item.flash{outline:2px solid var(--ring);outline-offset:2px;transition:outline-color .6s}
+#cl-exp{margin-top:6px}
 .cl-meta .rq{font:500 11px/1 var(--f-mono);color:var(--ink-3)}
 .cl-acts{display:flex;gap:2px}
 .cl-edit{display:flex;gap:6px;flex-wrap:wrap}
@@ -1040,7 +1045,7 @@ tr.req-row:hover td{background:var(--hover)}
 
     <section class="panel run-panel" data-modes="generate,update">
       <div class="panel-h"><span class="step-n">04</span><h2>Запуск</h2></div>
-      <div class="field target-field" data-modes="generate"><label class="lbl" for="target-n">Тестов всего (необязательно)</label><input type="number" id="target-n" min="1" max="300" inputmode="numeric" placeholder="без ограничения" aria-describedby="target-hint"><p class="hint" id="target-hint">Строгое число: план ограничивается этим количеством проверок (один кейс — одна проверка), сверка покрытия кейсы сверх числа не добавляет. Если требования останутся без проверок, будет предупреждение. Не влияет на актуализацию.</p></div>
+      <div class="field target-field" data-modes="generate"><label class="lbl" for="target-n">Проверок всего (необязательно)</label><input type="number" id="target-n" min="1" max="300" inputmode="numeric" placeholder="без ограничения" aria-describedby="target-hint"><p class="hint" id="target-hint">Строгое число: чек-лист и план ограничиваются этим количеством проверок (один кейс — одна проверка). В чек-лист первыми попадают самые приоритетные позитивные проверки, негативные — после них. Сверка покрытия кейсы сверх числа не добавляет. Если требования останутся без проверок, будет предупреждение. Не влияет на актуализацию.</p></div>
       <button class="btn-primary" id="btn-run" type="button">Сгенерировать</button>
       <button class="btn-secondary" id="btn-regen" type="button" hidden title="Удалить кейсы черновика и сгенерировать заново с текущими правилами">Перегенерировать по правилам</button>
       <button class="btn-secondary" id="btn-reduce" type="button" hidden title="Оставить в черновике самые важные кейсы, сохранив покрытие требований">Сократить количество тестов</button>
