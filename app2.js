@@ -130,11 +130,7 @@ function kbToks(d, b) {
 // разделы, загруженные целиком (сводка или выдержки), — для генерации и инструментов агента
 function kbSections(pid) {
   const own = !pid || S.kb.pid !== pid ? [] : S.kb.index.blocks.map((b) => ({ b, d: S.kb.cache[b.id] })).filter((x) => x.d && (x.d.synth || arrOf(x.d.parts).length));
-  // источник контекста — репозиторий: его разделы плюс разделы продукта с другими названиями
-  const repo = ctxKbFor(pid);
-  if (!repo.length) return own;
-  const titles = new Set(repo.map((x) => normKey(x.b.title)));
-  return [...repo, ...own.filter((x) => !titles.has(normKey(x.b.title)))];
+  return own; // при подключённой папке оглавление и разделы уже из её файлов (kbIdxRead → ctxKbIndex)
 }
 function kbRank(focus, secs) {
   const q = new Set(helpTokens(focus));
@@ -4446,7 +4442,14 @@ const kbPath = (pid, id) => `${prodPath(pid)}/kb/${id}`;
 const KB_PAGE_BYTES = 200000, KB_MORE_MAX = 12; // раздел — до 13 записей ≈ 3 МБ (≈1,5 млн знаков выдержек)
 const kbMorePath = (pid, id, i) => `${kbPath(pid, id)}__p${i}`;
 const kbIdxRef = (pid, i = 0) => S.caps.db.doc(`${prodPath(pid)}/meta/kb${i ? '_' + (i + 1) : ''}`);
-async function kbIdxRead(pid) {
+/* Источник контекста — папка или репозиторий: база знаний живёт в его файлах (products/<папка>/kb/*.md и knowledge/*.md),
+   оглавление собирается из них, отметки о разобранных документах — products/<папка>/qa-pro-docs.json (appctx.js).
+   Ниже — переходники: в этом режиме чтение и запись разделов идут в файлы, иначе — в хранилище QA pro. */
+async function kbIdxRead(pid) { return ctxKbOn(pid) ? ctxKbIndex() : kbIdxReadDb(pid); }
+async function kbIdxWrite(pid, blocks, docs, old) { return ctxKbOn(pid) ? ctxKbDocsWrite(blocks, docs) : kbIdxWriteDb(pid, blocks, docs, old); }
+async function kbRead(pid, id) { return ctxKbOn(pid) ? ctxKbRead(id) : kbReadDb(pid, id); }
+async function kbWrite(pid, id, next, prevMore = 0) { return ctxKbOn(pid) ? ctxKbWrite(id, next) : kbWriteDb(pid, id, next, prevMore); }
+async function kbIdxReadDb(pid) {
   const d = (await kbIdxRef(pid).get()).data() || null;
   if (!d) return { blocks: [], docs: {}, pages: 1, raw: [null], updatedAt: 0 };
   const pages = Math.max(1, Number(d.pages) || 1), raw = [d];
@@ -4454,7 +4457,7 @@ async function kbIdxRead(pid) {
   for (let i = 1; i < pages; i++) { const x = (await kbIdxRef(pid, i).get()).data() || null; raw.push(x); blocks = blocks.concat(arrOf(x?.blocks)); }
   return { blocks, docs: d.docs && typeof d.docs === 'object' ? d.docs : {}, pages, raw, updatedAt: d.updatedAt || 0 };
 }
-async function kbIdxWrite(pid, blocks, docs, old) {
+async function kbIdxWriteDb(pid, blocks, docs, old) {
   const pages = [];
   let cur = [], size = kbBytes({ docs }) + 200;
   for (const b of blocks) { const n = kbBytes(b) + 1; if (cur.length && size + n > KB_PAGE_BYTES) { pages.push(cur); cur = []; size = 200; } cur.push(b); size += n; }
@@ -4477,20 +4480,21 @@ async function loadKb(pid = S.productId) {
     if (S.kb.pid !== pid) return;
     S.kb.index = { blocks: d.blocks, docs: d.docs }; S.kb.missing = {};
     S.kb.stamp = d.updatedAt;
+    if (ctxKbOn(pid)) for (const b of d.blocks) S.kb.cache[b.id] = ctxKbRead(b.id); // файлы уже прочитаны — разделы сразу в памяти
   } catch { /* разделов ещё нет */ }
   S.kb.loaded = true;
   if (S.settings.mode === 'help') renderHelp();
   renderDocs();
 }
 // раздел целиком: основная запись и продолжения с выдержками
-async function kbRead(pid, id) {
+async function kbReadDb(pid, id) {
   const d = (await S.caps.db.doc(kbPath(pid, id)).get()).data() || null;
   if (!d || !d.more) return d;
   let parts = arrOf(d.parts);
   for (let i = 1; i <= d.more; i++) { const x = (await S.caps.db.doc(kbMorePath(pid, id, i)).get()).data(); parts = parts.concat(arrOf(x?.parts)); }
   return { ...d, parts };
 }
-async function kbWrite(pid, id, next, prevMore = 0) {
+async function kbWriteDb(pid, id, next, prevMore = 0) {
   const head = { ...next, parts: [] }, main = [], rest = [];
   let size = kbBytes(head) + 50;
   for (const p of next.parts) { const n = kbBytes(p) + 1; if (!rest.length && size + n <= KB_DOC_BYTES) { main.push(p); size += n; } else rest.push(p); }
@@ -4510,6 +4514,8 @@ async function kbBlock(id, pid = S.productId) {
   if (!d && S.kb.pid === pid) S.kb.missing = { ...(S.kb.missing || {}), [id]: true };
   return d;
 }
+// строка оглавления для раздела
+const kbIdxEntry = (id, d) => ({ id, title: d.title, summary: String(d.summary || '').slice(0, 300), docIds: [...new Set(arrOf(d.parts).map((p) => p.docId))], parts: arrOf(d.parts).length, size: arrOf(d.parts).reduce((a, p) => a + (p.md || '').length, 0) || String(d.synth || '').length, updatedAt: d.updatedAt || 0, ph: d.ph, sh: d.synthHash || '', conf: arrOf(d.conflicts).length, ...(arrOf(d.conflicts).length ? { cf: arrOf(d.conflicts).slice(0, 6).map((c) => String(c).slice(0, 300)) } : {}), ...(d.human ? { human: true } : {}) });
 let kbChain = Promise.resolve();
 /* изменения раздела и оглавления — по очереди, с перечитыванием свежей версии */
 function kbSave(pid, id, mut) {
@@ -4518,16 +4524,17 @@ function kbSave(pid, id, mut) {
     const next = mut(cur);
     const idx = await kbIdxRead(pid);
     let blocks = idx.blocks.filter((b) => b.id !== id);
-    if (next && arrOf(next.parts).length) {
+    if (next && (arrOf(next.parts).length || (next.human && String(next.synth || '').trim()))) {   // раздел, написанный человеком в папке, живёт и без выдержек
       next.updatedAt = Date.now();
       kbFit(next);
       next.ph = kbPartsHash(next.parts);
       delete next.more;
       await kbWrite(pid, id, next, cur?.more || 0);
-      blocks.push({ id, title: next.title, summary: String(next.summary || '').slice(0, 300), docIds: [...new Set(next.parts.map((p) => p.docId))], parts: next.parts.length, size: next.parts.reduce((a, p) => a + (p.md || '').length, 0), updatedAt: next.updatedAt, ph: next.ph, sh: next.synthHash || '', conf: arrOf(next.conflicts).length, ...(arrOf(next.conflicts).length ? { cf: arrOf(next.conflicts).slice(0, 6).map((c) => String(c).slice(0, 300)) } : {}) });
+      blocks.push(kbIdxEntry(id, next));
       if (S.kb.pid === pid) S.kb.cache[id] = next;
     } else {
-      if (cur) {
+      if (cur && ctxKbOn(pid)) ctxKbDelete(id);
+      else if (cur) {
         await S.caps.db.doc(kbPath(pid, id)).delete();
         for (let i = 1; i <= (cur.more || 0); i++) { try { await S.caps.db.doc(kbMorePath(pid, id, i)).delete(); } catch { /* уже нет */ } }
       }

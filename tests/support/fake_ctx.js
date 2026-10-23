@@ -26,8 +26,8 @@
       const conflicts = [];
       if (!a.force) for (const f of a.files) { const cur = f.path in r.files ? h(r.files[f.path]) : null; if (f.base !== undefined && (f.base || null) !== cur && cur !== h(f.text)) conflicts.push({ path: f.path, hash: cur, text: r.files[f.path] ?? null }); }
       if (conflicts.length) return { written: [], conflicts };
-      for (const f of a.files) r.files[f.path] = f.text;
-      return { written: a.files.map((f) => ({ path: f.path, hash: h(f.text) })), conflicts: [] };
+      for (const f of a.files) { if (f.delete) delete r.files[f.path]; else r.files[f.path] = f.text; }
+      return { written: a.files.map((f) => (f.delete ? { path: f.path, deleted: true, hash: null } : { path: f.path, hash: h(f.text) })), conflicts: [] };
     }
     if (tool === 'context_git' && a.op === 'pull') { r.pulls++; if (r.onPull) r.onPull(r); return { updated: true, head: 'abc123', status: r.git }; }
     if (tool === 'context_git' && a.op === 'commit') { r.committed = (r.committed || 0) + 1; if (r.git.branch === 'main') r.git = { ...r.git, branch: 'qa-pro/2026-10-22-1830' }; return { committed: true, branch: r.git.branch, head: 'c0ffee1', files: a.paths || [] }; }
@@ -48,7 +48,7 @@
       const inPlace = String(a.branch).startsWith('qa-pro/');
       const target = inPlace ? a.branch : 'qa-pro/2026-10-22-183000';
       const next = { ...cur };
-      for (const f of a.files) next[f.path] = f.text;
+      for (const f of a.files) { if (f.delete) delete next[f.path]; else next[f.path] = f.text; }
       g.branches[target] = next;
       const base = inPlace ? a.base || g.branch : a.branch;
       return { committed: true, branch: target, base, commit: 'c2', hashes: Object.fromEntries(a.files.map((f) => [f.path, h(f.text)])), pr: `https://github.com/${a.repo}/compare/${base}...${target}?expand=1`, conflicts: [] };
