@@ -62,7 +62,8 @@ def test_steps_are_marked_by_outcome(done):
 def test_model_is_asked_in_pipeline_order(done):
     seq = collapsed_kinds(done)
     cut = seq.index('promptCoverageAudit') + 1
-    assert seq[:cut] == ['promptAnalyze', 'promptAnalyzeMore', 'promptChecklist', 'promptPlan', 'promptGenerate', 'promptCoverageAudit']
+    # выбраны чек-лист и кейсы: план строится из чек-листа, отдельного запроса плана нет
+    assert seq[:cut] == ['promptAnalyze', 'promptAnalyzeMore', 'promptChecklist', 'promptGenerate', 'promptCoverageAudit']
 
 
 def test_generation_toast_and_draft_tab(done):
@@ -208,7 +209,7 @@ def test_analysis_cache_can_be_switched_off(app):
 def test_usage_counts_every_model_request_by_step(done):
     u = done.state('S.run.usage')
     assert u['calls'] == len(done.model.calls)
-    assert {k: v['calls'] for k, v in u['by'].items()} == {'analyze': 2, 'checklist': 1, 'plan': 1, 'gen_api': 1, 'gen_ui': 1, 'gen_e2e': 1, 'coverage': 1, 'knowledge': 1}
+    assert {k: v['calls'] for k, v in u['by'].items()} == {'analyze': 2, 'checklist': 1, 'gen_api': 1, 'gen_ui': 1, 'gen_e2e': 1, 'coverage': 1, 'knowledge': 1}
     assert u['in'] > 0 and u['out'] > 0
 
 
@@ -295,10 +296,11 @@ def test_resume_after_rate_limit_in_cases_writes_only_missing(app):
     app.page.click('[data-act=resume-run]')
     app.wait_idle()
     assert app.state('S.run.status') == 'done' and app.state('S.run.cases.length') >= 4
-    assert [len(app.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 1]
+    assert [len(app.model.calls_of(k)) for k in ('promptAnalyze', 'promptChecklist', 'promptPlan')] == [1, 1, 0]   # план — из чек-листа
 
 
 def test_plan_failure_falls_back_to_acceptance_criteria(app):
+    set_outputs(app, checklist=False)
     app.model.on('promptPlan', ModelError('invalid_json'))
     app.generate()
     assert app.state('S.run.status') == 'done'
@@ -514,8 +516,16 @@ def test_scope_rule_is_in_prompts_of_every_step(app):
     from pathlib import Path
     rule = (Path(__file__).resolve().parent.parent / 'rules' / 'scope.md').read_text(encoding='utf-8').splitlines()[0]
     app.generate()
-    for kind in ('promptAnalyze', 'promptAnalyzeMore', 'promptChecklist', 'promptPlan', 'promptGenerate', 'promptCoverageAudit'):
+    for kind in ('promptAnalyze', 'promptAnalyzeMore', 'promptChecklist', 'promptGenerate', 'promptCoverageAudit'):
         assert rule in app.model.prompts_of(kind)[0], kind
+
+
+def test_scope_rule_is_in_plan_prompt_without_checklist(app):
+    from pathlib import Path
+    rule = (Path(__file__).resolve().parent.parent / 'rules' / 'scope.md').read_text(encoding='utf-8').splitlines()[0]
+    set_outputs(app, checklist=False)
+    app.generate()
+    assert rule in app.model.prompts_of('promptPlan')[0]
 
 
 def test_reviewer_is_told_about_scope(app):
@@ -526,6 +536,7 @@ def test_reviewer_is_told_about_scope(app):
 
 
 def test_plan_drops_exploratory_and_db_only_checks(app):
+    set_outputs(app, checklist=False)
     app.model.on('promptPlan', {'items': [
         {'type': 'api', 'title': 'API', 'requirementIds': ['R-002'], 'checks': ['202 для корректного email', 'DELETE /api/v1/password-reset/1 — 405', 'Выполнить INSERT INTO users и проверить ответ']},
         {'type': 'ui', 'title': 'Исследовательское тестирование формы', 'requirementIds': ['R-001'], 'checks': ['Свободное исследование формы']},
@@ -559,6 +570,7 @@ def plan_of(*items):
 
 def batch_sizes(app, plan):
     """Запросы на написание кейсов по проверкам плана: [(групп плана в запросе, проверок в запросе)]. Дополнительные группы покрытия не считаются."""
+    set_outputs(app, checklist=False)   # план по требованиям, не из чек-листа
     app.model.on('promptPlan', plan).on('promptGenerate', lambda call: cases_for(call.prompt))
     app.generate()
     out = []
@@ -615,6 +627,7 @@ def plan_with_bad_check():
 
 
 def test_check_that_never_fits_does_not_stop_other_cases(app):
+    set_outputs(app, checklist=False)
     app.model.on('promptPlan', plan_with_bad_check())
     run_with_limit(app, 10, fail_on='429 на четвёртый')
     titles = app.state("S.run.cases.map((c) => c.testCase.title)")
@@ -627,6 +640,7 @@ def test_check_that_never_fits_does_not_stop_other_cases(app):
                    'шаг «Проверка покрытия» стирает запись об ошибке, потому что требование покрыто другими кейсами. Недописанная проверка '
                    'теряется без заметного предупреждения (нет статуса «Готово с ошибками» и кнопки повтора на вкладке «Агент»)')
 def test_check_that_never_fits_makes_run_partial(app):
+    set_outputs(app, checklist=False)
     app.model.on('promptPlan', plan_with_bad_check())
     run_with_limit(app, 10, fail_on='429 на четвёртый')
     assert app.state('S.run.status') == 'partial'
@@ -635,6 +649,7 @@ def test_check_that_never_fits_makes_run_partial(app):
 
 
 def test_resume_writes_only_missing_checks(app):
+    set_outputs(app, checklist=False)
     app.model.on('promptPlan', plan_with_bad_check())
     run_with_limit(app, 10, fail_on='429 на четвёртый')
     before = len(app.model.calls_of('promptGenerate'))
@@ -747,8 +762,12 @@ def test_mobile_run_button_is_reachable(make_app):
 @pytest.mark.parametrize('depth,phrase', [('smoke', 'Смоук: только ключевые позитивные проверки'), ('standard', 'Базовый: позитивные проверки, основные негативные сценарии'), ('full', 'Полный: применяй техники тест-дизайна')])
 def test_depth_goes_to_checklist_and_plan(app, depth, phrase):
     app.page.click(f'[data-depth={depth}]')
+    set_outputs(app, cases=False)
     app.generate()
-    assert phrase in app.model.prompts_of('promptChecklist')[0] and phrase in app.model.prompts_of('promptPlan')[0]
+    assert phrase in app.model.prompts_of('promptChecklist')[0]
+    set_outputs(app, cases=True, checklist=False)
+    app.generate()
+    assert phrase in app.model.prompts_of('promptPlan')[0]
 
 
 def test_depth_is_basic_by_default(app):

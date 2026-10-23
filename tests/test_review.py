@@ -491,7 +491,7 @@ def test_prompt_gets_only_the_last_sixty_rules(make_app):
 def test_agent_rules_reach_planning_and_cases(app):
     app.page.fill('#cfg-rules', 'Больше негативных проверок')
     app.generate()
-    for kind in ('promptAnalyze', 'promptChecklist', 'promptPlan', 'promptGenerate'):
+    for kind in ('promptAnalyze', 'promptChecklist', 'promptGenerate'):   # план — из чек-листа, без запроса
         assert 'Больше негативных проверок' in app.model.prompts_of(kind)[0], kind
 
 

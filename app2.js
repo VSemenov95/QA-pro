@@ -1498,9 +1498,15 @@ function planFromChecklist(run, types) {
     if (!types.includes(t)) continue;
     items.push({ type: t, title: g.title, requirementIds: [...new Set(its.flatMap((i) => i.requirementIds))], checks: its.map(clCheckText), fromChecklist: true });
   }
+  const n = items.reduce((a, it) => a + it.checks.length, 0);
+  // требования, которых нет в чек-листе, — как в обычном плане: по критериям приёмки (при строгом лимите не добавляем)
+  const got = new Set(items.flatMap((it) => it.requirementIds));
+  const miss = strictTarget(run) ? [] : run.requirements.filter((r) => r.inScope && r.types.some((t) => types.includes(t)) && !got.has(r.id));
+  if (miss.length) items.push(...fallbackItems(miss, types));
   items.forEach((it, i) => { it.id = 'P-' + pad(i + 1, 2); });
   run.plan = items; run.coveredExisting = [];
-  const n = items.reduce((a, it) => a + it.checks.length, 0), off = checklistItems(run).filter((i) => i.check && !types.includes(i.type)).length;
+  if (miss.length) slog(run, 'plan', `Нет в чек-листе: ${miss.map((r) => r.id).join(', ')} — добавлены по критериям приёмки`, 'warn');
+  const off = checklistItems(run).filter((i) => i.check && !types.includes(i.type)).length;
   slog(run, 'plan', `План — по чек-листу: ${n} ${plural(n, 'пункт', 'пункта', 'пунктов')} → ${n} ${plural(n, 'тест-кейс', 'тест-кейса', 'тест-кейсов')}${off ? `; пропущено пунктов невыбранных видов: ${off}` : ''}`, 'ok');
   for (const t of types) {
     const g = items.filter((x) => x.type === t);
