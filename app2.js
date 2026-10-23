@@ -356,7 +356,9 @@ function promptAnalyzeMore(chunk, i, total, types, found) {
 // сверка покрытия: какие критерии требований не проверяет ни один кейс
 function promptCoverageAudit(run, reqs, types) {
   const caseLine = (c) => { const tc = c.testCase || {}, ek = Object.keys(tc).find((k) => /^(expectedResult|expected_result|ожидаемый_?результат|result)$/i.test(k)); return `  - ${c.dispId} [${c.type}] ${pickTitleText(tc)}${ek ? ` → ${String(typeof tc[ek] === 'string' ? tc[ek] : JSON.stringify(tc[ek])).slice(0, 160)}` : ''}`; };
-  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
+  const rules = rulesText();   // сверка видит те же правила, что и генерация: иначе дописывает кейсы, которые правила запрещают
+  const e4 = `${rules ? `\n## Правила команды\n${rules}\n` : ''}${[TITLE_TAG_RULE, KAFKA_RULE, PRIORITY_RULE, PRECONDITIONS_RULE, API_CALL_RULE, SERVICE_STEPS_RULE, SUITES_RULE, REQ_REF_RULE].join('\n')}`;
+  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e4": e4, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
 ${r.description}${r.criteria.length ? `\nКритерии: ${r.criteria.map((c, k) => `${k + 1}) ${c}`).join('; ')}` : ''}
 Кейсы:
 ${activeCases(run).filter((c) => c.requirementIds.includes(r.id)).map(caseLine).join('\n') || '  - нет'}`).join('\n\n') });
@@ -3836,6 +3838,15 @@ async function passRead(pid) {
     prev = { text: pt, updatedAt: prev.updatedAt || 0 };
   }
   return { ...d, text, prev };
+}
+function hydrateProd(p) {
+  const ov = ctxPassportFor(p?.id); // источник контекста — репозиторий: паспорт из products/<папка>/passport.md
+  if (ov != null) return { ...p, passport: { ...(p.passport || {}), text: ov } };
+  if (!p?.passport?.ext) return p;
+  const c = passCache[p.id];
+  if (c && c.at === p.passport.updatedAt) return { ...p, passport: { ...p.passport, text: c.text }, passportPrev: c.prev || null };
+  loadPassText(p.id, p.passport.updatedAt);
+  return p;
 }
 async function loadPassText(pid, at) {
   if (passLoading[pid] === at || !S.caps.db) return;

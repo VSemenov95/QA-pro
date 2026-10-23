@@ -1059,6 +1059,8 @@ function updBlockHTML(c, ui) {
 /* ---------- checklist ---------- */
 /* Выгрузка чек-листа — таблица: одна строка — одна проверка. Компонент: E2E — сквозные, FE — интерфейс, BE — API. */
 const CL_COMPONENT = { e2e: 'E2E', ui: 'FE', api: 'BE' };
+/* статусы выполнения пункта чек-листа; пустой — пункт ещё не проверен */
+const CL_STATUS = [['', 'Не проставлен'], ['passed', 'Passed (пройдено)'], ['failed', 'Failed (ошибка)'], ['blocked', 'Blocked (заблокировано)'], ['skipped', 'Skipped (пропущено)']];
 const CL_COLS = ['№', 'Название', 'Приоритет', 'Компонент', 'Ожидаемый результат'];
 const checklistRows = (r) => checklistItems(r).filter((i) => i.check).map((i, k) => [String(k + 1), i.check, (PRIO_RU[normPrio(i.priority)] || 'Средний').toLowerCase(), CL_COMPONENT[i.type] || 'FE', i.expected || '']);
 const clFileName = (r, ext) => `checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.${ext}`;
@@ -1096,6 +1098,28 @@ function checklistPdfDoc(r) {
     ],
   };
 }
+/* Word (.docx): та же таблица, что в .pdf и .xlsx — 1 строка = 1 проверка; альбомный A4, шапка повторяется на каждой странице */
+const xmlText = (v) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function checklistDocx(r) {
+  const rows = checklistRows(r), d = new Date(r.createdAt), src = (r.docs || []).map((x) => x.name).filter(Boolean);
+  const W = [600, 5600, 1500, 1300, 6704];   // ширины колонок в twips, сумма = ширина полосы набора
+  const run = (text, { bold = false, color = '', size = 20 } = {}) => String(text ?? '').split('\n').map((line, k) => `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${bold ? '<w:b/>' : ''}${color ? `<w:color w:val="${color}"/>` : ''}<w:sz w:val="${size}"/></w:rPr>${k ? '<w:br/>' : ''}<w:t xml:space="preserve">${xmlText(line)}</w:t></w:r>`).join('');
+  const para = (text, o = {}, jc = '') => `<w:p><w:pPr><w:spacing w:before="0" w:after="${o.after ?? 0}"/>${jc ? `<w:jc w:val="${jc}"/>` : ''}</w:pPr>${run(text, o)}</w:p>`;
+  const cell = (k, text, { fill = '', jc = '', ...o } = {}) => `<w:tc><w:tcPr><w:tcW w:w="${W[k]}" w:type="dxa"/>${fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>` : ''}</w:tcPr>${para(text, o, jc)}</w:tc>`;
+  const fill = (p) => (CL_PRIO_FILL[p] || '').slice(1).toUpperCase();
+  const head = `<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>${CL_COLS.map((t, k) => cell(k, t, { fill: '2F3A48', color: 'FFFFFF', bold: true })).join('')}</w:tr>`;
+  const body = rows.map((row) => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cell(0, row[0], { jc: 'right' })}${cell(1, row[1])}${cell(2, row[2], { fill: fill(row[2]) })}${cell(3, row[3], { jc: 'center' })}${cell(4, row[4] || '—', row[4] ? {} : { color: '8A929C' })}</w:tr>`).join('');
+  const border = (n) => `<w:${n} w:val="single" w:sz="4" w:space="0" w:color="C9CED6"/>`;
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="${W.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(border).join('')}</w:tblBorders><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${W.map((w) => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>${head}${body}</w:tbl>`;
+  const sub = `${d.toLocaleDateString('ru-RU')} · проверок: ${rows.length}${src.length ? ` · документы: ${src.slice(0, 5).join(', ')}${src.length > 5 ? ` и ещё ${src.length - 5}` : ''}` : ''}`;
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${para('Чек-лист', { bold: true, size: 30, after: 40 })}${para(sub, { color: '5B6470', size: 17, after: 200 })}${table}<w:p/><w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="640" w:right="567" w:bottom="680" w:left="567" w:header="400" w:footer="400" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const blob = makeZip([
+    { name: '[Content_Types].xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
+    { name: '_rels/.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+    { name: 'word/document.xml', text: doc },
+  ]);
+  return new Blob([blob], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
 async function checklistPdfBlob(r) {
   await lib('pdfmake');
   await lib('pdfmakeFonts');
@@ -1129,7 +1153,7 @@ function checklistTab() {
     const ref = S.clRefine?.id === i.id ? S.clRefine : null;
     const body = S.clEdit === i.id ? clEditHTML(r, i) : `<div class="cl-text">${i.check ? esc(i.check) : '<span class="muted">Пустой пункт</span>'}</div>
       ${i.expected ? `<div class="cl-exp"><span class="muted">Ожидаемый результат:</span> ${esc(i.expected)}</div>` : ''}
-      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${i.kind === 'negative' ? '<span class="chip cl-neg">Негативная</span>' : ''}${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
+      <div class="cl-meta"><span class="chip ${i.type}">${TL[i.type]}</span><span class="chip ${prioClass(i.priority)}">${prioRu(i.priority)}</span>${i.kind === 'negative' ? '<span class="chip cl-neg">Негативная</span>' : ''}${suiteToggles(i.suites, 'cl-suite', `data-id="${i.id}"`)}<select class="cl-status${i.status ? ' st-' + i.status : ''}" data-id="${i.id}" aria-label="Статус выполнения пункта" title="Статус выполнения пункта">${CL_STATUS.map(([v, n]) => `<option value="${v}" ${(i.status || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>${i.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${fds.length ? `<button class="chip fd-chip sev-${fds[0].severity}" type="button" data-act="go-tab" data-tab="review">замечаний: ${fds.length}</button>` : ''}</div>
       ${ref ? `<div class="case-edit" style="margin-top:8px"><label class="lbl" for="clr-input">Замечание к пункту</label><textarea id="clr-input" rows="2" placeholder="Например: укажи конкретное значение лимита; это проверка API, а не UI" ${ref.busy ? 'disabled' : ''}>${esc(ref.comment || '')}</textarea>
         ${ref.error ? `<p class="case-note err">${esc(ref.error)}</p>` : ''}
         <div class="case-acts">${ref.busy ? '<span class="case-note muted">Модель дорабатывает пункт…</span><button class="btn" type="button" data-act="cl-refine-stop">Остановить</button>' : `<button class="btn accent" type="button" data-act="cl-refine-go" data-id="${i.id}">Доработать с ИИ</button><button class="btn" type="button" data-act="cl-refine-cancel">Отмена</button>`}</div></div>` : ''}`;
@@ -1137,7 +1161,7 @@ function checklistTab() {
       <div class="cl-acts">${S.clEdit === i.id ? '' : `<button class="icon-btn" type="button" data-act="cl-edit" data-id="${i.id}" aria-label="Изменить пункт ${i.id}" title="Изменить вручную">${ICON.pen}</button><button class="icon-btn" type="button" data-act="cl-refine" data-id="${i.id}" aria-label="Замечание к пункту ${i.id}" title="Замечание — доработать с ИИ">${ICON.chat}</button><button class="icon-btn" type="button" data-act="cl-del" data-id="${i.id}" aria-label="Удалить пункт ${i.id}" title="Удалить">${ICON.x}</button>`}</div></li>`;
   };
   return `<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}
-    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-pdf">Скачать .pdf</button><button class="btn" type="button" data-act="cl-dl-xlsx">Скачать .xlsx</button><button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
+    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-pdf">Скачать .pdf</button><button class="btn" type="button" data-act="cl-dl-xlsx">Скачать .xlsx</button><button class="btn" type="button" data-act="cl-dl-docx">Скачать .docx</button><button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
     ${groups.length ? groups.map(({ g, gi, items: its }) => `<section class="cl-group"><h4>${S.clGroupEdit === gi ? `<span class="cl-edit" style="flex:1"><input type="text" id="clg-input" value="${esc(g.title)}" aria-label="Название группы"><button class="btn accent" type="button" data-act="cl-gsave" data-gi="${gi}">Сохранить</button><button class="btn" type="button" data-act="cl-gcancel">Отмена</button></span>`
       : `${esc(g.title)}<span>${its.length}</span><span class="cl-gacts"><button class="btn sm" type="button" data-act="cl-add" data-gi="${gi}">+ Пункт</button><button class="btn sm" type="button" data-act="cl-gedit" data-gi="${gi}">Переименовать</button><button class="btn sm danger" type="button" data-act="cl-gdel" data-gi="${gi}">Удалить</button></span>`}</h4>
       ${its.length ? `<ul class="cl-items">${its.map(itemHTML).join('')}</ul>` : '<p class="hint" style="padding:10px 12px">В группе нет пунктов.</p>'}</section>`).join('') : emptyHTML('Ничего не найдено', 'Измените фильтр.')}`;
@@ -2402,6 +2426,7 @@ function onTabClick(e) {
     case 'cl-dl-md': downloadFile(clFileName(r, 'md'), checklistMarkdown(r)); break;
     case 'cl-dl-pdf': checklistPdf(r); break;
     case 'cl-dl-xlsx': checklistXlsx(r); break;
+    case 'cl-dl-docx': downloadFile(clFileName(r, 'docx'), checklistDocx(r)); break;
     case 'cl-dl-json': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.json`, JSON.stringify(checklistJSON(r), null, 2)); break;
     // ревью
     case 'start-review': startReview(); break;
@@ -2746,7 +2771,8 @@ function bind() {
     const t = e.target;
     if (t.id === 'q-file' && t.files?.[0]) { importAnswers(t.files[0]); return; }
     if (t.tagName === 'SELECT' && t.dataset.def && S.trace.defect) { S.trace.defect[t.dataset.def] = t.value; return; }
-    if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
+    if (t.classList?.contains('cl-status')) { const it = findItem(t.dataset.id); if (it) { it.status = t.value || undefined; t.className = 'cl-status' + (it.status ? ' st-' + it.status : ''); queueSave(S.run); } }
+    else if (t.classList?.contains('case-sel')) { if (t.checked) S.caseSel.add(t.dataset.uid); else S.caseSel.delete(t.dataset.uid); }
     else if (t.classList?.contains('sel-all-cb')) {
       const list = t.dataset.where === 'cases' ? filteredCases() : S.run?.cases || [];
       for (const c of list) { if (t.checked) S.caseSel.add(c.uid); else S.caseSel.delete(c.uid); }
@@ -2887,6 +2913,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText, ctxKbSections }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
 initCaps();
 })();
