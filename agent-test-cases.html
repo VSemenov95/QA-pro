@@ -137,6 +137,14 @@ button,input,select,textarea{font:inherit;color:inherit}
 .kb-list-sum{margin:-2px 0 0}
 .kb-rows{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
 .kb-rows li+li{border-top:1px solid var(--line)}
+.pager{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:10px}
+.pg-btn{min-width:32px;height:32px;padding:0 9px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:8px;cursor:pointer;font:inherit;font-size:13px;font-variant-numeric:tabular-nums}
+.pg-btn:hover:not(:disabled){background:var(--hover)}
+.pg-btn.on{background:var(--ink);color:var(--paper);border-color:var(--ink);cursor:default}
+.pg-btn:disabled{opacity:.4;cursor:default}
+.pg-btn:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.pg-gap{min-width:20px;text-align:center;color:var(--ink-3)}
+.pg-info{margin-left:auto;font-variant-numeric:tabular-nums}
 .kb-row{width:100%;display:grid;grid-template-columns:minmax(150px,30%) minmax(0,1fr) auto 14px;gap:14px;align-items:center;margin:0;padding:11px 14px;border:0;background:transparent;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
 .kb-row:hover{background:var(--hover)}
 .kb-row:focus-visible{outline:2px solid var(--stamp);outline-offset:-2px}

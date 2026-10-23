@@ -1367,7 +1367,24 @@ function renderKbPane0(force) {
       <span class="kb-row-t">${hlText(b.title, q)}</span><span class="kb-row-s">${hlText(b.summary || '', q)}</span>
       <span class="kb-row-m">${ids.length} ${plural(ids.length, 'документ', 'документа', 'документов')} · ${fmtKChars(b.size || 0)}${b.conf ? ` · <span class="warn">расхождений ${b.conf}</span>` : !b.sh ? ' · без сводки' : ''}</span>${ROW_CHEV}</button></li>`;
   };
-  el.innerHTML = head + (list.length ? `<ul class="kb-rows" id="kb-rows">${list.map(row).join('')}</ul>` : emptyHTML('Ничего не найдено', 'Измените запрос.'));
+  // по страницам: строк в списке не больше KB_PAGE, остальные — по кнопкам пагинации
+  const pages = Math.max(1, Math.ceil(list.length / KB_PAGE)), page = Math.min(Math.max(1, S.kb.page || 1), pages);
+  S.kb.page = page;
+  const from = (page - 1) * KB_PAGE, shown = list.slice(from, from + KB_PAGE);
+  el.innerHTML = head + (list.length ? `<ul class="kb-rows" id="kb-rows">${shown.map(row).join('')}</ul>${pagerHTML(page, pages, from, shown.length, list.length, 'kb-page')}` : emptyHTML('Ничего не найдено', 'Измените запрос.'));
+}
+const KB_PAGE = 25;
+// номера страниц: первая, последняя, текущая и соседние; пропуски — «…»
+function pageNums(page, pages) {
+  const keep = new Set([1, pages, page - 1, page, page + 1].filter((n) => n >= 1 && n <= pages));
+  const out = [];
+  [...keep].sort((a, b) => a - b).forEach((n, i, arr) => { if (i && n - arr[i - 1] > 1) out.push(n - arr[i - 1] === 2 ? n - 1 : 0); out.push(n); });
+  return out;
+}
+function pagerHTML(page, pages, from, n, total, act) {
+  if (pages <= 1) return '';
+  const btn = (p, label, aria, dis) => `<button class="pg-btn" type="button" data-act="${act}" data-p="${p}" aria-label="${aria}" ${dis ? 'disabled' : ''}>${label}</button>`;
+  return `<nav class="pager" aria-label="Страницы списка">${btn(page - 1, '‹', 'Предыдущая страница', page === 1)}${pageNums(page, pages).map((p) => (p ? `<button class="pg-btn${p === page ? ' on' : ''}" type="button" data-act="${act}" data-p="${p}" aria-label="Страница ${p}" ${p === page ? 'aria-current="page"' : ''}>${p}</button>` : '<span class="pg-gap" aria-hidden="true">…</span>')).join('')}${btn(page + 1, '›', 'Следующая страница', page === pages)}<span class="pg-info muted small">${from + 1}–${from + n} из ${total}</span></nav>`;
 }
 // По алфавиту, как в словаре: без учёта регистра и кавычек, «Ё» как «Е», числа по значению.
 const kbSortKey = (t) => String(t || '').replace(/^[\s«"'„“(\[]+/, '');
@@ -2120,6 +2137,7 @@ function onTabClick(e) {
     case 'help-send': sendHelp(); break;
     case 'help-view': S.helpView = el.dataset.v; lsSet('qapro.kbView', S.helpView); renderHelp(true); if (S.helpView === 'qa') $('#help-input')?.focus(); break;
     case 'kb-fold': S.kbFold = !S.kbFold; lsSet('qapro.kbFold', S.kbFold); renderKbPane(true); $('.kb-list-h .fold-btn')?.focus(); break;
+    case 'kb-page': S.kb.page = Number(el.dataset.p) || 1; renderKbPane(true); $('#kb-rows')?.scrollIntoView({ block: 'nearest' }); $(`#kb-body .pg-btn[data-p="${S.kb.page}"]`)?.focus(); break;
     case 'kb-open': S.kb.open = el.dataset.id; S.kb.edit = null; S.helpView = 'blocks'; lsSet('qapro.kbView', 'blocks'); renderHelp(true); $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
     case 'kb-back': S.kb.open = null; S.kb.edit = null; renderHelp(true); break;
     case 'kb-run': kbRun(kbPending()); break;
@@ -2674,7 +2692,7 @@ function bind() {
     if (t.id === 'clr-input' && S.clRefine) { S.clRefine.comment = t.value; return; }
     if (t.id === 'pass-text' && S.passEdit) { S.passEdit.text = t.value; return; }
     if (t.id === 'help-input') { S.help.draft = t.value; return; }
-    if (t.id === 'kb-q') { S.kb.q = t.value; if (S.kbFold && t.value.trim()) { S.kbFold = false; lsSet('qapro.kbFold', false); } renderKbPane(); return; }
+    if (t.id === 'kb-q') { S.kb.q = t.value; S.kb.page = 1; if (S.kbFold && t.value.trim()) { S.kbFold = false; lsSet('qapro.kbFold', false); } renderKbPane(); return; }
     if (t.dataset.helpAns != null) { const o = openQuestions()[Number(t.dataset.helpAns)]; if (o) S.help.ans[o.line] = t.value; return; }
     if (t.dataset.q && S.run) {
       const q = S.run.questions.find((x) => x.id === t.dataset.q);
@@ -2767,6 +2785,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
+if (window.__qaTest) window.__qa = { pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
 initCaps();
 })();
