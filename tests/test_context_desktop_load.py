@@ -92,13 +92,12 @@ def test_small_change_of_this_session_is_written_in_claude_app(make_app):
     assert 'УРОК-СЕЙЧАС' in app.page.evaluate('() => window.__repo.files["products/moi/lessons.md"]')
 
 
-def test_short_passport_does_not_overwrite_long_one_in_source(make_app):
-    app = connect(make_app(init=init({**REPO, 'products/moi/passport.md': LONG_PASSPORT})))
-    assert len(LONG_PASSPORT) > 40000
-    app.call('a.savePassport(S.productId, "## Назначение и границы\\n- Короткая версия", null)')
-    app.page.wait_for_timeout(1000)
-    assert app.page.evaluate('() => window.__repo.files["products/moi/passport.md"]') == LONG_PASSPORT
-    assert any('длиннее' in t for t in app.toast_texts())
+def test_long_passport_is_written_whole(make_app):
+    """Паспорт без предела: QA pro пишет его в источник целиком, без обрезки до 40 000 знаков."""
+    app = connect(make_app(init=init(dict(REPO))))
+    app.call('a.savePassport(S.productId, arg, null)', LONG_PASSPORT)
+    app.page.wait_for_function('(n) => (window.__repo.files["products/moi/passport.md"] || "").length >= n', arg=len(LONG_PASSPORT) - 10, timeout=10000)
+    assert app.page.evaluate('() => window.__repo.files["products/moi/passport.md"]').strip() == LONG_PASSPORT.strip()
 
 
 def test_truncated_passport_left_in_queue_is_dropped(make_app):
