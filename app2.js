@@ -1153,10 +1153,16 @@ function acceptCases(run, b, res) {
   for (const c of arr) {
     if (!c || typeof c !== 'object') continue;
     // строгое число тестов: модель могла вернуть больше кейсов, чем проверок — лишние не добавляем (покрытие требования считает свой лимит)
-    if (strictTarget(run) && !b.items.some((it) => it.variant) && run.cases.length >= run.settings.target) break;
+    if (strictTarget(run) && !run.regenFrom && !b.items.some((it) => it.variant) && run.cases.length >= run.settings.target) break;
     let tc = c.testCase && typeof c.testCase === 'object' && !Array.isArray(c.testCase) ? c.testCase : null;
     if (!tc) { tc = { ...c }; delete tc.planItem; delete tc.requirementIds; delete tc.suites; }
-    const planItem = itemIds.includes(c.planItem) ? c.planItem : itemIds[0];
+    const hasCase = (id) => run.cases.some((x) => x.planItem === id);
+    let planItem = itemIds.includes(c.planItem) ? c.planItem : itemIds[0];
+    if (b.items.some((it) => it.regen)) {
+      // перегенерация: ровно один кейс на прежний кейс; без номера пункта — первому пункту пачки, у которого кейса ещё нет
+      if (!itemIds.includes(c.planItem)) planItem = itemIds.find((id) => !hasCase(id)) || '';
+      if (!planItem || hasCase(planItem)) continue;
+    }
     let reqIds = arrStr(c.requirementIds).filter((id) => run.reqById[id]);
     if (!reqIds.length) reqIds = (b.items.find((i) => i.id === planItem)?.requirementIds || []).slice();
     const dispId = nextDispId(run, b.type);
@@ -1258,7 +1264,10 @@ async function pipeline(run) {
     if (srcPending(run, 'mapped') || srcPending(run, 'done')) { slog(run, 'actualize', 'Новые кейсы агент допишет, когда все кейсы из файла будут обработаны — нажмите «Продолжить с места остановки»', 'warn'); return; }
   } else { skipStep(run, 'map'); skipStep(run, 'actualize'); }
   if (out.cases) {
-    if (!stepComplete(run, 'plan')) await stepPlan(run, types);
+    if (!stepComplete(run, 'plan')) {
+      await stepPlan(run, types);
+      if (run.regenTpl) { for (const line of run.regenTpl) slog(run, 'plan', 'Перегенерация по текущим шаблонам · ' + line, 'ok'); delete run.regenTpl; }
+    }
     // отдельный этап на каждый вид тестов: API → UI → E2E, у каждого свой журнал, статус и продолжение
     for (const t of TYPES) {
       const id = GEN_STEP[t], items = run.plan.filter((p) => p.id.startsWith('P-') && p.type === t);
@@ -1274,7 +1283,8 @@ async function pipeline(run) {
       await generateItems(run, items, id);
       send(run, id, run.failed.some((f) => f.batch?.type === t) ? 'error' : 'done');
     }
-    if (!stepComplete(run, 'coverage') || pendingParts(run, 'G-')) await stepCoverage(run);
+    if (run.regenFrom?.length) await regenTopUp(run);
+    else if (!stepComplete(run, 'coverage') || pendingParts(run, 'G-')) await stepCoverage(run);
   } else { skipStep(run, 'plan'); for (const id of GEN_STEPS) skipStep(run, id); skipStep(run, 'coverage'); }
   if (run.productId && !stepComplete(run, 'knowledge') && (run.cases.length || checklistItems(run).length)) await stepKnowledge(run);
 }
@@ -1515,7 +1525,38 @@ function planFromChecklist(run, types) {
   }
   send(run, 'plan');
 }
+// перегенерация: план — прежние кейсы, по одному на пункт плана (кейс → проверка с названием и ожидаемым результатом)
+function planFromRegen(run) {
+  sstart(run, 'plan');
+  run.plan = run.regenFrom.map((x, i) => ({ id: 'P-' + pad(i + 1, 2), type: x.type, title: x.title.slice(0, 140), requirementIds: x.reqs.filter((id) => run.reqById[id]),
+    checks: [`${x.cl ? x.cl + ' · ' : ''}${x.title}${x.exp ? `. Ожидаемый результат: ${x.exp}` : ''}`], regen: true }));
+  run.coveredExisting = [];
+  const n = run.plan.length;
+  slog(run, 'plan', `Перегенерация того же набора: ${n} ${plural(n, 'кейс', 'кейса', 'кейсов')} — каждый переписывается по текущим правилам и шаблонам`, 'ok');
+  for (const t of TYPES) { const k = run.plan.filter((p) => p.type === t).length; if (k) slog(run, 'plan', `${TL[t]}: ${k}`); }
+  send(run, 'plan');
+}
+// перегенерация: кейсы, которых модель не вернула, дописываются — число кейсов как было
+async function regenTopUp(run) {
+  sstart(run, 'coverage');
+  const want = run.plan.filter((p) => p.regen).length;
+  for (let k = 0; k < 2; k++) {
+    const miss = run.plan.filter((p) => p.regen && !run.cases.some((c) => c.planItem === p.id));
+    if (!miss.length) break;
+    slog(run, 'coverage', `Модель не вернула ${miss.length} ${plural(miss.length, 'кейс', 'кейса', 'кейсов')} — дописываю`, 'warn');
+    const ids = new Set(miss.map((p) => p.id));
+    run.doneKeys = (run.doneKeys || []).filter((key) => !ids.has(key.split('#')[0]));
+    run.doneChecks = (run.doneChecks || []).filter((key) => !ids.has(key.split('#')[0]));
+    run.failed = run.failed.filter((f) => !f.batch?.items?.some((it) => ids.has(it.id)));
+    await generateItems(run, miss, 'coverage');
+  }
+  const n = run.cases.length;
+  slog(run, 'coverage', n >= want ? `Кейсов столько же, сколько было: ${want}` : `Кейсов ${n} из ${want}: модель не вернула ${want - n} — нажмите «Продолжить с места остановки»`, n >= want ? 'ok' : 'warn');
+  send(run, 'coverage', n >= want ? 'done' : 'error');
+  if (n >= want) delete run.regenFrom;
+}
 async function stepPlan(run, types) {
+  if (run.regenFrom?.length) return planFromRegen(run);
   if (planFromChecklistOn(run)) return planFromChecklist(run, types);
   sstart(run, 'plan');
   if (run.mode !== 'update' && outputsOf(run).checklist) slog(run, 'plan', 'Чек-лист пуст — план составлен по требованиям', 'warn');
@@ -2588,18 +2629,35 @@ function clearDraft() {
 }
 /* перегенерировать черновик по текущим правилам: кейсы черновика и шаги плана, генерации и покрытия пересоздаются;
    анализ требований и чек-лист остаются (их не трогаем) */
-function regenDrafts() {
+// какие правила шаблонов пойдут в перегенерацию: видно в журнале, что учтена последняя правка
+function tplDigest(types) {
+  return types.filter((t) => S.cfg.tpl[t]).map((t) => {
+    const rules = String(S.cfg.tpl[t].rules || '').split('\n').map((l) => l.replace(/^\s*[-*]\s*/, '').trim()).filter(Boolean);
+    return `${TL[t]}: правил оформления ${rules.length}${rules.length ? ` (последнее — «${rules[rules.length - 1].slice(0, 120)}»)` : ''}${S.cfgDirty[t] ? ', есть несохранённая правка' : ''}`;
+  });
+}
+async function regenDrafts() {
   const run = S.run;
   if (!run || draftLocked(run) || !isDraft(run) || !run.cases.length || S.running) return;
+  // шаблоны и правила могли поправить прямо в файлах источника — перечитываем изменённые файлы перед генерацией
+  if (ctxActive(run.productId || S.productId) && S.ctx.src.kind !== 'folder') {
+    toast('Перечитываю шаблоны и правила из источника…');
+    try { await ctxRefresh({ quiet: true }); } catch { /* источник недоступен — работаем с прочитанной копией */ }
+    if (S.run !== run || S.running) return;
+  }
   const n = run.cases.length;
+  // тот же набор кейсов: каждый старый кейс переписывается по текущим правилам и шаблонам — число кейсов не меняется
+  const expOf = (tc) => { const st = arrOf(tc?.steps), v = tc?.expectedResult ?? tc?.expected ?? tc?.expected_result ?? (st.length ? st[st.length - 1]?.expected ?? st[st.length - 1]?.expectedResult : ''); return typeof v === 'string' ? v : JSON.stringify(v ?? ''); };
+  run.regenFrom = run.cases.map((c) => ({ type: c.type, title: String(pickTitleText(c.testCase) || c.dispId).replace(KNOWN_TAG_RX, '').trim(), exp: String(expOf(c.testCase)).replace(/\s+/g, ' ').trim().slice(0, 300), reqs: arrStr(c.requirementIds), cl: c.checklistId || '' }));
   run.cases = []; S.caseUI.clear();
   if (run.findings) run.findings = run.findings.filter((f) => f.kind !== 'case');
   for (const t of TYPES) run.counters[t] = run.baseCounters?.[t] || 0;
   run.plan = []; run.coveredExisting = []; run.doneKeys = []; run.doneChecks = []; run.failed = [];
   run.noKb = true; // в этом запуске база знаний и паспорт продукта не используются
+  run.regenTpl = tplDigest(run.settings.types || TYPES);
   for (const id of ['plan', ...GEN_STEPS, 'coverage']) run.steps[id] = { status: 'pending', log: [], t0: null, t1: null, note: '' };
   queueSave(run);
-  toast(`Черновик удалён (${n} ${plural(n, 'кейс', 'кейса', 'кейсов')}), генерирую заново по текущим правилам`);
+  toast(`Переписываю ${n} ${plural(n, 'кейс', 'кейса', 'кейсов')} по текущим правилам и шаблонам — столько же, сколько было`);
   stopFollow(); cancelResumeCountdown();
   S.tab = 'agent';
   executeRun(run, false);

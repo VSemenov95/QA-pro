@@ -440,6 +440,7 @@ function ctxApply() {
       if (TYPES.includes(k)) { v = ctxParseTpl(t, k); if (!v) C.warn.push(`${ctxFull(ctxCfgPath(k))}: нет образца в блоке \`\`\`json — используется шаблон команды`); }
       else v = ctxParsePlain(t);
     }
+    if (S.cfgDirty[k]) continue; // несохранённую правку в настройках не затираем версией из источника
     const team = C.backup.cfg;
     setCfgValue(k, v != null ? v : TYPES.includes(k) ? { ...team.tpl[k] } : k === 'rules' ? team.rules : k === 'review' ? team.reviewRules : team.exportFormat);
     S.cfgDirty[k] = false;
