@@ -214,3 +214,35 @@ def test_folder_without_parse_marks_takes_them_from_qa_pro(make_app):
     app.page.wait_for_function('() => !window.__qa.S.ctx.pending.size', timeout=10000)
     assert sample in json.loads(repo(app, 'products/moi/qa-pro-docs.json'))
     assert app.state('S.docs.filter((d) => d.sample && (S.kb.index.docs || {})[d.id]).length') == 1
+
+
+# ---------- сводки ----------
+def stale_titles(app):
+    return app.state('S.kb.index.blocks.filter((b) => !b.human && (b.parts == null || b.parts > 0) && (!b.sh || (!!b.ph && b.ph !== b.sh))).map((b) => b.title)')
+
+
+def test_hand_written_sections_do_not_ask_for_summaries(kbapp):
+    """Разделы без выдержек (написаны вручную, старый формат выгрузки) — уже сводка: кнопки «Собрать сводки» нет."""
+    assert kbapp.state('S.kb.index.blocks.length') > 0 and kbapp.state('S.kb.index.blocks.every((b) => b.human)')
+    kbapp.page.click('[data-act=help-view][data-v=blocks]')
+    assert kbapp.count('[data-act=kb-synth]') == 0 and 'без свежей сводки' not in kbapp.text('#kb-job')
+
+
+def test_collect_summaries_works_for_sections_with_excerpts(kbapp):
+    text = kbapp.call("""a.ctxKbSerialize({ id: 'kbq1', title: 'Раздел с выдержками', summary: 'Кратко', updatedAt: 1,
+      parts: [{ docId: 'd1', docName: 'Пример — ТЗ восстановление пароля.md', chunk: 0, md: '- Ссылка «Забыли пароль?» под полем пароля', at: 1 }], conflicts: [], links: [] })""")
+    kbapp.call('(a.ctxPut("products/moi/kb/kbq1.md", arg), S.ctx.kbMap = null, a.loadKb(S.productId), true)', text)
+    kbapp.page.wait_for_function('() => window.__qa.S.kb.index.blocks.some((b) => b.title === "Раздел с выдержками")', timeout=8000)
+    assert stale_titles(kbapp) == ['Раздел с выдержками']
+    kbapp.call('(a.kbSynthJob(["kbq1"]), true)')   # как кнопка «Собрать сводки» (её закрывает баннер о неразобранном примере ТЗ)
+    kbapp.wait_idle()
+    kbapp.page.wait_for_function('() => !window.__qa.S.kb.job.busy && !window.__qa.S.ctx.pending.size', timeout=15000)
+    assert kbapp.model.calls_of('promptKbSynth') and stale_titles(kbapp) == []
+    d = kbapp.call('a.ctxKbParse("products/moi/kb/kbq1.md", arg).d', repo(kbapp, 'products/moi/kb/kbq1.md'))
+    assert d.get('synth') and d['parts']
+
+
+def test_nothing_to_summarize_is_said_out_loud(kbapp):
+    kbapp.call('(a.kbSynthJob(S.kb.index.blocks.map((b) => b.id)), true)')
+    kbapp.page.wait_for_timeout(800)
+    assert any('Сводить нечего' in t for t in kbapp.toast_texts())

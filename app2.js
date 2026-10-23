@@ -4680,7 +4680,9 @@ const KB_CONF_HEAD = 'Расхождения между документами';
 const kbPartH = (p) => p.h || hash(p.md || '');
 const kbPartsHash = (parts) => hash(arrOf(parts).map((p) => `${p.docId}:${p.chunk}:${kbPartH(p)}`).sort().join('|'));
 // раздел, у которого нет сводки или выдержки поменялись после неё
-const kbIsStale = (b) => !b.sh || (!!b.ph && b.ph !== b.sh);
+// устаревшая сводка — только у раздела с выдержками из документов: раздел без выдержек (написан вручную или в старом
+// формате файла источника) сам и есть сводка, сводить нечего
+const kbIsStale = (b) => !b.human && (b.parts == null || b.parts > 0) && (!b.sh || (!!b.ph && b.ph !== b.sh));
 const kbStale = () => S.kb.index.blocks.filter(kbIsStale);
 const kbSectionText = (blk) => String(blk?.synth || '').trim() || arrOf(blk?.parts).map((p) => p.md).filter(Boolean).join('\n\n');
 const kbBytes = (o) => new TextEncoder().encode(JSON.stringify(o)).length;
@@ -4942,7 +4944,11 @@ async function kbSynthJob(ids) {
   if (!(await kbLease(pid))) { S.kb.note = 'Базу знаний сейчас обновляет другое окно QA pro — сводки появятся здесь сами.'; renderKbAny(); return; }
   const J = S.kb.job = { busy: true, log: [], error: '', ctl: new AbortController(), doc: '', phase: 'synth' };
   renderKbAny();
-  try { const n = await kbSynthRun(pid, list, J); if (n) toast(`Сводки разделов обновлены: ${n}`); }
+  try {
+    const n = await kbSynthRun(pid, list, J);
+    if (n) toast(`Сводки разделов обновлены: ${n}`);
+    else if (!J.report?.fail && !J.stop && !J.ctl.signal.aborted) toast('Сводить нечего: у выбранных разделов нет выдержек из документов — их текст и есть сводка.');
+  }
   catch (e) { if (e?.code !== 'cancelled') J.error = errText(e); }
   finally { J.busy = false; J.doc = ''; J.phase = ''; renderKbAny(); }
   if (arrOf(S.kb.synthQ).length && !J.ctl.signal.aborted) setTimeout(() => kbSynthJob([]), 0);
