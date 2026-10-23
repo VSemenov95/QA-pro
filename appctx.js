@@ -477,19 +477,73 @@ function ctxPut(rel, text, { now = false, del = false } = {}) {
   if (CTX_BRIDGE.has(C.src.kind) && (now || !ctxDefer())) { clearTimeout(ctxFlushT); ctxFlushT = setTimeout(() => ctxFlush().catch(() => {}), 300); }
   else {
     ctxSaveSrc();
-    if (ctxDefer() && !ctxDeferNoted) { ctxDeferNoted = true; toast('Изменения контекста ждут записи: шестерёнка → «Контекст» → «Записать в источник». Так приложение Claude спросит подтверждение один раз.'); }
+    if (ctxAutoOn()) ctxAutoSchedule();
+    else if (ctxDefer() && !ctxDeferNoted) { ctxDeferNoted = true; toast('Изменения контекста ждут записи: шестерёнка → «Контекст» → «Записать в источник». Так приложение Claude спросит подтверждение один раз.'); }
   }
   renderCtxPane();
+}
+
+/* ---------- автозапись в источник ----------
+   Обновили базу знаний, шаблон, правила, память агента, паспорт — изменения сами уходят в источник. Пока агент
+   работает (генерация, разбор документов), правки копятся; через несколько секунд тишины уходят одним вызовом —
+   в приложении Claude это одно подтверждение на пачку, а не на каждый раздел. Git-репозиторий (клон через мост)
+   и GitHub ещё и фиксируются и отправляются — в ветку qa-pro/<дата>, прямо в main/master QA pro не отправляет. */
+const CTX_AUTO_DELAY = () => (typeof window.__ctxAutoDelay === 'number' ? window.__ctxAutoDelay : 4000);
+const CTX_AUTO_RETRY = 60000;
+let ctxAutoT = null;
+const ctxAutoOn = () => S.ctx.src.auto !== false && ctxWritable();
+const ctxAutoSends = () => S.ctx.src.kind === 'github' || (S.ctx.src.kind === 'git' && !!S.ctx.git?.repo && !!S.ctx.git?.remote);
+function ctxAutoSchedule(ms = CTX_AUTO_DELAY()) {
+  clearTimeout(ctxAutoT); ctxAutoT = null;
+  if (!ctxAutoOn() || S.ctx.autoPaused) return;
+  ctxAutoT = setTimeout(() => ctxAutoRun().catch(() => {}), ms);
+}
+async function ctxAutoRun() {
+  const C = S.ctx, pid = C.pid;
+  ctxAutoT = null;
+  if (!C.on || !ctxAutoOn() || C.autoPaused || C.conflicts.length || C.confirm) return;
+  if (!C.pending.size && !(C.unsent && ctxAutoSends())) return;
+  if (C.busy || S.running || S.kb.job.busy) return ctxAutoSchedule(Math.max(1000, CTX_AUTO_DELAY())); // агент ещё пишет — дождёмся конца
+  try {
+    if (ctxAutoSends()) { if (!(await ctxSend({ auto: true }))) throw Object.assign(new Error(C.error), { code: C.errorCode || '' }); }
+    else {
+      C.busy = 'write'; renderCtxPane();
+      try { await ctxFlush({ quiet: C.autoFails > 0 }); } finally { C.busy = ''; }
+    }
+    if (C.pid !== pid) return;
+    C.autoFails = 0; C.lastAuto = Date.now();
+    ctxSaveSrc(); renderCtxPane();
+    if (C.pending.size && !C.conflicts.length) ctxAutoSchedule(); // за время записи добавились новые правки
+  } catch (e) {
+    if (C.pid !== pid) return;
+    C.autoFails = (C.autoFails || 0) + 1;
+    if (e?.code === 'cancelled') {
+      // запись отклонили в окне приложения — сами больше не спрашиваем, пока пользователь не запишет вручную
+      C.autoPaused = true;
+      toast('Автозапись в источник приостановлена: запись отклонена в окне приложения. Изменения не потеряны — «Записать в источник» в настройках «Контекст» запишет их и включит автозапись снова.', 'err');
+    } else if (e?.code !== 'conflict') ctxAutoSchedule(CTX_AUTO_RETRY); // нет связи с мостом или GitHub — повторим позже
+    renderCtxPane();
+  }
+}
+function ctxAutoToggle(on) {
+  const C = S.ctx;
+  C.src = { ...C.src, auto: !!on }; C.autoPaused = false; C.autoFails = 0;
+  ctxSaveSrc(); renderCtxPane();
+  if (on) ctxAutoSchedule(300);
+  else { clearTimeout(ctxAutoT); ctxAutoT = null; }
 }
 async function ctxFlushNow() {
   const C = S.ctx;
   if (C.busy || !C.pending.size) return;
   C.busy = 'write'; C.error = ''; renderCtxPane();
-  try { const r = await ctxFlush(); if (r.written && !r.conflicts) toast(`Записано в источник: ${r.written} ${plural(r.written, 'файл', 'файла', 'файлов')}.`); }
-  catch { /* ошибка показана во вкладке, изменения остаются в очереди */ }
+  try {
+    const r = await ctxFlush();
+    if (r.written && !r.conflicts) toast(`Записано в источник: ${r.written} ${plural(r.written, 'файл', 'файла', 'файлов')}.`);
+    if (C.autoPaused) { C.autoPaused = false; C.autoFails = 0; }
+  } catch { /* ошибка показана во вкладке, изменения остаются в очереди */ }
   finally { C.busy = ''; ctxSaveSrc(); renderCtxPane(); }
 }
-async function ctxFlush({ force = false, only = null } = {}) {
+async function ctxFlush({ force = false, only = null, quiet = false } = {}) {
   const C = S.ctx;
   if (!CTX_BRIDGE.has(C.src.kind) || !C.pending.size) return { written: 0 };
   const paths = [...C.pending].filter((p) => !only || only.includes(p));
@@ -501,12 +555,14 @@ async function ctxFlush({ force = false, only = null } = {}) {
     const conf = (r.conflicts || []).map((c) => ({ path: ctxRel(c.path), theirs: c.text, hash: c.hash }));
     C.conflicts = [...C.conflicts.filter((c) => !conf.some((x) => x.path === c.path) && C.pending.has(c.path)), ...conf];
     if (conf.length) toast(`Не записано: ${conf.length} ${plural(conf.length, 'файл изменён', 'файла изменены', 'файлов изменены')} в источнике после чтения — выберите версию в настройках «Контекст».`, 'err');
-    C.error = '';
+    C.error = ''; C.errorCode = '';
+    if ((r.written || []).length) C.unsent = true; // для git: записано в рабочую копию, ещё не отправлено
+    if (C.unsent && ctxAutoSends() && C.busy !== 'send') ctxAutoSchedule();
     ctxCacheWrite(); ctxSaveSrc();
     renderCtxPane();
     ctxCall('context_read', { op: 'status', root: ctxRootOf() }).then((g) => { C.git = g; renderCtxPane(); }).catch(() => {});
     return { written: (r.written || []).length, conflicts: conf.length };
-  } catch (e) { C.error = 'Не удалось записать в источник: ' + e.message + ' Изменения не потеряны — нажмите «Повторить запись».'; ctxSaveSrc(); renderCtxPane(); toast(C.error, 'err'); throw e; }
+  } catch (e) { C.error = 'Не удалось записать в источник: ' + e.message + ' Изменения не потеряны — нажмите «Повторить запись».'; C.errorCode = e?.code || ''; ctxSaveSrc(); renderCtxPane(); if (!quiet) toast(C.error, 'err'); throw e; }
 }
 async function ctxResolve(rel, mine) {
   const C = S.ctx, c = C.conflicts.find((x) => x.path === rel);
@@ -573,7 +629,8 @@ async function ctxSwitch(pid) {
   if (tok !== ctxTok || S.productId !== pid) return;
   const C = S.ctx;
   C.pid = pid; C.src = { ...ctxBlank(), ...(saved?.src || {}) }; C.lastPush = saved?.lastPush || null; C.draft = null; C.error = ''; C.confirm = null;
-  C.pending = new Set(); C.conflicts = [];
+  C.pending = new Set(); C.conflicts = []; C.autoPaused = false; C.autoFails = 0; C.unsent = false;
+  clearTimeout(ctxAutoT); ctxAutoT = null;
   if (C.src.kind === 'qa') { renderCtxPane(); return; }
   C.on = true;
   const cache = await ctxCacheRead(pid);
@@ -588,7 +645,7 @@ async function ctxSwitch(pid) {
     for (const p of pend.keys()) C.pending.add(p);
   }
   if (C.src.kind === 'folder') { if (!cache) { C.error = 'Копия папки не найдена — выберите папку заново.'; C.on = false; } renderCtxPane(); return; }
-  ctxRefresh({ quiet: !!cache, tok }).catch(() => {});
+  ctxRefresh({ quiet: !!cache, tok }).catch(() => {}).finally(() => { if (tok === ctxTok && C.pending.size) ctxAutoSchedule(); });
 }
 async function ctxRefresh({ quiet = false, tok = null, pull = false } = {}) {
   const C = S.ctx;
@@ -730,15 +787,16 @@ async function ctxExportRun() {
 }
 
 /* ---------- git и GitHub: зафиксировать и отправить ---------- */
-async function ctxSend() {
+async function ctxSend({ auto = false } = {}) {
   const C = S.ctx;
-  if (C.busy) return;
-  C.busy = 'send'; C.error = ''; renderCtxPane();
+  if (C.busy) return false;
+  C.busy = 'send'; C.error = ''; C.errorCode = ''; renderCtxPane();
+  const done = (t) => { if (!auto) toast(t); return true; };
   const msg = `QA pro: контекст продукта «${productById(C.pid)?.name || ''}»`;
   try {
     if (C.src.kind === 'github') {
       const paths = [...C.pending];
-      if (!paths.length) { toast('Нет изменений для отправки.'); return; }
+      if (!paths.length) return done('Нет изменений для отправки.');
       const files = paths.map(ctxWriteItem);
       const r = await ctxGh('commit', { repo: C.src.repo, branch: C.src.branch, base: C.src.baseBranch, files, message: msg });
       if (!r.committed) {
@@ -750,19 +808,18 @@ async function ctxSend() {
       C.src.branch = r.branch; // дальше работаем в своей ветке, пока запрос на слияние не принят
       C.lastPush = { branch: r.branch, pr: r.pr, at: Date.now() };
       await ctxSaveSrc(); await ctxCacheWrite();
-      toast(`Отправлено в ветку ${r.branch}. Откройте запрос на слияние по ссылке в настройках «Контекст».`);
-      return;
+      return done(`Отправлено в ветку ${r.branch}. Откройте запрос на слияние по ссылке в настройках «Контекст».`);
     }
-    if (C.pending.size) await ctxFlush();
+    if (C.pending.size) await ctxFlush({ quiet: auto });
     if (C.conflicts.length) throw ctxErr('Сначала разберите файлы, которые изменились в источнике.', 'conflict');
     const paths = [...C.files.keys()].map((p) => ctxFull(p));
     const c = await ctxCall('context_git', { op: 'commit', root: ctxRootOf(), message: msg, paths: ctxSub() ? [ctxSub()] : paths.length ? paths : undefined });
     const p = await ctxCall('context_git', { op: 'push', root: ctxRootOf() });
     C.lastPush = { branch: p.branch, pr: p.pr, at: Date.now(), committed: c.committed };
-    C.git = p.status || C.git;
+    C.git = p.status || C.git; C.unsent = false;
     await ctxSaveSrc();
-    toast(c.committed ? `Изменения в ветке ${p.branch} отправлены.` : `Новых изменений нет — ветка ${p.branch} отправлена.`);
-  } catch (e) { C.error = e.message; toast(e.message, 'err'); }
+    return done(c.committed ? `Изменения в ветке ${p.branch} отправлены.` : `Новых изменений нет — ветка ${p.branch} отправлена.`);
+  } catch (e) { C.error = e.message; C.errorCode = e?.code || ''; if (!auto || !C.autoFails) toast(e.message, 'err'); return false; }
   finally { C.busy = ''; renderCtxPane(); }
 }
 async function ctxBackToBase() {
@@ -837,7 +894,7 @@ function ctxPaneHTML() {
   const confirm = cf?.kind === 'export' ? `<div class="banner warn"><div><b>Выгрузить в источник ${cf.plan.size} ${plural(cf.plan.size, 'файл', 'файла', 'файлов')}?</b> Правила, шаблоны и память команды, паспорт, доп. контекст и разделы базы знаний продукта из QA pro${cf.over.length ? `. Будут перезаписаны: ${cf.over.slice(0, 8).map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${cf.over.length > 8 ? ` и ещё ${cf.over.length - 8}` : ''}` : ''}.
       <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="export-run">Выгрузить</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>`
     : cf?.kind === 'off' ? `<div class="banner warn"><div><b>Есть неотправленные изменения: ${C.pending.size}.</b> После отключения они пропадут.<div class="row" style="margin-top:8px"><button class="btn" type="button" data-ctx-act="off-force">Отключить без отправки</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>` : '';
-  const bridgePend = C.pending.size && CTX_BRIDGE.has(C.src.kind) ? `<div class="banner ${C.error ? 'err' : 'info'}"><div>${C.error ? '<b>Не записано в источник.</b> ' : `<b>Ждут записи в источник: ${C.pending.size}.</b> `}${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${ctxDefer() && !C.error ? '<br><span class="hint">В приложении Claude правки копятся и записываются одним вызовом — приложение спросит подтверждение один раз.</span>' : ''}
+  const bridgePend = C.pending.size && CTX_BRIDGE.has(C.src.kind) ? `<div class="banner ${C.error ? 'err' : 'info'}"><div>${C.error ? '<b>Не записано в источник.</b> ' : `<b>Ждут записи в источник: ${C.pending.size}.</b> `}${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${!C.error ? `<br><span class="hint">${ctxAutoOn() && !C.autoPaused ? 'Запишутся автоматически, когда агент закончит работу.' : ''}${ctxDefer() ? ' В приложении Claude правки записываются одним вызовом — приложение спросит подтверждение один раз.' : ''}</span>` : ''}
       <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="flush" ${C.busy ? 'disabled' : ''}>${C.error ? 'Повторить запись' : 'Записать в источник'}</button></div></div></div>` : '';
   const pend = C.pending.size && !CTX_BRIDGE.has(C.src.kind) ? `<div class="hint">Изменения, ещё не ${C.src.kind === 'github' ? 'отправленные в GitHub' : 'записанные (папка только для чтения)'}: ${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${C.src.kind === 'folder' ? ' · <button class="link" type="button" data-ctx-act="download">скачать файлы</button>' : ''}</div>` : '';
   const canSend = C.src.kind === 'github' ? C.pending.size > 0 : CTX_BRIDGE.has(C.src.kind) && !!C.git?.repo && !!C.git?.remote;
@@ -850,12 +907,21 @@ function ctxPaneHTML() {
     <div class="exp-card">
       <div class="exp-row"><b>${CTX_KINDS[C.src.kind].title}</b><span class="muted small mono" style="word-break:break-all">${esc(ctxWhere())}</span></div>
       <div class="hint">Канал: ${channel} · прочитано ${ctxAgo(C.loadedAt)}${C.fromCache ? ' (копия)' : ''} · ${C.files.size} ${plural(C.files.size, 'файл', 'файла', 'файлов')} · папка продукта <span class="mono">products/${esc(ctxSlug())}</span>${C.note ? ` · ${esc(C.note)}` : ''}</div>
+      ${ctxAutoHTML()}
       ${ctxGitHTML()}
       ${bridgePend}
       ${ctxFoundHTML()}
       ${pend}
       ${acts}
     </div>`;
+}
+function ctxAutoHTML() {
+  const C = S.ctx;
+  if (!ctxWritable()) return '';
+  const what = C.src.kind === 'github' ? 'и отправлять в GitHub (ветка qa-pro/<дата>)' : C.src.kind === 'git' ? 'и отправлять в удалённый репозиторий (ветка qa-pro/<дата>)' : '';
+  const state = C.autoPaused ? ' <span class="ctx-auto-paused">— приостановлена: запись отклонена в приложении</span>'
+    : C.lastAuto ? ` <span class="hint">· последняя ${ctxAgo(C.lastAuto)}</span>` : '';
+  return `<label class="switch ctx-auto"><input type="checkbox" id="ctx-auto" ${ctxAutoOn() ? 'checked' : ''}><span class="sw"></span><span>Записывать изменения в источник автоматически ${esc(what)}${state}</span></label>`;
 }
 function renderCtxPane() {
   const el = $('#ctx-body');
@@ -878,6 +944,7 @@ function bindCtxPane() {
     const t = e.target;
     if (t.dataset.ctxk) { S.ctx.draft = { ...S.ctx.draft, kind: t.dataset.ctxk }; S.ctx.error = ''; el.innerHTML = ctxPaneHTML(); }
     else if (t.id === 'ctx-pick') ctxPickFolder(t.files).catch((x) => ctxFail(x.message));
+    else if (t.id === 'ctx-auto') ctxAutoToggle(t.checked);
   });
   el.addEventListener('input', (e) => { const k = e.target.dataset.ctxf; if (k && S.ctx.draft) S.ctx.draft[k] = e.target.value; });
   el.addEventListener('click', (e) => {
