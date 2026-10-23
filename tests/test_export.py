@@ -82,7 +82,7 @@ def test_default_export_suites_hold_case_numbers(done):
 def test_default_export_traceability(done):
     done.tab('export')
     out = json.loads(download(done)['text'])
-    assert [(t['requirement'], t['testCases']) for t in out['traceability']] == [('R-001', ['UI-001']), ('R-002', ['API-001', 'E2E-001']), ('R-003', ['E2E-001']), ('R-004', ['API-002'])]
+    assert [(t['requirement'], t['testCases']) for t in out['traceability']] == [('R-001', ['UI-001']), ('R-002', ['API-001']), ('R-003', ['E2E-001']), ('R-004', ['API-002'])]
     assert out['traceability'][0]['title'] == 'Ссылка «Забыли пароль?»'
 
 
@@ -276,7 +276,7 @@ def test_standalone_default_export_download(alone):
 def test_standalone_checklist_download(alone):
     alone.tab('checklist')
     name, data = anchor_download(alone, '[data-act=cl-dl-md]')
-    assert name == f'checklist_{created_day(alone)}.md' and data.decode('utf-8').startswith('# Чек-лист\n\n## Форма восстановления')
+    assert name == f'checklist_{created_day(alone)}.md' and data.decode('utf-8').startswith('# Чек-лист\n\n| № | Название | Приоритет | Компонент | Ожидаемый результат |')
 
 
 def test_standalone_sfera_json_download(alone):

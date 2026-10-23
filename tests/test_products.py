@@ -261,7 +261,7 @@ def test_run_is_saved_inside_the_product(app):
 
 def test_second_run_continues_numbering(app):
     first_run(app)
-    second_run(app)
+    second_run(app, checklist=False)   # план по требованиям помечает E2E-001 как уже покрытый
     ids = app.state('S.run.cases.map((c) => c.dispId)')
     assert ids == ['API-003', 'API-004', 'UI-002']   # E2E-001 уже есть в продукте, поэтому нового сквозного кейса нет
     add_draft(app)
@@ -421,6 +421,8 @@ def test_numbering_continues_in_the_copy(copy):
         copy.page.click('#btn-newses')
         copy.page.wait_for_function('() => !window.__qa.S.run')
     copy.js("() => { const S = window.__qa.S; for (const d of S.docs) S.runDocs.add(d.id); window.__qa.renderAll(); }")
+    from tests.test_generation import set_outputs
+    set_outputs(copy, checklist=False)   # план по требованиям помечает E2E-001 как уже покрытый
     copy.generate()
     assert copy.state('S.run.cases.map((c) => c.dispId)') == ['API-003', 'API-004', 'UI-002']
 
