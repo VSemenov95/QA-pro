@@ -1,4 +1,4 @@
-"""Библиотеки разбора документов (mammoth, xlsx, pdf.js) приложение грузит с CDN. В тестах CDN отключён,
+"""Библиотеки разбора документов и выгрузки (mammoth, xlsx, pdf.js, pdfmake) приложение грузит с CDN. В тестах CDN отключён,
 запросы подменяются локальными копиями из npm; копии скачиваются один раз в tests/.cache/libs. Нет сети — тесты с документами пропускаются."""
 import os
 import shutil
@@ -20,6 +20,10 @@ LIBS = {
     'js-yaml/4.1.0/js-yaml.min.js': ('js-yaml@4.1.0', 'dist/js-yaml.min.js'),
     'js-yaml@4.1.0/dist/js-yaml.min.js': ('js-yaml@4.1.0', 'dist/js-yaml.min.js'),
     'xlsx/0.18.5/xlsx.full.min.js': ('xlsx@0.18.5', 'dist/xlsx.full.min.js'),
+    'pdfmake@0.2.10/build/pdfmake.min.js': ('pdfmake@0.2.10', 'build/pdfmake.min.js'),
+    'pdfmake@0.2.10/build/vfs_fonts.js': ('pdfmake@0.2.10', 'build/vfs_fonts.js'),
+    'pdfmake/0.2.10/pdfmake.min.js': ('pdfmake@0.2.10', 'build/pdfmake.min.js'),
+    'pdfmake/0.2.10/vfs_fonts.min.js': ('pdfmake@0.2.10', 'build/vfs_fonts.js'),
 }
 
 
