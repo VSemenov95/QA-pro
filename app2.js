@@ -2145,7 +2145,7 @@ async function saveRun(run) {
     doneKeys: run.doneKeys || [], doneChecks: run.doneChecks || [], taskStart: run.taskStart || null, qaCtx: run.qaCtx || null, usage: run.usage || null,
     productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '',
     hb: S.running && !S.unloading && run === S.run ? Date.now() : 0, hbTab: S.tabId,
-    mode: run.mode || 'generate', source: run.source || null, srcParts: srcParts.length,
+    mode: run.mode || 'generate', source: run.source || null, srcParts: srcParts.length, etalon: run.etalon || null,
     steps: Object.fromEntries(STEPS.map((s) => { const st = run.steps[s.id]; return [s.id, { status: st.status, t0: st.t0, t1: st.t1, note: st.note || '', log: st.log.slice(-40) }]; })),
   });
   let m = meta();
@@ -2207,7 +2207,7 @@ async function openHistory(id, opts = {}) {
       checklist: meta.checklist || null, findings: meta.findings || null, plan: meta.plan || [], cases, counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(meta.counters || {}) },
       status: meta.status || 'done', error: meta.error || null, fromHistory: true, savedParts: meta.partsCount || 0,
       stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
-      doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null,
+      doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null, etalon: meta.etalon || null,
       qaCtx: meta.qaCtx ? { all: '', api: '', ui: '', e2e: '', ...meta.qaCtx } : null,
       productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '',
       baseCounters: meta.baseCounters || { api: 0, ui: 0, e2e: 0, cl: 0 }, hb: meta.hb || 0, hbTab: meta.hbTab || '',

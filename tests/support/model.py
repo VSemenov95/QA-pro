@@ -169,6 +169,18 @@ def _actualize(c):
                        'testCase': case_body(f'Актуализированный кейс #{i}')} for i, ch in blocks]}
 
 
+def _etalon(c):
+    """Сравнение с эталоном: по правилу на вид теста + правило, которое уже есть в шаблоне (его агент не должен показать)."""
+    t = 'API' if 'вида API' in c.prompt else 'UI' if 'вида UI' in c.prompt else 'E2E'
+    rules = [
+        {'text': f'В ожидаемом результате {t}-кейса указывай точный текст сообщения из эталона', 'why': 'в эталоне тексты дословные', 'generated': [f'{t}-001'], 'etalon': f'Эталон {t} 1'},
+        {'text': f'Каждый {t}-кейс начинай с предусловия о роли пользователя', 'why': 'в эталоне роль в предусловиях', 'generated': [], 'etalon': ''},
+    ]
+    if t == 'API':   # уже есть в шаблоне API — агент не должен его показать
+        rules.append({'text': 'Один тест-кейс проверяет один эндпоинт и одну ситуацию (позитивную или негативную).', 'why': 'дубль действующего правила'})
+    return {'summary': f'Эталон {t} конкретнее в ожидаемых результатах.', 'rules': rules}
+
+
 DEFAULTS = {
     'promptAnalyze': _analyze,
     'promptAnalyzeMore': lambda c: {'requirements': [], 'criteria': []},
@@ -187,6 +199,7 @@ DEFAULTS = {
     'promptRefineItem': lambda c: {'check': 'Исправленный пункт с конкретным лимитом 3 запроса', 'priority': 'high', 'suites': ['regression']},
     'promptReviseBatch': lambda c: {'cases': []},
     'promptImpact': lambda c: {'criteria': [{'requirementId': 'R-004', 'add': ['На 4-й запрос UI показывает таймер']}], 'update': [], 'add': [], 'checklistUpdate': []},
+    'promptEtalon': _etalon,
     'promptLesson': lambda c: {'rule': 'В ожидаемом результате API-кейсов всегда указывай код ответа и ключевые поля тела', 'scope': 'both'},
     'promptPassportFull': _passport_full,
     'promptPassportDelta': _passport_delta,

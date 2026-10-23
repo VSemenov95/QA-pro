@@ -1997,6 +1997,8 @@ function draftTab() {
     return emptyHTML(S.running ? 'Кейсы появятся здесь по мере генерации' : 'Черновик пуст', S.running ? '' : 'После генерации кейсы попадают сюда: проверьте их ревьюером, исправьте замечания и добавьте в проект.');
   }
   const draft = isDraft(r), lock = draftLocked(r), v = aiValue('review');
+  selPrune();
+  const selN = r.cases.filter((c) => S.caseSel.has(c.uid)).length;
   const step = S.running ? runningStep(r) : null, busy = step === 'review' || step === 'fix';
   const F = (r.findings || []).filter((f) => f.kind === 'case'), open = F.filter((f) => f.status === 'open');
   const sev = (k) => open.filter((f) => f.severity === k).length;
@@ -2013,6 +2015,8 @@ function draftTab() {
       <div class="draft-acts">
         <button class="btn" type="button" data-act="draft-review" ${aiReady(v) && !lock ? '' : 'disabled'} title="${esc(aiProblem(v) || 'Субагент сверит кейсы с документами, требованиями, шаблоном и правилами ревью')}">${r.findings ? 'Повторить ревью' : 'Запустить ревью'}</button>
         <button class="btn" type="button" data-act="draft-fixall" ${open.length && !lock ? '' : 'disabled'}>Исправить все${open.length ? ` (${open.length})` : ''}</button>
+        <button class="btn" type="button" data-act="etalon-open" ${S.running ? 'disabled' : ''} title="Сравнить ${selN ? 'выбранные' : 'все'} кейсы с эталонными и получить правила генерации">Сравнить с эталоном${selN ? ` (${selN})` : ''}</button>
+        ${r.etalon ? `<button class="link" type="button" data-act="etalon-result">Правила из эталона${etalonPending(r) ? ` · ждут решения ${etalonPending(r)}` : ''}</button>` : ''}
         <span class="sp"></span>
         ${draft ? `<button class="btn danger" type="button" data-act="draft-clear" ${lock ? 'disabled' : ''}>Очистить</button>
         <button class="btn accent" type="button" data-act="draft-add" ${lock ? 'disabled' : ''} title="${r.productId ? 'Кейсы попадут в продукт: их увидят следующие запуски и команда' : 'Принять кейсы этого запуска'}">Добавить в проект (${r.cases.length})</button>` : '<span class="chip ok">в проекте</span>'}
@@ -2265,6 +2269,8 @@ function onTabClick(e) {
     case 'draft-fix': fixCaseFindings(el.dataset.uid); break;
     case 'draft-drop': if (armed(el, 'Убрать?')) dropDraftCase(el.dataset.uid); break;
     case 'draft-clear': if (armed(el, 'Удалить все кейсы черновика?')) clearDraft(); break;
+    case 'etalon-open': openEtalon(); break;
+    case 'etalon-result': openEtalon('result'); break;
     case 'draft-add': { const crit = (r?.findings || []).filter((f) => f.status === 'open' && f.kind === 'case' && f.severity === 'critical').length; if (!crit || armed(el, `Есть критичные замечания (${crit}) — всё равно добавить?`)) addDraftToProduct(); break; }
     case 'draft-open': { const t = findCase(el.dataset.uid); if (t) { S.tab = 'cases'; S.filter = { type: 'all', suite: 'all', q: '' }; caseUI(t.uid).open = true; renderTabs(); renderTab(); document.getElementById('case-' + t.uid)?.scrollIntoView({ block: 'center' }); } break; }
     case 'fd-fix': if (fd) fixFindings([fd]); break;
@@ -2318,6 +2324,7 @@ function onAISelect(e) {
   if (S.tab === 'review' || S.tab === 'agent') renderTab();
 }
 function bind() {
+  bindEtalon(); // окно сравнения с эталоном
   // documents
   const drop = $('#drop'), fi = $('#file-input'), dp = $('#docs-panel');
   fi.addEventListener('change', () => { addFiles([...fi.files]); fi.value = ''; });
@@ -2450,7 +2457,7 @@ function bind() {
   $('#bg-body').addEventListener('change', onBgChange);
   $('#bg-body').addEventListener('click', (e) => { if (e.target.closest('[data-act="relay-copy"]')) copyText(QA_PRO_URL); });
   $('#mat-body').addEventListener('click', (e) => { const b = e.target.closest('[data-conf-open]'); if (b) openKbSection(b.dataset.confOpen); });
-  for (const id of ['prod-ov', 'set-ov', 'mat-ov']) {
+  for (const id of ['prod-ov', 'set-ov', 'mat-ov', 'etalon-ov']) {
     $('#' + id).addEventListener('click', (e) => { if (e.target.id === id || e.target.closest('[data-close]')) closeDialog(id); });
   }
   // указания агенту
@@ -2702,6 +2709,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
+if (window.__qaTest) window.__qa = { ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools }; // только для автотестов
 initCaps();
 })();

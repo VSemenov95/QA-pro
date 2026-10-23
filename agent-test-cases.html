@@ -430,6 +430,20 @@ tr.req-row:hover td{background:var(--sunken)}
 .ctx-git>div{min-width:0}
 .ctx-conf{margin:6px 0 0;padding-left:18px}
 .ctx-conf li{overflow-wrap:anywhere}
+.et-dlg{max-width:760px}
+.et-files{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.et-files li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px}
+.et-files li.error{border-color:var(--fail,#c33)}
+.et-fname{overflow-wrap:anywhere}
+.et-log{display:flex;flex-direction:column;gap:2px}
+.et-group{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px}
+.et-group h4{margin:0;font-size:14px}
+.et-rules{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.et-rule{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}
+.et-rule.added{border-color:var(--pass-line,var(--line));background:var(--pass-soft,transparent)}
+.et-rule.rejected{opacity:.6}
+.et-rule-t{font-size:13.5px}
+.et-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .lessons li.muted{display:block;border-style:dashed}
 .lesson-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
 .lesson-add input{grid-column:1/-1}
@@ -1052,6 +1066,12 @@ tr.req-row:hover td{background:var(--hover)}
   <div class="ov-card dlg mat-dlg" role="dialog" aria-modal="true" aria-labelledby="mat-title" tabindex="-1">
     <div class="ov-h"><h3 id="mat-title">Видео</h3><button class="icon-btn" type="button" data-close aria-label="Закрыть"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div class="dlg-body" id="mat-body"></div>
+  </div>
+</div>
+<div class="overlay" id="etalon-ov" hidden>
+  <div class="ov-card dlg et-dlg" role="dialog" aria-modal="true" aria-labelledby="etalon-title" tabindex="-1">
+    <div class="ov-h"><h3 id="etalon-title">Сравнение с эталоном</h3><button class="icon-btn" type="button" data-close aria-label="Закрыть"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+    <div class="dlg-body" id="etalon-body"></div>
   </div>
 </div>
 <div class="overlay" id="prod-ov" hidden>
