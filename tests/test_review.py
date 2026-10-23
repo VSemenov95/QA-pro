@@ -169,7 +169,7 @@ def test_review_finds_missing_template_fields_without_model(app):
     app.page.click('[data-act=start-review]')
     app.wait_idle()
     f = app.state("S.run.findings.filter((f) => f.category === 'Шаблон').map((f) => [f.targetId, f.severity, f.message])")
-    assert ['UI-001', 'minor', 'Нет полей шаблона: testData.'] in f
+    assert not any('testData' in m for _, _, m in f), 'в шаблоне UI нет блока «Тестовые данные»'
     assert not any('request' in m for _, _, m in f), 'у API-шаблона нет блока request'
 
 
