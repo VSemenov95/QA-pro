@@ -191,3 +191,14 @@ def test_xlsx_download_is_a_table(both):
 def test_json_keeps_new_fields(both):
     j = both.state('a.checklistJSON(S.run).groups[0].items[0]')
     assert j['expected'] == 'Ссылка видна под полем пароля' and j['kind'] == 'positive' and j['component'] == 'FE'
+
+
+def test_requirements_missing_in_checklist_get_their_own_cases(app):
+    """R-003 и R-004 нет в чек-листе: они идут в план по критериям приёмки и не забирают чужие пункты чек-листа."""
+    app.add_sample()
+    app.generate()
+    assert 'Нет в чек-листе: R-003, R-004 — добавлены по критериям приёмки' in app.state('S.run.steps.plan.log.map((l) => l.text).join("\\n")')
+    cases = app.state("S.run.cases.map((c) => [c.requirementIds.join(','), c.checklistId || ''])")
+    assert ['R-004', ''] in cases and ['R-003', ''] in cases
+    assert all(cl == '' or req in ('R-001', 'R-002') for req, cl in cases)
+    assert app.state('S.run.cases.length') == 4 and not app.state('S.run.plan.some((p) => p.id.startsWith("G-"))')

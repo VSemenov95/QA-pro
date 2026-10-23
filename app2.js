@@ -1165,7 +1165,8 @@ function acceptCases(run, b, res) {
     let clId = '';
     if (clAll.size) {
       clId = String(c.checklistId || '').trim().toUpperCase();
-      if (!clAll.has(clId) || clUsed.has(clId)) clId = (clIn.get(planItem) || []).find((x) => !clUsed.has(x)) || [...clAll].find((x) => !clUsed.has(x)) || '';
+      // номер не указан или чужой — следующий свободный пункт той же группы плана; у группы без пунктов чек-листа связи нет
+      if (!clAll.has(clId) || clUsed.has(clId)) clId = (clIn.get(planItem) || []).find((x) => !clUsed.has(x)) || '';
     }
     const cl = clId ? checklistItems(run).find((i) => i.id === clId) : null;
     if (cl) {
