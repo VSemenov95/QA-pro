@@ -36,6 +36,8 @@ def test_regeneration_uses_agent_rules_section(app):
     app.page.fill('#cfg-rules', 'ПРАВИЛО-РАЗДЕЛА-XYZ: модуль оплаты не тестируем')
     app.page.dispatch_event('#cfg-rules', 'input')
     app.add_sample()
+    from tests.test_generation import set_outputs
+    set_outputs(app, checklist=False)   # план по требованиям
     app.generate()
     app.model.reset()
     app.page.click('#btn-regen')

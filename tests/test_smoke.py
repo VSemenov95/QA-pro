@@ -13,5 +13,5 @@ def test_sample_generation_end_to_end(app):
     assert app.state('S.run.status') == 'done', app.state('S.run.error')
     assert app.state('S.run.cases.length') > 0
     kinds = {c.kind for c in app.model.calls}
-    assert {'promptAnalyze', 'promptPlan', 'promptGenerate'} <= kinds, kinds
+    assert {'promptAnalyze', 'promptChecklist', 'promptGenerate'} <= kinds, kinds   # план — из чек-листа
     assert 'unknown' not in kinds

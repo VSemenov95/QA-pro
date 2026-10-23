@@ -215,7 +215,7 @@ def test_usage_counts_every_model_request_by_step(done):
 
 def test_agent_tab_shows_usage(done):
     done.tab('agent')
-    assert '9 запросов' in done.text('#tab-body .stats') and 'Расход по шагам (оценка): ' in done.text('.usage-line')
+    assert '8 запросов' in done.text('#tab-body .stats')   # план — из чек-листа, без запроса and 'Расход по шагам (оценка): ' in done.text('.usage-line')
     assert 'генерация' in done.text('.usage-line') and 'анализ' in done.text('.usage-line')
 
 
