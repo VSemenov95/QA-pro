@@ -31,6 +31,20 @@ def test_each_rule_file_reaches_regeneration_prompt(regenerated, path):
     assert prompts and any(head in ' '.join(p.split()) for p in prompts), head
 
 
+def test_coverage_audit_gets_team_rules_and_rule_files(app):
+    """Сверка покрытия видит правила команды и правила из папки rules/ — и при генерации, и при перегенерации."""
+    app.page.fill('#cfg-rules', 'ПРАВИЛО-РАЗДЕЛА-XYZ: модуль оплаты не тестируем')
+    app.page.dispatch_event('#cfg-rules', 'input')
+    app.add_sample()
+    app.generate()
+    audits = app.model.prompts_of('promptCoverageAudit')
+    assert audits, 'нет сверки покрытия'
+    assert any('ПРАВИЛО-РАЗДЕЛА-XYZ' in p for p in audits)
+    for path in RULES:
+        head = ' '.join(open(path, encoding='utf-8').read().split())[:60]
+        assert any(head in ' '.join(p.split()) for p in audits), os.path.basename(path)
+
+
 def test_regeneration_uses_agent_rules_section(app):
     """Текст из раздела «Правила для агента» попадает в перегенерацию кейсов."""
     app.page.fill('#cfg-rules', 'ПРАВИЛО-РАЗДЕЛА-XYZ: модуль оплаты не тестируем')

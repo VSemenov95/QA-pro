@@ -48,7 +48,10 @@ class App:
 
     # ---------- ожидания ----------
     def ready(self, timeout=20000):
-        self.page.wait_for_function('() => window.__qa && window.__qa.S.caps.ready && window.__qa.S.prodReady && (!window.__qa.S.caps.db || window.__qa.S.productId)', timeout=timeout)   # у нового пользователя приложение само создаёт «Мой продукт»
+        try:
+            self.page.wait_for_function('() => window.__qa && window.__qa.S.caps.ready && window.__qa.S.prodReady && (!window.__qa.S.caps.db || window.__qa.S.productId)', timeout=timeout)   # у нового пользователя приложение само создаёт «Мой продукт»
+        except Exception as e:
+            raise AssertionError(f'приложение не готово; ошибки страницы: {self.errors[:3]}') from e   # без этого видно только таймаут
         return self
 
     def wait_idle(self, timeout=90000):

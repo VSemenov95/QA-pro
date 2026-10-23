@@ -418,7 +418,7 @@ function ctxApplyFiles(files, { at = Date.now(), fromCache = false } = {}) {
   // несохранённые изменения (GitHub, папка только для чтения) остаются поверх прочитанного
   for (const p of [...C.pending]) {
     const cur = C.files.get(p), got = files.get(p);
-    // обрезанный паспорт в очереди (QA pro хранит до PASSPORT_MAX знаков) не затирает полный из источника
+    // паспорт в очереди, обрезанный прежней версией QA pro, не затирает полный из источника
     if (p === CP.passport(C) && cur && got && ctxPassportCut(cur.text || '', got.text)) { C.pending.delete(p); ctxPassportNote(); continue; }
     if (cur && got?.text !== cur.text) files.set(p, { ...cur, hash: got?.hash ?? cur.hash, dirty: true, srcText: got ? got.text : cur.srcText });
   }
@@ -660,14 +660,18 @@ function ctxAfterPassport(pid, text) {
   if (ctxPassportCut(next, src)) { ctxPassportNote(); return; }
   ctxPut(rel, next); ctxRehydrate();
 }
-/* QA pro хранит паспорт до PASSPORT_MAX знаков; паспорт в источнике бывает длиннее (его правят руками).
-   Короткая версия не должна затирать длинную: в источник паспорт тогда не пишем. */
-const ctxPassportCut = (next, src) => src != null && src.length > PASSPORT_MAX && next.length < src.length;
+/* Прежние версии QA pro обрезали паспорт до 40 000 знаков; такая обрезанная копия могла остаться в очереди записи.
+   Она не должна затирать полный паспорт в источнике: начало совпадает, длина — ровно у прежнего предела. */
+const PASSPORT_LEGACY_MAX = 40000;
+const ctxPassportCut = (next, src) => {
+  const t = String(next || '').trim();
+  return src != null && src.length > PASSPORT_LEGACY_MAX && t.length <= PASSPORT_LEGACY_MAX && t.length > PASSPORT_LEGACY_MAX - 1500 && src.trim().startsWith(t.slice(0, 500));
+};
 let ctxPassNoted = false;
 function ctxPassportNote() {
   if (ctxPassNoted) return;
   ctxPassNoted = true;
-  toast(`Паспорт в источнике длиннее ${PASSPORT_MAX.toLocaleString('ru-RU')} знаков — QA pro не перезаписывает его своей короткой версией. Правьте паспорт в файле.`, 'err');
+  toast('В очереди записи был паспорт, обрезанный прежней версией QA pro до 40 000 знаков, — он отброшен, полный паспорт из источника сохранён.', 'err');
 }
 function ctxTeamCfg(k, value) { // подписка на настройки команды, пока действует источник: только в резервную копию
   const b = S.ctx.backup;

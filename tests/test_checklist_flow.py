@@ -1,4 +1,4 @@
-"""Чек-лист: название и ожидаемый результат, лимит проверок, тест-кейсы по чек-листу, выгрузка таблицей (.pdf, .xlsx, .md)."""
+"""Чек-лист: название и ожидаемый результат, лимит проверок, тест-кейсы по чек-листу, выгрузка таблицей (.pdf, .xlsx, .docx, .md)."""
 import re
 
 import pytest
@@ -186,6 +186,22 @@ def test_xlsx_download_is_a_table(both):
     text = str(sheets)
     assert '| № | Название | Приоритет | Компонент | Ожидаемый результат |' in text
     assert '| 1 | Отображение ссылки «Забыли пароль?» | высокий | FE | Ссылка видна под полем пароля |' in text
+
+
+def test_docx_download_is_a_table(both):
+    import base64, io
+    import docx   # настоящий разборщик Word: файл должен открываться без ошибок
+    both.tab('checklist')
+    both.page.click('[data-act=cl-dl-docx]')
+    both.page.wait_for_function('() => (window.__downloads || []).some((d) => d.filename.endsWith(".docx"))', timeout=30000)
+    name = both.page.evaluate('() => window.__downloads.find((d) => d.filename.endsWith(".docx")).filename')
+    assert re.fullmatch(r'checklist_\d{4}-\d{2}-\d{2}\.docx', name)
+    b64 = both.page.evaluate("""async () => { const u = new Uint8Array(await window.__dlBlob.arrayBuffer()); let s = ''; for (const x of u) s += String.fromCharCode(x); return btoa(s); }""")
+    d = docx.Document(io.BytesIO(base64.b64decode(b64)))
+    assert len(d.tables) == 1 and d.sections[0].orientation == 1   # одна таблица, альбомный лист
+    rows = [[c.text for c in r.cells] for r in d.tables[0].rows]
+    assert rows[0] == ['№', 'Название', 'Приоритет', 'Компонент', 'Ожидаемый результат']
+    assert rows[1:] == [[x if x else '—' for x in r] for r in ROWS]
 
 
 def test_json_keeps_new_fields(both):

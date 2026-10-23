@@ -66,7 +66,7 @@ function lessonsBlock(scope) {
   return ls.length ? `\n## Правила из замечаний команды — соблюдай обязательно\n${ls.map((l) => '- ' + l.text).join('\n')}\n` : '';
 }
 /* знания о продукте: паспорт и уже готовые кейсы и пункты чек-листа */
-const PASSPORT_MAX = 40000; // хранится отдельной записью meta/passport; в запросы идут пункты по теме
+// паспорт без ограничения длины: хранится отдельной записью meta/passport (длинный — частями), в запросы идут пункты по теме
 function knowOf(run) {
   const pid = run ? run.productId : S.productId;
   if (!pid || pid !== S.productId) return null;
@@ -264,14 +264,20 @@ const SERVICE_STATE_RX = /(сервис|служб|консьюмер|потре
 const KAFKA_RX = /kafka|кафк|топик|topic/i;
 const HTTP_RX = /\b(GET|POST|PUT|PATCH|DELETE)\b/;
 const KAFKA_BANNED_RX = /подготовь(те)?\s+сообщение|отправить\s+подготовленное\s+сообщение/i;
-const API_CALL_FORM_RX = /^Вызвать (GET|POST|PUT|PATCH|DELETE) \S+/;
+const API_CALL_FORM_RX = /^Вызвать (GET|POST|PUT|PATCH|DELETE) \{baseURL\}\/\S*/;
+/* адрес вызова API везде одинаково: {baseURL}/путь, где {baseURL} — адрес тестового стенда.
+   Код приводит к этому виду «МЕТОД /путь», «МЕТОД https://хост/путь» и другие записи переменной ({{baseUrl}}, {base_url}, ${host}). */
+const BASE_URL_VAR_RX = /\$?\{\{?\s*(?:base[_-]?url|baseurl|base[_-]?uri|host|host[_-]?url|stand|стенд)\s*\}?\}/gi;
+const API_ADDR_RX = /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)(\s+)(?:https?:\/\/[^\s/"'`«»)]+)?(\/[^\s"'`«»),;]*)/g;
+const baseUrlText = (s) => String(s).replace(BASE_URL_VAR_RX, '{baseURL}').replace(API_ADDR_RX, (m, meth, sp, path) => `${meth}${sp}{baseURL}${path}`);
+const baseUrlDeep = (v) => (typeof v === 'string' ? baseUrlText(v) : Array.isArray(v) ? v.map(baseUrlDeep) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, baseUrlDeep(x)])) : v);
 const API_CALL_VERB_RX = /^(отправить|выполнить|сделать|вызвать)(\s|$)/i;
 const REQ_REF_RX = /\bR-\d{3}\b/;
 const RULE_TEXT = {
   'service-state': 'В предусловиях или шагах описано состояние сервиса или подписки (запущен, подписан, подключён). Это окружение, оставьте только действия и проверки.',
   'kafka-method': 'Сообщение в Kafka описано с HTTP-методом. Укажите только топик, ключ и тело сообщения.',
   'kafka-steps': 'Шаги «Подготовь сообщение» и «Отправить подготовленное сообщение» не используются: сообщение указывается в шаге «Отправить сообщение:» с блоком кода.',
-  'api-call': 'Шаг вызова API не в форме «Вызвать МЕТОД ЭНДПОИНТ с телом:» с блоком кода для тела.',
+  'api-call': 'Шаг вызова API не в форме «Вызвать МЕТОД {baseURL}/ЭНДПОИНТ с телом:» с блоком кода для тела.',
   'req-refs': 'В тексте кейса указаны идентификаторы требований (R-NNN). Связь с требованиями хранится отдельно.',
   'scope': 'Кейс выходит за объём тестирования: исследовательская проверка, проверка только в БД или ручная подготовка данных в БД.',
   'priority': 'Приоритет не из четырёх значений: P1_LOW, P2_MEDIUM, P3_HIGH, P4_CRITICAL.',
@@ -289,6 +295,7 @@ function applyRuleFixes(c) {
   const tc = c.testCase || {};
   let n = 0;
   if (c.type === 'api' && 'request' in tc) { delete tc.request; n++; }
+  for (const k of Object.keys(tc)) { const v = baseUrlDeep(tc[k]); if (JSON.stringify(v) !== JSON.stringify(tc[k])) { tc[k] = v; n++; } }   // адрес API — {baseURL}/путь
   if (typeof tc.priority === 'string' && tc.priority !== normPrio(tc.priority)) { tc.priority = normPrio(tc.priority); n++; }
   const suites = withCritical(tc.priority, c.suites || []);
   if (suites.length !== (c.suites || []).length) { c.suites = suites; n++; }
@@ -349,7 +356,9 @@ function promptAnalyzeMore(chunk, i, total, types, found) {
 // сверка покрытия: какие критерии требований не проверяет ни один кейс
 function promptCoverageAudit(run, reqs, types) {
   const caseLine = (c) => { const tc = c.testCase || {}, ek = Object.keys(tc).find((k) => /^(expectedResult|expected_result|ожидаемый_?результат|result)$/i.test(k)); return `  - ${c.dispId} [${c.type}] ${pickTitleText(tc)}${ek ? ` → ${String(typeof tc[ek] === 'string' ? tc[ek] : JSON.stringify(tc[ek])).slice(0, 160)}` : ''}`; };
-  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
+  const rules = rulesText();   // сверка видит те же правила, что и генерация: иначе дописывает кейсы, которые правила запрещают
+  const e4 = `${rules ? `\n## Правила команды\n${rules}\n` : ''}${[TITLE_TAG_RULE, KAFKA_RULE, PRIORITY_RULE, PRECONDITIONS_RULE, API_CALL_RULE, SERVICE_STEPS_RULE, SUITES_RULE, REQ_REF_RULE].join('\n')}`;
+  return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e4": e4, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
 ${r.description}${r.criteria.length ? `\nКритерии: ${r.criteria.map((c, k) => `${k + 1}) ${c}`).join('; ')}` : ''}
 Кейсы:
 ${activeCases(run).filter((c) => c.requirementIds.includes(r.id)).map(caseLine).join('\n') || '  - нет'}`).join('\n\n') });
@@ -667,6 +676,162 @@ async function runTrace() {
     if (S.settings.mode === 'trace') renderTab();
   }
 }
+/* ================= баг-репорт по трассировке: шаблон команды, связанные кейсы, поиск дублей ================= */
+const SEVERITIES = ['blocker', 'critical', 'major', 'minor', 'trivial'];
+const DSEV_RU = { blocker: 'Блокирующий', critical: 'Критичный', major: 'Значительный', minor: 'Незначительный', trivial: 'Тривиальный' };
+const DPRIOS = ['high', 'medium', 'low'];
+const DPRIO_RU = { high: 'Высокий', medium: 'Средний', low: 'Низкий' };
+const DEFECT_MAX = 300;   // дефектов в индексе продукта
+const defIdxPath = (pid) => `${prodPath(pid)}/meta/defects`;
+const defPath = (pid, id) => `${prodPath(pid)}/defects/${id}`;
+function traceText(r) {
+  if (!r) return 'не выполнена';
+  const out = r.steps.map((s) => `${s.n}. ${s.title}${s.layer ? ` [${s.layer}]` : ''}${s.details.length ? '\n' + s.details.map((d) => `   - ${d}`).join('\n') : ''}`);
+  if (r.failure.error || r.failure.location || r.failure.cause) out.push(`Место сбоя: ${[r.failure.error, r.failure.location, r.failure.cause].filter(Boolean).join(' · ')}`);
+  if (r.response.status || r.response.body) out.push(`Ответ сервера: ${[r.response.status, r.response.body].filter(Boolean).join(' · ')}`);
+  if (r.result) out.push(`Результат для пользователя: ${r.result}`);
+  if (r.summary) out.push(`Резюме: ${r.summary}`);
+  return out.join('\n');
+}
+/* кандидаты для модели: кейсы и дефекты продукта, ближайшие к описанию по словам */
+function nearest(items, text, of, n) {
+  const q = [...new Set(helpTokens(text))];
+  if (!q.length) return [];
+  return items.map((x) => ({ x, s: helpScore(q, of(x)) })).filter((o) => o.s >= Math.min(2, q.length)).sort((a, b) => b.s - a.s).slice(0, n).map((o) => o.x);
+}
+function defectFocus(T) {
+  const r = T.result;
+  return `${T.description} ${r ? `${r.failure.error} ${r.failure.location} ${r.failure.cause} ${r.result} ${r.steps.map((s) => s.title + ' ' + s.details.join(' ')).join(' ')}` : ''}`;
+}
+function defectCandidates(T) {
+  const focus = defectFocus(T);
+  const cases = S.prodIndex.pid === S.productId ? nearest(S.prodIndex.cases, focus, (x) => x.n, 20) : [];
+  const dups = S.defects.pid === S.productId ? nearest(S.defects.items, focus, (x) => `${x.title} ${x.actual} ${x.location}`, 15) : [];
+  return { cases, dups };
+}
+function promptDefect(T, cand) {
+  const focus = defectFocus(T);
+  return renderPrompt('promptDefect', {
+    e1: T.description.trim(),
+    e2: T.stack.trim() ? `\n${fence}\n${T.stack.trim().slice(0, 12000)}\n${fence}\n` : 'не приложен',
+    e3: traceText(T.result),
+    e4: S.cfg.defectTpl.trim() || 'Не задан — используй стандартные поля из формата ответа, "fields" оставь пустым.',
+    e5: knowBlocks(null, 'single', focus) || 'Сведений о продукте нет.',
+    e6: qaCtxBlock(ctxOf(null)),
+    e7: cand.cases.length ? cand.cases.map((x) => `- ${x.i}: ${x.n}`).join('\n') : 'нет',
+    e8: cand.dups.length ? cand.dups.map((x) => `- ${x.id}: ${x.title}${x.actual ? ` | фактически: ${x.actual}` : ''}${x.location ? ` | место сбоя: ${x.location}` : ''}`).join('\n') : 'нет',
+  });
+}
+function normDefect(res, cand) {
+  const o = res && typeof res === 'object' && !Array.isArray(res) ? res : {};
+  const str = (v, n = 4000) => String(v ?? '').trim().slice(0, n);
+  const lo = (v) => str(v, 20).toLowerCase();
+  const caseIds = new Set(cand.cases.map((x) => x.i)), dupIds = new Set(cand.dups.map((x) => x.id));
+  const steps = arrStr(o.steps).map((x) => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+  return {
+    title: str(o.title, 200), severity: SEVERITIES.includes(lo(o.severity)) ? lo(o.severity) : 'major', priority: DPRIOS.includes(lo(o.priority)) ? lo(o.priority) : 'medium',
+    component: str(o.component, 200), environment: str(o.environment, 400), preconditions: arrStr(o.preconditions).filter(Boolean), steps,
+    expected: str(o.expected), actual: str(o.actual), analysis: str(o.analysis),
+    fields: arrOf(o.fields).map((f) => ({ name: str(f?.name, 120), value: str(f?.value) })).filter((f) => f.name),
+    relatedCases: [...new Set(arrStr(o.relatedCases).map((x) => x.trim()))].filter((x) => caseIds.has(x)).slice(0, 5),
+    duplicates: arrOf(o.duplicates).map((d) => ({ id: str(d?.id, 40), reason: str(d?.reason, 400) })).filter((d) => dupIds.has(d.id)),
+  };
+}
+async function runDefect() {
+  const T = S.trace;
+  if (T.defectBusy || !T.result) return;
+  if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
+  T.defectBusy = true; T.defectError = ''; renderTab();
+  try {
+    if (S.productId && S.caps.db && S.defects.pid !== S.productId) await loadDefects(S.productId);
+    const cand = defectCandidates(T);
+    const res = await ask(promptDefect(T, cand), { step: 'defect' });
+    const d = normDefect(res, cand);
+    if (!d.title || !d.steps.length) throw { message: 'Модель не вернула заголовок и шаги воспроизведения. Уточните описание дефекта и повторите.' };
+    T.defect = { id: '', ...d, stack: T.stack.trim(), createdAt: 0 };
+    T.defectPid = S.productId; T.defectSavedAt = 0;
+  } catch (e) {
+    if (e?.code !== 'cancelled') T.defectError = errText(e);
+  } finally {
+    T.defectBusy = false;
+    if (S.settings.mode === 'trace') renderTab();
+  }
+}
+/* текст для трекера: plain — для полей Сферы и Jira без разметки, md — Markdown */
+function defectText(d, md) {
+  const h = (t) => (md ? `**${t}**` : `${t}:`);
+  const list = (a, num) => a.map((x, i) => `${num ? `${i + 1}.` : '-'} ${x}`).join('\n');
+  const out = [md ? `## ${d.title}` : d.title, '',
+    `${h('Серьёзность')} ${DSEV_RU[d.severity] || d.severity} · ${h('Приоритет')} ${DPRIO_RU[d.priority] || d.priority}`];
+  if (d.component) out.push(`${h('Компонент')} ${d.component}`);
+  if (d.environment) out.push(`${h('Окружение')} ${d.environment}`);
+  if (d.preconditions.length) out.push('', h('Предусловия'), list(d.preconditions));
+  out.push('', h('Шаги воспроизведения'), list(d.steps, true), '', `${h('Ожидаемый результат')} ${d.expected}`, `${h('Фактический результат')} ${d.actual}`);
+  for (const f of d.fields) out.push(`${h(f.name)} ${f.value}`);
+  if (d.analysis) out.push('', `${h('Анализ')} ${d.analysis}`);
+  if (d.relatedCases.length) out.push(`${h('Связанные тест-кейсы')} ${d.relatedCases.join(', ')}`);
+  if (d.stack) out.push('', h('Стек трейс'), md ? `${fence}\n${d.stack}\n${fence}` : d.stack);
+  return out.join('\n');
+}
+async function loadDefects(pid) {
+  if (!pid || !S.caps.db) { S.defects = { pid, items: [], loaded: true, open: null }; return; }
+  let items = [];
+  try { items = arrOf((await S.caps.db.doc(defIdxPath(pid)).get()).data()?.items); } catch { /* дефектов ещё нет */ }
+  if (S.productId === pid) { S.defects = { pid, items, loaded: true, open: null }; if (S.settings.mode === 'trace' && !isTyping($('#tab-body'))) renderTab(); }
+}
+const defIdxItem = (d) => ({ id: d.id, title: d.title.slice(0, 200), severity: d.severity, actual: d.actual.replace(/\s+/g, ' ').slice(0, 200), location: (S.trace.result?.failure.location || d.component || '').slice(0, 140), createdAt: d.createdAt, by: d.by || '' });
+let defChain = Promise.resolve();
+async function saveDefect() {
+  const T = S.trace, d = T.defect, pid = S.productId;
+  if (!d || !pid || !S.caps.db) return;
+  if (!d.title.trim() || !d.steps.some((x) => x.trim())) return toast('Заполните заголовок и шаги воспроизведения.', 'err');
+  d.steps = d.steps.map((x) => x.trim()).filter(Boolean); d.preconditions = d.preconditions.map((x) => x.trim()).filter(Boolean);
+  const job = defChain.then(async () => {
+    const ref = S.caps.db.doc(defIdxPath(pid));
+    const cur = arrOf((await ref.get()).data()?.items);
+    if (!d.id) {
+      const n = cur.reduce((m, x) => Math.max(m, Number((/(\d+)$/.exec(String(x.id)) || [])[1] || 0)), 0) + 1;
+      d.id = `D-${pad(n, 3)}`; d.createdAt = Date.now(); d.by = S.caps.uid || '';
+    }
+    d.updatedAt = Date.now();
+    await S.caps.db.doc(defPath(pid, d.id)).set({ ...d, trace: T.result || null, description: T.description });
+    const next = [...cur.filter((x) => x.id !== d.id), defIdxItem(d)].slice(-DEFECT_MAX);
+    await ref.set({ items: next, updatedAt: Date.now() });
+    if (S.productId === pid) S.defects = { ...S.defects, pid, items: next, loaded: true };
+  });
+  defChain = job.catch(() => {});
+  try { await job; T.defectSavedAt = Date.now(); toast(`Дефект ${d.id} сохранён в продукт`); }
+  catch { toast('Не удалось сохранить дефект — нужны права на изменение продукта.', 'err'); }
+  if (S.settings.mode === 'trace') renderTab();
+}
+async function openDefect(id) {
+  const pid = S.productId;
+  try {
+    const data = (await S.caps.db.doc(defPath(pid, id)).get()).data();
+    if (!data) return toast('Дефект не найден — возможно, его удалили.', 'err');
+    const T = S.trace;
+    T.description = String(data.description || ''); T.stack = String(data.stack || '');
+    T.result = data.trace ? normTrace(data.trace) : null; T.error = '';
+    T.defect = { ...normDefect(data, { cases: (data.relatedCases || []).map((i) => ({ i })), dups: (data.duplicates || []).map((x) => ({ id: x.id })) }), id: data.id, stack: String(data.stack || ''), createdAt: data.createdAt || 0, by: data.by || '' };
+    T.defectPid = pid; T.defectSavedAt = data.updatedAt || data.createdAt || 0; T.defectError = '';
+    renderTab();
+    document.querySelector('#defect-card')?.scrollIntoView({ block: 'start' });
+  } catch { toast('Не удалось открыть дефект.', 'err'); }
+}
+async function deleteDefect(id) {
+  const pid = S.productId;
+  const job = defChain.then(async () => {
+    const ref = S.caps.db.doc(defIdxPath(pid));
+    const next = arrOf((await ref.get()).data()?.items).filter((x) => x.id !== id);
+    await ref.set({ items: next, updatedAt: Date.now() });
+    await S.caps.db.doc(defPath(pid, id)).delete();
+    if (S.productId === pid) S.defects = { ...S.defects, items: next };
+    if (S.trace.defect?.id === id) S.trace.defect.id = '';
+  });
+  defChain = job.catch(() => {});
+  try { await job; toast(`Дефект ${id} удалён`); } catch { toast('Не удалось удалить дефект.', 'err'); }
+  if (S.settings.mode === 'trace') renderTab();
+}
 function errText(e) {
   const map = {
     not_granted: 'Доступ к Claude для этой страницы не разрешён. Перезагрузите страницу и разрешите доступ в запросе.',
@@ -731,7 +896,7 @@ function toolsAvailable(v) { const t = parseAI(v); return !!t && (t.kind === 'cl
 const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё — общая для пакетов часть запроса (кэшируется провайдером)
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
-const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', defect: 'баг-репорт', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -943,6 +1108,21 @@ async function testConn(conn) {
   const r = await extJSON(conn, 'Проверка связи. Ответь JSON-объектом {"ok": true, "model": "<как тебя зовут>"}.', { signal: ctl.signal });
   return r;
 }
+/* неудавшиеся запросы запуска для баннера «Готово с ошибками»: пачка (вид, пункты плана) и причина */
+function failedInfo(run) {
+  const step = (id) => { const st = STEPS.find((x) => x.id === id); return st ? stepTitle(st, run.mode) : ''; };
+  const live = arrOf(run.failed).map((f) => {
+    if (f.kind === 'src') return { where: step(f.step), items: [], error: String(f.error || '') };
+    const items = arrOf(f.batch?.items);
+    return { where: `${TL[f.batch?.type] || ''} · ${[...new Set(items.map((i) => i.id))].join(', ')}`.replace(/^ · /, ''), items: [...new Set(items.map((i) => i.title).filter(Boolean))].slice(0, 6), error: String(f.error || '') };
+  });
+  if (live.length) return live;
+  if (arrOf(run.failedInfo).length) return run.failedInfo;
+  // запуск из истории до этой версии: причины — из журнала шагов
+  const out = [];
+  for (const st of stepsOf(run.mode)) for (const l of arrOf(run.steps?.[st.id]?.log)) if (l.kind === 'err') out.push({ where: stepTitle(st, run.mode), items: [], error: String(l.text || '') });
+  return out.slice(-30);
+}
 function handleCallError(run, e, line, label) {
   if (e?.code === 'cancelled') { line.text = `${label}: остановлено`; line.kind = 'warn'; return; }
   line.text = `${label}: ${errText(e)}`; line.kind = 'err';
@@ -1131,7 +1311,7 @@ function tagTitle(tc, type) {
 }
 const titleTagOk = (c) => { const tc = { ...(c.testCase || {}) }, was = pickTitle(tc).text; return pickTitle(tagTitle(tc, c.type)).text === was; };
 function orderLikeTemplate(tc, info, type) {
-  tc = noReqDeep(cleanCase(tc)); // без <p>, HTML и буквальных «\n» и без отсылок к требованиям QA pro
+  tc = baseUrlDeep(noReqDeep(cleanCase(tc))); // без <p>, HTML и буквальных «\n», без отсылок к требованиям QA pro; адрес API — {baseURL}/путь
   if (type) tagTitle(tc, type);
   if (typeof tc.priority === 'string') tc.priority = normPrio(tc.priority);
   if (type === 'api') delete tc.request;
@@ -2261,7 +2441,7 @@ async function saveRun(run) {
     counts, coverage: coveragePct(run), partsCount: parts.length, status: run.status, counters: run.counters, error: run.error || null,
     stage: run.stage || 'added', addedAt: run.addedAt || null, auditDone: !!run.auditDone,
     doneKeys: run.doneKeys || [], doneChecks: run.doneChecks || [], taskStart: run.taskStart || null, qaCtx: run.qaCtx || null, usage: run.usage || null,
-    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '',
+    productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '', failedInfo: run.failed.length ? failedInfo(run).slice(0, 40).map((f) => ({ ...f, error: f.error.slice(0, 500) })) : null,
     hb: S.running && !S.unloading && run === S.run ? Date.now() : 0, hbTab: S.tabId,
     mode: run.mode || 'generate', source: run.source || null, srcParts: srcParts.length, etalon: run.etalon || null,
     steps: Object.fromEntries(STEPS.map((s) => { const st = run.steps[s.id]; return [s.id, { status: st.status, t0: st.t0, t1: st.t1, note: st.note || '', log: st.log.slice(-40) }]; })),
@@ -2327,7 +2507,7 @@ async function openHistory(id, opts = {}) {
       stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
       doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null, etalon: meta.etalon || null,
       qaCtx: meta.qaCtx ? { all: '', api: '', ui: '', e2e: '', ...meta.qaCtx } : null,
-      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '',
+      productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '', failedInfo: meta.failedInfo || null,
       baseCounters: meta.baseCounters || { api: 0, ui: 0, e2e: 0, cl: 0 }, hb: meta.hb || 0, hbTab: meta.hbTab || '',
       mode: meta.mode || 'generate', source: meta.source || null, srcCases, srcHashes: [],
     };
@@ -3628,11 +3808,37 @@ const IDX_MAX = 110000;
 const sortProducts = (list) => list.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 const productById = (pid) => S.products.find((p) => p.id === pid) || null;
 function curProduct() { return productById(S.productId); }
-/* «Что агент знает о продукте» хранится отдельной записью meta/passport (до 40 000 знаков вместе с прежней версией),
+/* «Что агент знает о продукте» хранится отдельной записью meta/passport вместе с прежней версией; длинный текст —
+   частями по 60 тыс. знаков (meta/passport_t1…, прежняя версия — meta/passport_p0…): запись хранилища — до 240 КБ,
    а в карточке продукта — только отметка { ext, updatedAt, len }: так карточка не упирается в лимит записи и вмещает
    список из сотен документов. Старые паспорта прямо в карточке читаются как раньше и переезжают при первом сохранении. */
 const passRef = (pid) => S.caps.db.doc(`${prodPath(pid)}/meta/passport`);
 const passCache = {}, passLoading = {};
+const PASSPORT_PART = 60000;      // знаков в одной части: даже по 4 байта на знак — меньше 240 КБ
+const PASSPORT_INLINE = 200000;   // байт: до этого паспорт и прежняя версия — одной записью, как раньше
+const passPartRef = (pid, kind, i) => S.caps.db.doc(`${prodPath(pid)}/meta/passport_${kind}${i}`);
+const passChunks = (s) => { const out = []; for (let i = 0; i < s.length; i += PASSPORT_PART) out.push(s.slice(i, i + PASSPORT_PART)); return out.length ? out : ['']; };
+async function passWrite(pid, rec) {
+  const prevText = String(rec.prev?.text || '');
+  if (new TextEncoder().encode(rec.text + prevText).length <= PASSPORT_INLINE) return passRef(pid).set(rec); // одной записью
+  const t = passChunks(rec.text), p = rec.prev ? passChunks(prevText) : [];
+  for (let i = 1; i < t.length; i++) await passPartRef(pid, 't', i).set({ s: t[i] });
+  for (let i = 0; i < p.length; i++) await passPartRef(pid, 'p', i).set({ s: p[i] });
+  // главная запись — последней: первая часть текста и число частей; прежняя версия — только в частях
+  return passRef(pid).set({ ...rec, text: t[0], parts: t.length, prev: rec.prev ? { updatedAt: rec.prev.updatedAt || 0, text: '', parts: p.length } : null });
+}
+async function passRead(pid) {
+  const d = (await passRef(pid).get()).data() || {};
+  let text = String(d.text || '');
+  for (let i = 1; i < (d.parts || 1); i++) text += ((await passPartRef(pid, 't', i).get()).data() || {}).s || '';
+  let prev = d.prev || null;
+  if (prev && prev.parts) {
+    let pt = '';
+    for (let i = 0; i < prev.parts; i++) pt += ((await passPartRef(pid, 'p', i).get()).data() || {}).s || '';
+    prev = { text: pt, updatedAt: prev.updatedAt || 0 };
+  }
+  return { ...d, text, prev };
+}
 function hydrateProd(p) {
   const ov = ctxPassportFor(p?.id); // источник контекста — репозиторий: паспорт из products/<папка>/passport.md
   if (ov != null) return { ...p, passport: { ...(p.passport || {}), text: ov } };
@@ -3646,7 +3852,7 @@ async function loadPassText(pid, at) {
   if (passLoading[pid] === at || !S.caps.db) return;
   passLoading[pid] = at;
   try {
-    const d = (await passRef(pid).get()).data() || {};
+    const d = await passRead(pid);
     passCache[pid] = { at: d.updatedAt || at, text: String(d.text || ''), prev: d.prev || null };
     const cur = S.products.find((x) => x.id === pid);
     if (cur) { upsertLocalProduct(pid, cur); if (S.productId === pid) { renderProduct(); if (S.tab === 'agent' && !S.run) renderTab(); } }
@@ -3663,7 +3869,7 @@ async function readProduct(pid) {
   if (!d) return null;
   const p = { ...d, id: pid };
   if (p.passport?.ext && passCache[pid]?.at !== p.passport.updatedAt) {
-    try { const x = (await passRef(pid).get()).data() || {}; passCache[pid] = { at: x.updatedAt || p.passport.updatedAt, text: String(x.text || ''), prev: x.prev || null }; } catch { /* без текста */ }
+    try { const x = await passRead(pid); passCache[pid] = { at: x.updatedAt || p.passport.updatedAt, text: String(x.text || ''), prev: x.prev || null }; } catch { /* без текста */ }
   }
   return hydrateProd(p);
 }
@@ -3869,8 +4075,9 @@ async function switchProduct(pid, { restore = false } = {}) {
   S.pc = freshPc(); S.secEdit = null; S.casesScope = 'run';
   if (!restore && S.tab !== 'history') S.tab = 'agent';
   renderProdSelect(); renderAll();
+  S.defects = { pid: null, items: [], loaded: false, open: null };
   // источник контекста продукта (база QA pro, папка, git или GitHub) подключается, даже если что-то из данных продукта не загрузилось
-  try { await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid)]); }
+  try { await Promise.all([syncProductDocs(prod), loadProductIndex(pid), loadHelp(), loadKb(pid), loadDefects(pid)]); }
   finally { if (tok === switchTok) await ctxSwitch(pid).catch(() => {}); }
   if (tok !== switchTok) return false;
   if (!restore) saveSession();
@@ -4050,14 +4257,13 @@ ${qaCtxBlock(src.ctx || prod.qaCtx)}
 ${body}`;
   const facts = 'Только факты из источников, без домыслов и общих фраз. Конкретика важнее всего: названия экранов, кнопок и полей, пути навигации, роли и права, эндпоинты, коды и тексты ошибок, лимиты, форматы, статусы сущностей, связи между модулями. Где важно, в конце пункта укажи источник в скобках.';
   if (delta) {
-    return renderPrompt("promptPassportDelta", { "head": head, "e2": PASSPORT_SECTIONS.join(', '), "facts": facts, "e4": cur.length > PASSPORT_MAX - 4000 ? `
-Паспорт почти заполнен (${cur.length} из ${PASSPORT_MAX} знаков): кроме новых фактов, верни правки replace и remove, которые объединяют повторяющиеся пункты и убирают устаревшие, — так, чтобы паспорт стал короче хотя бы на 3000 знаков. Значения, названия и тексты сообщений не теряй.` : '' });
+    return renderPrompt("promptPassportDelta", { "head": head, "e2": PASSPORT_SECTIONS.join(', '), "facts": facts, "e4": '' });
   }
-  return renderPrompt("promptPassportFull", { "head": head, "facts": facts, "e3": PASSPORT_SECTIONS.join(', '), "e4": Math.min(PASSPORT_MAX - 2000, 10000) });
+  return renderPrompt("promptPassportFull", { "head": head, "facts": facts, "e3": PASSPORT_SECTIONS.join(', '), "e4": 10000 });
 }
 function normPassport(res) {
   const t = typeof res === 'string' ? res : typeof res?.passport === 'string' ? res.passport : '';
-  return t.replace(/\r/g, '').trim().slice(0, PASSPORT_MAX);
+  return t.replace(/\r/g, '').trim();
 }
 /* применяем правки паспорта локально: добавить пункт в раздел, заменить или убрать строку */
 function applyPassportOps(text, ops) {
@@ -4112,13 +4318,13 @@ function applyPassportOps(text, ops) {
     if (!body) continue;
     out.push(s.head ? `## ${s.head}\n${body}` : body);
   }
-  return { text: out.join('\n\n').slice(0, PASSPORT_MAX), applied };
+  return { text: out.join('\n\n'), applied };
 }
 async function savePassport(pid, text, runId) {
   const cur = await readProduct(pid);
   const now = Date.now(), by = S.caps.uid || '';
   const prev = cur?.passport?.text && cur.passport.text !== text ? { text: cur.passport.text, updatedAt: cur.passport.updatedAt || 0 } : (cur?.passportPrev?.text ? cur.passportPrev : null);
-  await passRef(pid).set({ text, updatedAt: now, by, runId: runId || null, prev });
+  await passWrite(pid, { text, updatedAt: now, by, runId: runId || null, prev });
   passCache[pid] = { at: now, text, prev };
   ctxAfterPassport(pid, text); // источник контекста — репозиторий: паспорт пишется и в products/<папка>/passport.md
   return updateProduct(pid, () => ({ passport: { ext: true, text: '', len: text.length, updatedAt: now, by, runId: runId || null }, passportPrev: prev ? { ext: true, updatedAt: prev.updatedAt || 0 } : null }));
@@ -4350,7 +4556,7 @@ async function importProduct(file) {
       docs.push({ ...base, chars: text.length, parts: n, sample: false });
     }
     await createProduct(name, d.product.description || '', { id, docs, qaCtx: d.product.qaCtx || {} });
-    if (d.product.passport?.text) { await savePassport(id, String(d.product.passport.text).slice(0, PASSPORT_MAX), null); }
+    if (d.product.passport?.text) { await savePassport(id, String(d.product.passport.text), null); }
     await db.doc(prodPath(id)).update({ ...(d.product.passport?.text ? {} : { passport: null, passportPrev: null }), counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(d.product.counters || {}) }, stats: { cases: 0, checklist: 0, lastRunAt: 0, ...(d.product.stats || {}) }, caseSections: cleanSections(d.product.caseSections) });
     const fresh = (await db.doc(prodPath(id)).get()).data(); if (fresh) upsertLocalProduct(id, fresh);   // локальная копия продукта — с названиями разделов и счётчиками
     if (d.index) {
@@ -5007,7 +5213,7 @@ async function kbSynthJob(ids) {
     else if (!J.report?.fail && !J.stop && !J.ctl.signal.aborted) toast('Сводить нечего: у выбранных разделов нет выдержек из документов — их текст и есть сводка.');
   }
   catch (e) { if (e?.code !== 'cancelled') J.error = errText(e); }
-  finally { J.busy = false; J.doc = ''; J.phase = ''; renderKbAny(); }
+  finally { J.busy = false; J.doc = ''; J.phase = ''; renderKbAny(); if (S.kb.queue.length) setTimeout(() => kbRun(), 0); }
   if (arrOf(S.kb.synthQ).length && !J.ctl.signal.aborted) setTimeout(() => kbSynthJob([]), 0);
 }
 // прогресс работы базы знаний — для баннера в «Разделах» и строки под списком документов
@@ -5083,7 +5289,9 @@ const kbChunksOf = (d) => { let n = kbChunkMemo.get(d); if (n == null) { n = bui
 const KB_FRESH_MAX = Math.round(KB_TOTAL_BYTES * 0.6);
 async function kbRun(docs) {
   const pid = S.productId;
-  if (!pid || !S.caps.db || S.kb.job.busy) return;
+  if (!pid || !S.caps.db) return;
+  // работа уже идёт (разбор или сборка сводок): документ встаёт в очередь и разберётся после неё
+  if (S.kb.job.busy) { for (const d of arrOf(docs)) if (!S.kb.queue.some((x) => x.id === d.id)) S.kb.queue.push(d); renderKbAny(); return; }
   if (!aiReady(S.settings.genAI)) return toast(aiProblem(S.settings.genAI), 'err');
   if (!(await kbLease(pid))) { S.kb.note = 'Документы разбирает другое окно QA pro — разделы появятся здесь сами.'; renderKbAny(); setTimeout(() => { if (S.kb.queue.length && !S.kb.job.busy) kbRun(); }, 130000); return; }
   S.kb.note = '';
@@ -5163,6 +5371,7 @@ async function kbRun(docs) {
   finally { J.busy = false; J.doc = ''; J.phase = ''; J.step = null; renderKbAny(); }
   if (processed.length && !J.ctl.signal.aborted && S.productId === pid) kbAutoLearn(processed);
   if (arrOf(S.kb.synthQ).length && !J.ctl.signal.aborted) setTimeout(() => kbSynthJob([]), 0);
+  if (S.kb.queue.length && !J.ctl.signal.aborted) setTimeout(() => kbRun(), 0);
 }
 async function kbRename(id, title) {
   const t = String(title || '').trim().slice(0, 120);
