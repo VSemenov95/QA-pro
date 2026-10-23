@@ -124,15 +124,24 @@ def case_body(title, check='проверка'):
 
 
 def _generate(c):
+    """Один кейс на пункт плана; если пункт плана собран из чек-листа — кейс связан с первым его пунктом."""
     items = re.findall(r'### ([A-Z]+-\d+)\.', c.prompt)
     out = []
     for k, pid in enumerate(items):
+        cl = re.findall(r'(?m)^\d+\. (CL-\d+) · ', re.search(r'### ' + re.escape(pid) + r'\.(.*?)(?=\n### |\Z)', c.prompt, re.S).group(1))
+        out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 else ['regression'],
+                    **({'checklistId': cl[0]} if cl else {}), 'testCase': case_body(f'Кейс для {pid}: проверка восстановления пароля')})
+    return {'cases': out}
+
+
+def generate_per_check(c):
+    """Кейс на каждый пункт чек-листа в запросе (как просит промпт)."""
+    out = []
+    for k, pid in enumerate(re.findall(r'### ([A-Z]+-\d+)\.', c.prompt)):
         block = re.search(r'### ' + re.escape(pid) + r'\.(.*?)(?=\n### |\Z)', c.prompt, re.S).group(1)
-        cls = re.findall(r'(?m)^\d+\. (CL-\d+) · ', block)
-        for j, cl in enumerate(cls or [None]):   # пункты чек-листа — кейс на каждый пункт
+        for j, cl in enumerate(re.findall(r'(?m)^\d+\. (CL-\d+) · ', block) or [None]):
             out.append({'planItem': pid, 'requirementIds': [], 'suites': ['smoke', 'regression'] if k == 0 and j == 0 else ['regression'],
-                        **({'checklistId': cl} if cl else {}),
-                        'testCase': case_body(f'Кейс для {pid}{" " + cl if cl else ""}: проверка восстановления пароля')})
+                        **({'checklistId': cl} if cl else {}), 'testCase': case_body(f'Кейс для {pid}{" " + cl if cl else ""}: проверка восстановления пароля')})
     return {'cases': out}
 
 

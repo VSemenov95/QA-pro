@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+from tests.support.model import generate_per_check
 from tests.test_generation import set_outputs
 
 def item(check, kind, prio, typ='ui', req='R-001', expected=None):
@@ -29,7 +30,8 @@ def set_target(app, n):
 
 @pytest.fixture
 def both(app):
-    """Пример ТЗ, выбраны и чек-лист, и тест-кейсы."""
+    """Пример ТЗ, выбраны и чек-лист, и тест-кейсы; модель пишет кейс на каждый пункт."""
+    app.model.on('promptGenerate', generate_per_check)
     app.add_sample()
     app.generate()
     assert app.state('S.run.status') == 'done', app.state('S.run.error')
@@ -123,6 +125,7 @@ def test_without_checklist_cases_follow_the_plan(app):
 
 def test_limit_applies_to_checklist_and_its_cases(app):
     app.model.on('promptChecklist', lambda c: MIXED)
+    app.model.on('promptGenerate', generate_per_check)
     app.add_sample()
     set_target(app, 3)
     app.generate()
