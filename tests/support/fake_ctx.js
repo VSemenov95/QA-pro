@@ -6,6 +6,8 @@
 (() => {
   const h = (t) => { let x = 5381; const s = String(t); for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) >>> 0; return 'h' + x.toString(16) + '-' + s.length; };
   window.__ctxHash = h;
+  // время изменения файла: меняется вместе с содержимым, как у настоящего файла
+  const mt = (t) => 1700000000000 + (parseInt(h(t).slice(1).split('-')[0], 16) % 100000000);
   window.__repo = window.__repo || { root: '/home/qa/ctx', files: {}, git: { repo: true, branch: 'main', remote: 'https://git.test/qa/ctx.git', ahead: 0, behind: 0, changed: [] }, calls: [], pulls: 0 };
   window.__gh = window.__gh || { repo: 'team/qa-context', branch: 'main', files: {}, branches: {}, calls: [] };
   const reply = (id, type, data) => window.postMessage({ source: 'qa-pro-sfera-uploader', id, type, ...data }, '*');
@@ -17,9 +19,12 @@
     if (a.root && !String(a.root).startsWith('/home/qa/')) throw Object.assign(new Error('Папка не разрешена для QA pro: ' + a.root), { code: 'root_not_allowed' });
     if (tool === 'context_read' && a.op === 'list') {
       const sub = a.sub ? a.sub + '/' : '';
-      return { root: a.root, name: 'ctx', files: Object.keys(r.files).filter((p) => p.startsWith(sub)).map((p) => ({ path: p, size: r.files[p].length, mtime: 1 })), git: r.git };
+      return { root: a.root, name: 'ctx', files: Object.keys(r.files).filter((p) => p.startsWith(sub)).map((p) => ({ path: p, size: r.files[p].length, mtime: mt(r.files[p]) })), git: r.git };
     }
-    if (tool === 'context_read' && a.op === 'read') return { files: a.paths.map((p) => (p in r.files ? { path: p, text: r.files[p], hash: h(r.files[p]) } : { path: p, missing: true })) };
+    if (tool === 'context_read' && a.op === 'read') {
+      (r.reads = r.reads || []).push(a.paths.slice());   // какие файлы читались каждым вызовом
+      return { files: a.paths.map((p) => (p in r.files ? { path: p, text: r.files[p], hash: h(r.files[p]), mtime: mt(r.files[p]) } : { path: p, missing: true })) };
+    }
     if (tool === 'context_read' && a.op === 'status') return r.git;
     if (tool === 'context_write' && r.failWrite) { const m = r.failWrite; r.failWrite = null; throw Object.assign(new Error(m), { code: 'cancelled' }); }
     if (tool === 'context_write') {
