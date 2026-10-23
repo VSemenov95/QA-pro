@@ -1,0 +1,1118 @@
+{
+ "dmux2il6kkl38c": {
+  "at": 1791314790619,
+  "blocks": 1,
+  "hash": "dqhbdxpyv6",
+  "name": "POST _api_functions_splitMessage -3.pdf"
+ },
+ "dmux2mpw0hdfm0": {
+  "at": 1791314929627,
+  "blocks": 1,
+  "hash": "1vaf0jpdujz",
+  "name": "6-GET _api_computedAttribute_{computedAttributeId}.pdf"
+ },
+ "dmux2mpw0hvtdd": {
+  "at": 1791314908504,
+  "blocks": 1,
+  "hash": "2abclt0pkxb",
+  "name": "3-GET _api_metric_getMetricHeaders_{mcId}.pdf"
+ },
+ "dmux2mpw1il0zv": {
+  "at": 1791314941074,
+  "blocks": 1,
+  "hash": "qv2iq4qy6q",
+  "name": "6-GET _api_metricService_getMetricHeaders_{serviceId}.pdf"
+ },
+ "dmux2mpw22k0fr": {
+  "at": 1791315037205,
+  "blocks": 1,
+  "hash": "1y2qum5bt5j",
+  "name": "29-POST _ext-api_v1_transactions-events.pdf"
+ },
+ "dmux2mpw2gk7ao": {
+  "at": 1791315008843,
+  "blocks": 1,
+  "hash": "9sl8880w88",
+  "name": "26-POST _ext-api_v1_transactions-search.pdf"
+ },
+ "dmux2mpw2nnfdq": {
+  "at": 1791314972052,
+  "blocks": 1,
+  "hash": "1yrnqhanr1a",
+  "name": "13-POST _api_checkpoint.pdf"
+ },
+ "dmux2mpw2yd3c1": {
+  "at": 1791314951683,
+  "blocks": 1,
+  "hash": "23kccev0sgs",
+  "name": "6-GET _api_metricService_status_{metricId}.pdf"
+ },
+ "dmux2mpw3pvm3c": {
+  "at": 1791315046481,
+  "blocks": 1,
+  "hash": "ksbz616h0s",
+  "name": "DELETE _api_metricService_{metricId}-5.pdf"
+ },
+ "dmux2mpw3sbgx9": {
+  "at": 1791315065321,
+  "blocks": 1,
+  "hash": "1kwl041qp6",
+  "name": "GET _api_checkpoint_{checkpointId}-8.pdf"
+ },
+ "dmux2mpw46iodn": {
+  "at": 1791315092713,
+  "blocks": 1,
+  "hash": "1kaei1vdqnp",
+  "name": "GET _api_metric_{metricId}-4.pdf"
+ },
+ "dmux2mpw4fidq7": {
+  "at": 1791315080615,
+  "blocks": 1,
+  "hash": "1u21b274w8t",
+  "name": "GET _api_functions_messageFunctions-5.pdf"
+ },
+ "dmux2mpw4prfgf": {
+  "at": 1791315111830,
+  "blocks": 1,
+  "hash": "dkw28mdpeb",
+  "name": "GET _api_metricService_{metricId}-9.pdf"
+ },
+ "dmux2mpw4wfj3s": {
+  "at": 1791315124170,
+  "blocks": 1,
+  "hash": "1lc38idexn3",
+  "name": "GET _api_service_header-6.pdf"
+ },
+ "dmux2mpw53omn7": {
+  "at": 1791315136227,
+  "blocks": 1,
+  "hash": "1cvpprhxpr4",
+  "name": "GET _api_technical-attribute_name-replacement-rules-7.pdf"
+ },
+ "dmux2mpw5875kn": {
+  "at": 1791315158084,
+  "blocks": 1,
+  "hash": "khnn60ac88",
+  "name": "POST _api_computedAttribute_-6.pdf"
+ },
+ "dmux2mpw5r711o": {
+  "at": 1791315200529,
+  "blocks": 1,
+  "hash": "1n1zi0gt0z6",
+  "name": "POST _api_metricService_-7.pdf"
+ },
+ "dmux2mpw5yc0y3": {
+  "at": 1791315175714,
+  "blocks": 1,
+  "hash": "dqhbdxpyv6",
+  "name": "POST _api_functions_splitMessage -3.pdf"
+ },
+ "dmux2mpw6ffp4m": {
+  "at": 1791315273021,
+  "blocks": 1,
+  "hash": "foattvj0nd",
+  "name": "PUT _api_computedAttribute_-4.pdf"
+ },
+ "dmux2mpw6h4b2q": {
+  "at": 1791315229757,
+  "blocks": 1,
+  "hash": "176s4xps8uv",
+  "name": "POST _ext-api_v1_transactions-attributes-40.pdf"
+ },
+ "dmux2mpw6pyjoo": {
+  "at": 1791315249759,
+  "blocks": 1,
+  "hash": "24a953etdt5",
+  "name": "PUT _api_checkpoint-10.pdf"
+ },
+ "dmux2mpw74y1jz": {
+  "at": 1791315613946,
+  "blocks": 2,
+  "hash": "101sffn48gt",
+  "name": "Сфера.ТМБС_Архитектура_PPBP-26.3.0-4.pdf"
+ },
+ "dmux2mpw7hbobc": {
+  "at": 1791315424516,
+  "blocks": 8,
+  "hash": "21y11ij3mui",
+  "name": "Сфера.ТМБС_Описание_продукта_PPBP-26.3.0-4.pdf"
+ },
+ "dmux2mpw7ny9h5": {
+  "at": 1791316998939,
+  "blocks": 28,
+  "hash": "1q5x728m5ck",
+  "name": "Сфера.ТМБС_Руководство_администратора_PPBP-26.3.0-4.pdf"
+ },
+ "dmux2mpw7qn20e": {
+  "at": 1791315299381,
+  "blocks": 1,
+  "hash": "1p83hoao8n1",
+  "name": "PUT _api_metricService_-6.pdf"
+ },
+ "dmux2mpw8jwylo": {
+  "at": 1791315320783,
+  "blocks": 1,
+  "hash": "1lpmgb47yl6",
+  "name": "[Интеграция ТМБС-ЗСМ]  POST _listener-tbpm-s-rest-v1_alert-3.pdf"
+ },
+ "dmux2mpw8oauiq": {
+  "at": 1791315877059,
+  "blocks": 10,
+  "hash": "q6ix6jkbvc",
+  "name": "Сфера.ТМБС_Руководство_пользователя_PPBP-26.3.0-4.pdf"
+ },
+ "dmux2mpw8obzzg": {
+  "at": 1791315330086,
+  "blocks": 1,
+  "hash": "1oh0gnx0obz",
+  "name": "2-GET _api_dictionary_metricServiceStatuses_.pdf"
+ },
+ "dmux2mpw9mxr9s": {
+  "at": 1791315344693,
+  "blocks": 1,
+  "hash": "1lwlu8y6dt5",
+  "name": "2-GET _api_monitoring-card_getInformationSystemsAndCheckpoints_{monitoringCardRowId}.pdf"
+ },
+ "dmux2mpw9re5r6": {
+  "at": 1791315361703,
+  "blocks": 1,
+  "hash": "1q406gug7is",
+  "name": "2-POST _api_functions_evaluate_.pdf"
+ },
+ "dmux2mpwatkea9": {
+  "at": 1791315373210,
+  "blocks": 1,
+  "hash": "1enwgthagfh",
+  "name": "2-POST _api_service_update-config_{serviceId}.pdf"
+ },
+ "dmux2mpwaz9zok": {
+  "at": 1791315384229,
+  "blocks": 1,
+  "hash": "1t2jl7xsod9",
+  "name": "3-GET _api_dictionary_mappingSearchAttributes_.pdf"
+ },
+ "dmux3xq936p9kd": {
+  "at": 1791317237502,
+  "blocks": 1,
+  "hash": "wpurm8sqwh",
+  "name": "6-DELETE _api_code-deviation_{codeDeviationId}.pdf"
+ },
+ "dmux3xq95k1oa0": {
+  "at": 1791317257466,
+  "blocks": 1,
+  "hash": "1740zf721ro",
+  "name": "7-PATCH _api_code-deviation_{codeDeviationId}.pdf"
+ },
+ "dmux3xq95oycj5": {
+  "at": 1791317245250,
+  "blocks": 1,
+  "hash": "1ifxczspwsp",
+  "name": "4-GET _api_code-deviation_.pdf"
+ },
+ "dmux3xq95xivy1": {
+  "at": 1791317260213,
+  "blocks": 1,
+  "hash": "13sxoc0mdv0",
+  "name": "6-POST _api_code-deviation_.pdf"
+ },
+ "dmux3xq9682xab": {
+  "at": 1791317309098,
+  "blocks": 1,
+  "hash": "1c2ttjwxyxu",
+  "name": "POST _api_template_{templateId}_metric_get-params-7.pdf"
+ },
+ "dmux3xq96hqmpb": {
+  "at": 1791317325868,
+  "blocks": 1,
+  "hash": "1o2k7zoq9la",
+  "name": "POST _api_template_{templateId}_metric_update-10.pdf"
+ },
+ "dmux3xq97yjc0e": {
+  "at": 1791317296191,
+  "blocks": 1,
+  "hash": "62a1u5a9ip",
+  "name": "5-POST _api_template_{templateId}_metric_change-status.pdf"
+ },
+ "dmux3xq9ci22lw": {
+  "at": 1791317272060,
+  "blocks": 1,
+  "hash": "26y3egfquq8",
+  "name": "POST _api_template_{templateId}_metric_delete-7.pdf"
+ },
+ "dmux3xq9hkrizp": {
+  "at": 1791317341394,
+  "blocks": 1,
+  "hash": "odz7022hzb",
+  "name": "GET _api_template_{templateId}_linked-metrics-10.pdf"
+ },
+ "dmux3xq9iiis5w": {
+  "at": 1791317311082,
+  "blocks": 1,
+  "hash": "28r2g0tuer6",
+  "name": "POST _api_template_{templateId}_computed-attribute_get-params-8.pdf"
+ },
+ "dmux3xq9jccbel": {
+  "at": 1791317297523,
+  "blocks": 1,
+  "hash": "5clvtxdjfp",
+  "name": "7-POST _api_template_{templateId}_computed-attribute_change-status.pdf"
+ },
+ "dmux3xq9jvdil8": {
+  "at": 1791317338469,
+  "blocks": 1,
+  "hash": "1t15pi51hi0",
+  "name": "12-POST _api_template_{templateId}_computed-attribute_update.pdf"
+ },
+ "dmux3xq9kdfqdv": {
+  "at": 1791317282272,
+  "blocks": 1,
+  "hash": "20vwya7wee1",
+  "name": "POST _api_template_{templateId}_computed-attribute_delete-6.pdf"
+ },
+ "dmux3xq9kvjjka": {
+  "at": 1791317352646,
+  "blocks": 1,
+  "hash": "16lqlbnvy1f",
+  "name": "GET _api_template_{templateId}_linked-computed-attributes-10.pdf"
+ },
+ "dmux3xq9lgw8co": {
+  "at": 1791317233719,
+  "blocks": 1,
+  "hash": "v51hbebeg3",
+  "name": "2-GET _api_monitoring-event_dict-code-deviation.pdf"
+ },
+ "dmux3xq9li5t18": {
+  "at": 1791317391096,
+  "blocks": 1,
+  "hash": "13fpnkd30qq",
+  "name": "2-POST _api_monitoring-event_computed-attribute_script-generation.pdf"
+ },
+ "dmux3xq9m8ul8g": {
+  "at": 1791317375283,
+  "blocks": 1,
+  "hash": "1rv9si2a37b",
+  "name": "2-POST _api_monitoring-event_metric_script-generation.pdf"
+ },
+ "dmux3xq9nonf4d": {
+  "at": 1791317356193,
+  "blocks": 1,
+  "hash": "2b1xw70ut4i",
+  "name": "2-POST _api_monitoring-event_{eventId}_upload-to-zsm-state.pdf"
+ },
+ "dmux3xq9o8vktv": {
+  "at": 1791317393047,
+  "blocks": 1,
+  "hash": "2dnnyz9hdko",
+  "name": "9-POST _api_monitoring-event.pdf"
+ },
+ "dmux3xq9pjpbge": {
+  "at": 1791317248191,
+  "blocks": 1,
+  "hash": "l4lwexx9lo",
+  "name": "2-DELETE _api_monitoring-event_{eventId}.pdf"
+ },
+ "dmux3xq9qhj0s4": {
+  "at": 1791317409520,
+  "blocks": 1,
+  "hash": "p0i6ad64xa",
+  "name": "9-PUT _api_monitoring-event_{eventId}.pdf"
+ },
+ "dmux3xq9r2u00p": {
+  "at": 1791317371429,
+  "blocks": 1,
+  "hash": "14b0alf8bqe",
+  "name": "12-GET _api_monitoring-event_{eventId}.pdf"
+ },
+ "dmux3xq9s8vcfw": {
+  "at": 1791317228390,
+  "blocks": 1,
+  "hash": "3o7os7c66",
+  "name": "2-POST _api_sendCheckpointInformation_.pdf"
+ },
+ "dmux3xq9v4n8fl": {
+  "at": 1791317322922,
+  "blocks": 1,
+  "hash": "1lw672avxt0",
+  "name": "6-PATCH _api_admin-settings_monitoring-card_{monitoringCardRowId}.pdf"
+ },
+ "dmux3xq9wbb3cy": {
+  "at": 1791317270170,
+  "blocks": 1,
+  "hash": "19hpyrn8lpa",
+  "name": "GET  _api_admin-settings_monitoring-card_-7.pdf"
+ },
+ "dmux3xq9zv2cbv": {
+  "at": 1791317283457,
+  "blocks": 1,
+  "hash": "yhap99i1he",
+  "name": "3-PUT _api_admin-settings_.pdf"
+ },
+ "dmux3xqa016y8i": {
+  "at": 1791317224883,
+  "blocks": 1,
+  "hash": "2edhn1j8bol",
+  "name": "3-GET  _api_admin-settings_.pdf"
+ },
+ "dmux4rskhik8ue": {
+  "at": 1791318561341,
+  "blocks": 1,
+  "hash": "17dxesvyvx6",
+  "name": "Клонирование метрики -4.pdf"
+ },
+ "dmux4rskj8hxya": {
+  "at": 1791318699178,
+  "blocks": 1,
+  "hash": "18kke17d4zg",
+  "name": "Отключение метрики карточки мониторинга-18.pdf"
+ },
+ "dmux4rskjnyszk": {
+  "at": 1791318577651,
+  "blocks": 1,
+  "hash": "1duqsuksagb",
+  "name": "8-[US] Дополнительные поля в метриках.pdf"
+ },
+ "dmux4rskk8r2nu": {
+  "at": 1791318912295,
+  "blocks": 1,
+  "hash": "iad7zyk2hz",
+  "name": "[US] Реализовать механизм расчета метрик за прошедшие сутки-19.pdf"
+ },
+ "dmux4rskkj9s4i": {
+  "at": 1791318773835,
+  "blocks": 1,
+  "hash": "1jk8x2pdhab",
+  "name": "11-[US] Дебаг метрик .pdf"
+ },
+ "dmux4rskkomwcc": {
+  "at": 1791319103878,
+  "blocks": 1,
+  "hash": "6dp0qxg6e9",
+  "name": "ТМ. Принадлежность метрики БС к Сервису-19.pdf"
+ },
+ "dmux4rskl74xit": {
+  "at": 1791319241689,
+  "blocks": 1,
+  "hash": "axfe4ry3rt",
+  "name": "8-ТМ. Экспорт_импорт конфигураций метрик и событий мониторинга.pdf"
+ },
+ "dmux4rskl8abgh": {
+  "at": 1791318754399,
+  "blocks": 1,
+  "hash": "1lebrlndpub",
+  "name": "ТМ. Отправка метрики в ЗСМ-10.pdf"
+ },
+ "dmux4rskm4g5yw": {
+  "at": 1791318856969,
+  "blocks": 1,
+  "hash": "cqpsqxr1sl",
+  "name": "23-Конструктор технических атрибутов .pdf"
+ },
+ "dmux4rskmqlf6q": {
+  "at": 1791318975764,
+  "blocks": 1,
+  "hash": "37j6823k8u",
+  "name": "5-ТМ. Строковый вычисляемый атрибут.pdf"
+ },
+ "dmux4rskmwlnow": {
+  "at": 1791318591489,
+  "blocks": 1,
+  "hash": "1akvup1d8ui",
+  "name": "6-Клонирование вычисляемого атрибута .pdf"
+ },
+ "dmux4rskn9590x": {
+  "at": 1791318546140,
+  "blocks": 1,
+  "hash": "17mdwufw3ge",
+  "name": "[US]Выгрузка нескольких вычисляемых атрибутов одной строкой -5.pdf"
+ },
+ "dmux4rsko99zf6": {
+  "at": 1791318641299,
+  "blocks": 1,
+  "hash": "139wh0vb02r",
+  "name": "[US] События не передаются на расчет вычисляемых атрибутов если событие не склеилось во всех бизнес-сервисах, которому может относится-9.pdf"
+ },
+ "dmux4rsko9c0cs": {
+  "at": 1791319200658,
+  "blocks": 1,
+  "hash": "gel1iyjr7y",
+  "name": "[US] Дополнительные поля в выч.атрибутах-31.pdf"
+ },
+ "dmux4rskpndquo": {
+  "at": 1791318610329,
+  "blocks": 1,
+  "hash": "70xlc31r8v",
+  "name": "[US] Оконные функции в вычисляемых атрибутах-8.pdf"
+ },
+ "dmux4rskqi8f0g": {
+  "at": 1791318949502,
+  "blocks": 1,
+  "hash": "11zhhbg71tv",
+  "name": "28-[US] Добавление поля user_transaction_time.pdf"
+ },
+ "dmux4rskrfpwvn": {
+  "at": 1791318831162,
+  "blocks": 1,
+  "hash": "m275qww1kl",
+  "name": "24-[US] Стандартные примеры SQL-запросов в вычисляемых атрибутах, метриках и событиях мониторинга.pdf"
+ },
+ "dmux4rsks9xho4": {
+  "at": 1791318731196,
+  "blocks": 1,
+  "hash": "27oorl6g1it",
+  "name": "Отключение вычисляемого атрибута карточки мониторинга-10.pdf"
+ },
+ "dmux4rsky35lfv": {
+  "at": 1791318508833,
+  "blocks": 1,
+  "hash": "ydpl7gpuje",
+  "name": "Шаблоны SQL запросов выч. атрибутов, метрик, событий мониторинга-5.pdf"
+ },
+ "dmux4rskyrm62b": {
+  "at": 1791319147318,
+  "blocks": 1,
+  "hash": "1hjw67bihjr",
+  "name": "18-ТМ. Принадлежность выч. атрибута к Сервису.pdf"
+ },
+ "dmux4rskzzv7xp": {
+  "at": 1791318529258,
+  "blocks": 1,
+  "hash": "1tuamiym3ic",
+  "name": "4-Сохранение группировки ключевых идентификаторов.pdf"
+ },
+ "dmux4rsl0m8bun": {
+  "at": 1791318624800,
+  "blocks": 1,
+  "hash": "24t1s6q52o9",
+  "name": "Заведение бизнес-атрибутов в контрольной точке по техническим атрибутам из источника данных-8.pdf"
+ },
+ "dmux4rsl1yhea3": {
+  "at": 1791319013036,
+  "blocks": 1,
+  "hash": "1hpux4xrd4z",
+  "name": "[US] Новые операторы и функции в обогащении-50.pdf"
+ },
+ "dmux4rsl40dl0j": {
+  "at": 1791319072381,
+  "blocks": 1,
+  "hash": "2ctz8f588ue",
+  "name": "ТМ. Принадлежность КТ к Сервису-19.pdf"
+ },
+ "dmux4rsl4i15qm": {
+  "at": 1791318668741,
+  "blocks": 1,
+  "hash": "mvcjaor0av",
+  "name": "17-Отключение контрольной точки карточки мониторинга.pdf"
+ },
+ "dmux4rsl8xfhez": {
+  "at": 1791319041883,
+  "blocks": 1,
+  "hash": "1mwhllq8gdp",
+  "name": "11-ТМ. Маппинг технических атрибутов на запрос поиска.pdf"
+ },
+ "dmux4rsl9crnps": {
+  "at": 1791319374676,
+  "blocks": 1,
+  "hash": "28cu3bn8crp",
+  "name": "[US] Редактирование карточки мониторинга-64.pdf"
+ },
+ "dmux4rslerjm65": {
+  "at": 1791318885593,
+  "blocks": 1,
+  "hash": "1tb2bm9rg3s",
+  "name": "15-[US] Ссылка на дашборд из карточки мониторинга.pdf"
+ },
+ "dmux4rslfwtn7n": {
+  "at": 1791318802961,
+  "blocks": 1,
+  "hash": "acreft52i1",
+  "name": "[US] Создание карточки мониторинга-7.pdf"
+ },
+ "dmux6gufj33mrj": {
+  "at": 1791321790034,
+  "blocks": 1,
+  "hash": "1omm6iopnnk",
+  "name": "17-ТМ. Настройка отклонений.pdf"
+ },
+ "dmux6gufjaulqz": {
+  "at": 1791321440843,
+  "blocks": 1,
+  "hash": "hehcw02w3a",
+  "name": "5-ТМ. Тегирование вычисляемых атрибутов.pdf"
+ },
+ "dmux6gufk4ehpu": {
+  "at": 1791321697878,
+  "blocks": 1,
+  "hash": "pi9b0pcfze",
+  "name": "11-ТМ. Применение шаблонов метрик в карточке мониторинга.pdf"
+ },
+ "dmux6gufka39v8": {
+  "at": 1791321879693,
+  "blocks": 1,
+  "hash": "gnxufgdefc",
+  "name": "24-ТМ. Заведение шаблонов _ групп шаблонов вычисляемых атрибутов.pdf"
+ },
+ "dmux6gufkg1vzj": {
+  "at": 1791321402837,
+  "blocks": 1,
+  "hash": "53lwepseam",
+  "name": "ТМ. Тегирование контрольных точек-6.pdf"
+ },
+ "dmux6gufkvbtjg": {
+  "at": 1791321757743,
+  "blocks": 1,
+  "hash": "no0k0yzbzs",
+  "name": "11-ТМ. Применение шаблонов вычисляемых атрибутов в карточке мониторинга.pdf"
+ },
+ "dmux6guflals05": {
+  "at": 1791321376765,
+  "blocks": 1,
+  "hash": "1olti1iaevk",
+  "name": "3-Клонирование источника данных .pdf"
+ },
+ "dmux6guflrbkix": {
+  "at": 1791321348780,
+  "blocks": 1,
+  "hash": "1pfsi46zoxx",
+  "name": "9-Экспорт данных карточки .pdf"
+ },
+ "dmux6gufmmi8a5": {
+  "at": 1791321362432,
+  "blocks": 1,
+  "hash": "rbuwdz77im",
+  "name": "8-Функция formatDateFunction.pdf"
+ },
+ "dmux6gufmumq5z": {
+  "at": 1791321604823,
+  "blocks": 1,
+  "hash": "7wedlxuhh9",
+  "name": "6-Список функций в правилах обработки тех.атрибутов источника.pdf"
+ },
+ "dmux6gufn4tvnd": {
+  "at": 1791322143934,
+  "blocks": 1,
+  "hash": "1cjesupumi1",
+  "name": "[US] Просмотр примеров событий в JSON формате источника данных в пользовательском интерфейсе-11.docx"
+ },
+ "dmux6gufncwzto": {
+  "at": 1791321499286,
+  "blocks": 1,
+  "hash": "1cllg4g86vk",
+  "name": "[US] Проверка соединения для источника данных в пользовательском интерфейсе-16.pdf"
+ },
+ "dmux6gufnneux9": {
+  "at": 1791321453757,
+  "blocks": 1,
+  "hash": "1qff6bl25zs",
+  "name": "[US] Новые функции concat, case и const-7.pdf"
+ },
+ "dmux6gufobvfop": {
+  "at": 1791321590710,
+  "blocks": 1,
+  "hash": "keix7jsnfc",
+  "name": "14-ТМ. Сохранение технических атрибутов исходных событий источника данных в БД ClickHouse.pdf"
+ },
+ "dmux6gufoxumla": {
+  "at": 1791322118073,
+  "blocks": 1,
+  "hash": "2a6ayvw8t4d",
+  "name": "ТМ. Конструктор создания технических атрибутов в источнике данных-53.pdf"
+ },
+ "dmux6gufp3zutr": {
+  "at": 1791321544033,
+  "blocks": 1,
+  "hash": "1etj2uagprq",
+  "name": "33-ТМ. Автоматическая генерация правил парсинга технических атрибутов в источнике данных.pdf"
+ },
+ "dmux6gufude7je": {
+  "at": 1791321638136,
+  "blocks": 1,
+  "hash": "19dx452qzd1",
+  "name": "_ТМ. Принадлежность ручного события мониторинга к Сервису-3.pdf"
+ },
+ "dmux6gufukoilr": {
+  "at": 1791321950646,
+  "blocks": 1,
+  "hash": "i7stokhpwg",
+  "name": "ТМ. Создание источника данных-18.pdf"
+ },
+ "dmux6gufw4bo8b": {
+  "at": 1791321726858,
+  "blocks": 1,
+  "hash": "ziu7n868q1",
+  "name": "23-[US] Настройка кода отклонения для ручных событий мониторинга.pdf"
+ },
+ "dmux6gufx0uz43": {
+  "at": 1791321523742,
+  "blocks": 1,
+  "hash": "1p4uu25fiqv",
+  "name": "Настройка автоматического события в карточке вычисляемого атрибута-9.pdf"
+ },
+ "dmux6gufx1itfx": {
+  "at": 1791321570966,
+  "blocks": 1,
+  "hash": "1bhh9r02ybk",
+  "name": "12-Настройка автоматического события в карточке метрики.pdf"
+ },
+ "dmux6gufy0llxq": {
+  "at": 1791321477807,
+  "blocks": 1,
+  "hash": "21a0z8jjt0c",
+  "name": "7-Повторная отправка события мониторинга.pdf"
+ },
+ "dmux6gufywxff3": {
+  "at": 1791321667951,
+  "blocks": 1,
+  "hash": "y2w97dsfuo",
+  "name": "14-Управление событиями мониторинга в карточке мониторинга.pdf"
+ },
+ "dmux6gufzjexqk": {
+  "at": 1791321389290,
+  "blocks": 1,
+  "hash": "2dv49a43wb8",
+  "name": "[US] Кастомный текст в событиях мониторинга-7.pdf"
+ },
+ "dmux6gufzqzy51": {
+  "at": 1791321426964,
+  "blocks": 1,
+  "hash": "2ddsl47voy0",
+  "name": "[US] Параметризация шаблона ссылки в событии мониторинга значениями из SQL запроса-21.pdf"
+ },
+ "dmuxail05xv3i5": {
+  "at": 1791328428039,
+  "blocks": 1,
+  "hash": "n4zf9b8xrp",
+  "name": "5-admin_settings.pdf"
+ },
+ "dmuxail063r0v7": {
+  "at": 1791328446503,
+  "blocks": 1,
+  "hash": "2b3yt9ubt8v",
+  "name": "2-s_system_inf_system.pdf"
+ },
+ "dmuxail0662wcl": {
+  "at": 1791328436484,
+  "blocks": 1,
+  "hash": "eirt929zyt",
+  "name": "s_system_bs_system-2.pdf"
+ },
+ "dmuxail06rmb58": {
+  "at": 1791328449931,
+  "blocks": 1,
+  "hash": "1dlps3lznhn",
+  "name": "5-code_deviation.pdf"
+ },
+ "dmuxail06ye3p0": {
+  "at": 1791328457200,
+  "blocks": 1,
+  "hash": "x0kdrb5uab",
+  "name": "service-6.pdf"
+ },
+ "dmuxail075sxqn": {
+  "at": 1791328462767,
+  "blocks": 1,
+  "hash": "2ckn32hjd2q",
+  "name": "11-monitoring_event.pdf"
+ },
+ "dmuxail07qwguw": {
+  "at": 1791328178899,
+  "blocks": 1,
+  "hash": "1d6du9nc3as",
+  "name": "(R) monitoring_card-7.pdf"
+ },
+ "dmuxail07uwdoa": {
+  "at": 1791328195846,
+  "blocks": 1,
+  "hash": "17kit7xst2w",
+  "name": "5-metric_service.pdf"
+ },
+ "dmuxail0822u1j": {
+  "at": 1791328186645,
+  "blocks": 1,
+  "hash": "1an1jnb1eta",
+  "name": "3-(R) metric_interval.pdf"
+ },
+ "dmuxail08osrgk": {
+  "at": 1791328196933,
+  "blocks": 1,
+  "hash": "pafinoa9h0",
+  "name": "(R) metric-3.pdf"
+ },
+ "dmuxail08szefu": {
+  "at": 1791328204484,
+  "blocks": 1,
+  "hash": "dwgv8dsd7",
+  "name": "2-(R) information_system.pdf"
+ },
+ "dmuxail090kr9x": {
+  "at": 1791328212180,
+  "blocks": 1,
+  "hash": "qy7hopnmny",
+  "name": "3-(R) identifier.pdf"
+ },
+ "dmuxail097t4qm": {
+  "at": 1791328206417,
+  "blocks": 1,
+  "hash": "2fztnpv8xps",
+  "name": "2-(R) identifier_group.pdf"
+ },
+ "dmuxail0a86wxc": {
+  "at": 1791328149380,
+  "blocks": 1,
+  "hash": "2cx1dohoj12",
+  "name": "4-general_computed_attribute_interval.pdf"
+ },
+ "dmuxail0a9i129": {
+  "at": 1791328214074,
+  "blocks": 1,
+  "hash": "1ljqv40724a",
+  "name": "3-(R) group_rule.pdf"
+ },
+ "dmuxail0cejefu": {
+  "at": 1791328218917,
+  "blocks": 1,
+  "hash": "k0jba8z34p",
+  "name": "2-general_computed_attribute.pdf"
+ },
+ "dmuxail0g2aqiw": {
+  "at": 1791328223597,
+  "blocks": 1,
+  "hash": "24wjf99ht3g",
+  "name": "2-flyway_schema_history.pdf"
+ },
+ "dmuxail0hsn9pa": {
+  "at": 1791328227884,
+  "blocks": 1,
+  "hash": "2pogsn4x5x",
+  "name": "2-flyway_admin_schema_history.pdf"
+ },
+ "dmuxail0igp5nd": {
+  "at": 1791328231393,
+  "blocks": 1,
+  "hash": "1em5vae1eqj",
+  "name": "2-filtering_attribute.pdf"
+ },
+ "dmuxail0jnxw0y": {
+  "at": 1791328236128,
+  "blocks": 1,
+  "hash": "1dffcszh9ez",
+  "name": "enrichment_rule_value-2.pdf"
+ },
+ "dmuxail0kkqb75": {
+  "at": 1791328243555,
+  "blocks": 1,
+  "hash": "9fwgr1gjg1",
+  "name": "2-enrichment_constant.pdf"
+ },
+ "dmuxail0knqz7a": {
+  "at": 1791328245516,
+  "blocks": 1,
+  "hash": "1zh6hjxrvlk",
+  "name": "2-dictionary_metric_unit.pdf"
+ },
+ "dmuxail0ksrprb": {
+  "at": 1791328238384,
+  "blocks": 1,
+  "hash": "5uzgkmryw2",
+  "name": "2-enrichment_rule.pdf"
+ },
+ "dmuxail0l5pjt1": {
+  "at": 1791328250396,
+  "blocks": 1,
+  "hash": "2g0n544dqr1",
+  "name": "2-dictionary_attribute_unit.pdf"
+ },
+ "dmuxail0l835ah": {
+  "at": 1791328252389,
+  "blocks": 1,
+  "hash": "11mc3nx3ti6",
+  "name": "2-dictionary_attribute_group.pdf"
+ },
+ "dmuxail0m6kru5": {
+  "at": 1791328259208,
+  "blocks": 1,
+  "hash": "e684vb8t1w",
+  "name": "datablock_data-2.pdf"
+ },
+ "dmuxail0n05vef": {
+  "at": 1791328261746,
+  "blocks": 1,
+  "hash": "11hhv7tbkex",
+  "name": "2-datablock.pdf"
+ },
+ "dmuxail0oj039s": {
+  "at": 1791328265934,
+  "blocks": 1,
+  "hash": "4fkmob0o0k",
+  "name": "data_source_inf_system-2.pdf"
+ },
+ "dmuxail0oqv9bt": {
+  "at": 1791328269748,
+  "blocks": 1,
+  "hash": "1r9oc1091p2",
+  "name": "2-data_source_data_collecting_info.pdf"
+ },
+ "dmuxail0qgt8ou": {
+  "at": 1791328273891,
+  "blocks": 1,
+  "hash": "yi7rummh3x",
+  "name": "2-data_source_connector_kafka.pdf"
+ },
+ "dmuxail0reo2n4": {
+  "at": 1791328278946,
+  "blocks": 1,
+  "hash": "v5der12vw3",
+  "name": "2-data_source_connector_astrom_key.pdf"
+ },
+ "dmuxail0rqb0c8": {
+  "at": 1791328287840,
+  "blocks": 1,
+  "hash": "5wyeh1kd01",
+  "name": "2-data_source.pdf"
+ },
+ "dmuxail0t2nbwp": {
+  "at": 1791328296641,
+  "blocks": 1,
+  "hash": "zbtx5mvu92",
+  "name": "4-configuration_integration_is.pdf"
+ },
+ "dmuxail0tj3qx1": {
+  "at": 1791328295395,
+  "blocks": 1,
+  "hash": "1xgiaqaoume",
+  "name": "2-(R) configuration_integration_chain.pdf"
+ },
+ "dmuxail0tpp8s6": {
+  "at": 1791328286482,
+  "blocks": 1,
+  "hash": "qt07rnxlvi",
+  "name": "3-configuration_integration_link.pdf"
+ },
+ "dmuxail0uo51zm": {
+  "at": 1791328306906,
+  "blocks": 1,
+  "hash": "2xzutig6ba",
+  "name": "3-computed_attribute_group_reference.pdf"
+ },
+ "dmuxail0uowgfj": {
+  "at": 1791328305606,
+  "blocks": 1,
+  "hash": "22ozwc0wham",
+  "name": "2-computed_attribute.pdf"
+ },
+ "dmuxail0v5ag33": {
+  "at": 1791328315352,
+  "blocks": 1,
+  "hash": "27vfr5o7n4g",
+  "name": "2-completeness_computed_attribute.pdf"
+ },
+ "dmuxail0vman2r": {
+  "at": 1791328314077,
+  "blocks": 1,
+  "hash": "1x71o39jehz",
+  "name": "completeness_computed_attribute_checkpoint-3.pdf"
+ },
+ "dmuxail0w1shqy": {
+  "at": 1791328323765,
+  "blocks": 1,
+  "hash": "anxpryjije",
+  "name": "3-checkpoint_group.pdf"
+ },
+ "dmuxail0xg3x7u": {
+  "at": 1791328325541,
+  "blocks": 1,
+  "hash": "8nf84h5zz8",
+  "name": "7-checkpoint_attribute.pdf"
+ },
+ "dmuxail0y079o7": {
+  "at": 1791328333396,
+  "blocks": 1,
+  "hash": "5r6l108i2m",
+  "name": "checkpoint-4.pdf"
+ },
+ "dmuxail0zsurgb": {
+  "at": 1791328334619,
+  "blocks": 1,
+  "hash": "167bfnqq8bp",
+  "name": "5-business_service.pdf"
+ },
+ "dmuxail103gk4r": {
+  "at": 1791328351463,
+  "blocks": 1,
+  "hash": "38pif3g9cj",
+  "name": "ТМ. [СА] Массовые операции над сущностями, созданными из шаблона-10.pdf"
+ },
+ "dmuxail10ezx55": {
+  "at": 1791328341286,
+  "blocks": 1,
+  "hash": "1taxnt2jk13",
+  "name": "3-bs_system_inf_system.pdf"
+ },
+ "dmuxail11dl379": {
+  "at": 1791328413997,
+  "blocks": 3,
+  "hash": "281olizk3jr",
+  "name": "ТМ. [СА] Настройка отклонений актуальная-29.pdf"
+ },
+ "dmuxail12086lu": {
+  "at": 1791328394922,
+  "blocks": 1,
+  "hash": "1bqq3g0miqu",
+  "name": "ТМ. [СА] Конструктор создания технических атрибутов в источнике данных-19.pdf"
+ },
+ "dmuxail12tmm35": {
+  "at": 1791328367708,
+  "blocks": 1,
+  "hash": "2d31vsedvbp",
+  "name": "7-ТМ. [СА] Сохранение технических атрибутов исходных событий источника данных в БД ClickHouse.pdf"
+ },
+ "dmuxail13wot6t": {
+  "at": 1791328417269,
+  "blocks": 1,
+  "hash": "28b8t3s7ofm",
+  "name": "11-ТМ. [СА] Автоматическая генерация правил парсинга технических атрибутов в источнике данных.pdf"
+ },
+ "dmuxail14jo0il": {
+  "at": 1791328437632,
+  "blocks": 1,
+  "hash": "z5io6zt5n4",
+  "name": "ТМ. [СА] Отправка метрики БС в ЗСМ-7.pdf"
+ },
+ "dmuxbap4rhqgor": {
+  "at": 1791329463830,
+  "blocks": 1,
+  "hash": "2bl3p5javbc",
+  "name": "2-Передача событий мониторинга для устранения отклонений .pdf"
+ },
+ "dmuxbap4siy4ie": {
+  "at": 1791329480526,
+  "blocks": 1,
+  "hash": "jlb6hpmejq",
+  "name": "30-ТМ.Онбординг.pdf"
+ },
+ "dmuxbap4slyzsd": {
+  "at": 1791329636256,
+  "blocks": 1,
+  "hash": "1ze7y9w79x7",
+  "name": "[Акутальная] Сфера.Конфигурации -5.pdf"
+ },
+ "dmuxbap4t4n054": {
+  "at": 1791329496412,
+  "blocks": 1,
+  "hash": "255fuh5td51",
+  "name": "4-ТМ.06.03.Контрольная точка.pdf"
+ },
+ "dmuxbap4tnfurv": {
+  "at": 1791329495230,
+  "blocks": 1,
+  "hash": "myxyq2ph7b",
+  "name": "4-ТМ.06.06.Метрика.pdf"
+ },
+ "dmuxbap4tq4lo9": {
+  "at": 1791329487581,
+  "blocks": 1,
+  "hash": "13d1rgwwf7b",
+  "name": "4-ТМ.06.05.Вычисляемый атрибут.pdf"
+ },
+ "dmuxbap4u6550y": {
+  "at": 1791329527388,
+  "blocks": 1,
+  "hash": "fk3k9ttplx",
+  "name": "Источник данных-10.pdf"
+ },
+ "dmuxbap4u8h5ht": {
+  "at": 1791329520701,
+  "blocks": 1,
+  "hash": "9q1ddbgvek",
+  "name": "Метрика-10.pdf"
+ },
+ "dmuxbap4ub9cr6": {
+  "at": 1791329514474,
+  "blocks": 1,
+  "hash": "6p8f3oich4",
+  "name": "5-Метрика Сервиса.pdf"
+ },
+ "dmuxbap4ukpv3c": {
+  "at": 1791329509749,
+  "blocks": 1,
+  "hash": "ijazto1y22",
+  "name": "7-ТМ.Валидация источника данных.pdf"
+ },
+ "dmuxbap4vpxjva": {
+  "at": 1791329532801,
+  "blocks": 1,
+  "hash": "1jywobfkxuy",
+  "name": "18-Вычисляемый атрибут.pdf"
+ },
+ "dmuxbap4vqf9da": {
+  "at": 1791329545581,
+  "blocks": 1,
+  "hash": "2c2rdygv777",
+  "name": "4-Карточка мониторинга 04.08.2026.pdf"
+ },
+ "dmuxbap4vyg5gu": {
+  "at": 1791329548282,
+  "blocks": 1,
+  "hash": "81hzmxtqva",
+  "name": "25-Контрольная точка.pdf"
+ },
+ "dmuxbap4w66vz6": {
+  "at": 1791329562069,
+  "blocks": 1,
+  "hash": "hap5bp9rz3",
+  "name": "2-s_{$s}_metric_distributed.pdf"
+ },
+ "dmuxbap4w7cavd": {
+  "at": 1791329553750,
+  "blocks": 1,
+  "hash": "2cfwpbc1d3u",
+  "name": "2-src_{$ID}_integration_sent_event.pdf"
+ },
+ "dmuxbap4whapp6": {
+  "at": 1791329558346,
+  "blocks": 1,
+  "hash": "1sczkkdladw",
+  "name": "2-s_{$s}_attribute_distributed (view).pdf"
+ },
+ "dmuxbap4x4y5xs": {
+  "at": 1791329569625,
+  "blocks": 1,
+  "hash": "xk9usis05z",
+  "name": "bs_{$bs}_attribute_distributed (view)-2.pdf"
+ },
+ "dmuxbap4ys573v": {
+  "at": 1791329573875,
+  "blocks": 1,
+  "hash": "f9a1apuv98",
+  "name": "2-bs_{$bs}_attribute_table_distributed.pdf"
+ },
+ "dmuxbap50c11gi": {
+  "at": 1791329582765,
+  "blocks": 1,
+  "hash": "18duoe44v90",
+  "name": "6-bs_{$bs}_attribute_old_distributed.pdf"
+ },
+ "dmuxbap53bu6fw": {
+  "at": 1791329594668,
+  "blocks": 1,
+  "hash": "253msvomy5d",
+  "name": "8-bs_{$bs}_attribute.pdf"
+ },
+ "dmuxbap53rigux": {
+  "at": 1791329586458,
+  "blocks": 1,
+  "hash": "1offsmt1fkm",
+  "name": "3-bs_{$bs}_attribute_table.pdf"
+ },
+ "dmvfrdzns6fxqq": {
+  "at": 1792444911801,
+  "blocks": 1,
+  "hash": "mczhf8a2va",
+  "name": "ТМ. Просмотр списка сервисов-19.pdf"
+ },
+ "dmvfrdznsl2jvk": {
+  "at": 1792444883334,
+  "blocks": 2,
+  "hash": "2efgwv07ifc",
+  "name": "ТМ. [СА] Список сервисов-10.pdf"
+ }
+}
