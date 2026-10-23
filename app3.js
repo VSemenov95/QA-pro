@@ -256,14 +256,19 @@ function docConflicts(d) {
   return out;
 }
 // старые разделы хранят расхождения только в самом разделе — подгружаем их один раз
+// Каждый раздел читается не больше одного раза: записи может не быть (удалили в другом окне, раздел переехал
+// в папку источника) — тогда раздел в кэш не попадает, и без этой отметки чтение и перерисовка шли бы по кругу.
 let kbCfLoading = false;
+const kbCfTried = new Set();
 function kbEnsureConflicts() {
   if (kbCfLoading || !S.kb.loaded || !S.caps.db) return;
-  const need = S.kb.index.blocks.filter((b) => b.conf && !arrOf(b.cf).length && !S.kb.cache[b.id]);
+  const pid = S.kb.pid, key = (b) => pid + '/' + b.id;
+  const need = S.kb.index.blocks.filter((b) => b.conf && !arrOf(b.cf).length && !S.kb.cache[b.id] && !S.kb.missing?.[b.id] && !kbCfTried.has(key(b)));
   if (!need.length) return;
   kbCfLoading = true;
-  (async () => { for (const b of need) { try { await kbBlock(b.id); } catch { /* без расхождений этого раздела */ } } })()
-    .finally(() => { kbCfLoading = false; renderDocs(); });
+  for (const b of need) kbCfTried.add(key(b));
+  (async () => { let got = 0; for (const b of need) { try { if (await kbBlock(b.id)) got++; } catch { /* без расхождений этого раздела */ } } return got; })()
+    .then((got) => { kbCfLoading = false; if (got && S.kb.pid === pid) renderDocs(); }, () => { kbCfLoading = false; });
 }
 function openDocConflicts(d) {
   const secs = docConflicts(d), n = secs.reduce((a, x) => a + x.items.length, 0);
