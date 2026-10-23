@@ -156,7 +156,8 @@ def test_regen_does_not_analyze_documents_again(draft):
     draft.model.reset()
     regen(draft)
     kinds = {c.kind for c in draft.model.calls}
-    assert 'promptAnalyze' not in kinds and {'promptPlan', 'promptGenerate'} <= kinds
+    # анализ и план не повторяются: перегенерация переписывает тот же набор кейсов по текущим правилам
+    assert 'promptGenerate' in kinds and not kinds & {'promptAnalyze', 'promptPlan'}
 
 
 def test_regen_keeps_requirements(draft):
