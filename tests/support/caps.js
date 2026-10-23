@@ -9,11 +9,15 @@
     tick(); return () => { alive = false; };
   };
   const clone = (d) => JSON.parse(JSON.stringify(d));
+  // window.__dbLimit — как в настоящей базе: запись больше 256 КиБ отклоняется (invalid_argument)
+  const tooBig = (d) => { if (window.__dbLimit && new TextEncoder().encode(JSON.stringify(d)).length > 262144) throw { code: 'invalid_argument', message: 'document over 256 KiB' }; };
+  // window.__dbFailGet — регулярное выражение пути: чтение такой записи падает (unavailable)
+  const failGet = (path) => { if (window.__dbFailGet && new RegExp(window.__dbFailGet).test(path)) throw { code: 'unavailable', message: 'test failure' }; };
   const docRef = (path) => ({
     id: path.split('/').pop(), path,
-    get: async () => snapOf(path, await op('get', path)),
-    set: async (d) => { await op('set', path, clone(d)); },
-    update: async (d) => { const r = await op('update', path, clone(d)); if (r === 'missing') throw { code: 'invalid_argument', message: 'missing' }; },
+    get: async () => { failGet(path); return snapOf(path, await op('get', path)); },
+    set: async (d) => { tooBig(d); await op('set', path, clone(d)); },
+    update: async (d) => { tooBig(d); const r = await op('update', path, clone(d)); if (r === 'missing') throw { code: 'invalid_argument', message: 'missing' }; },
     delete: async () => { await op('delete', path); },
     acquire: async (o) => op('acquire', path, o),
     onSnapshot: (next) => poll(async () => { const d = await op('get', path); return { key: d, snap: snapOf(path, d) }; }, next),

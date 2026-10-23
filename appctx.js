@@ -28,7 +28,7 @@ const CTX_BRIDGE = new Set(['local', 'git']);
 const CTX_TEXT_RX = /\.(md|markdown|txt|json|ya?ml)$/i;
 const CTX_TOOLS = ['context_read', 'context_write', 'context_git'];
 const CTX_KB_SPLIT = 8000;      // файл базы знаний длиннее — делится на разделы по заголовкам «##»
-const CTX_CACHE_PART = 150000;  // копия файлов в хранилище — частями до 150 тыс. знаков
+const CTX_CACHE_PART = 60000;   // запись хранилища — до 256 КБ: части по 60 тыс. знаков (даже по 4 байта на знак — меньше предела)
 const ctxBlank = () => ({ kind: 'qa', root: '', url: '', cloned: '', repo: '', branch: '', baseBranch: '', sub: '', slug: '' });
 S.ctx = { pid: null, src: ctxBlank(), draft: null, on: false, busy: '', error: '', files: new Map(), git: null, channel: '', loadedAt: 0, fromCache: false, conflicts: [], pending: new Set(), backup: null, kb: [], kbAt: 0, note: '', confirm: null, lastPush: null, warn: [] };
 
@@ -196,18 +196,56 @@ async function ctxGh(op, args) {
 /* ---------- настройка источника и копия файлов (личные, по продукту) ---------- */
 const ctxDocPath = (pid, sfx = '') => `data/users/${S.caps.uid}/ctx_${pid}${sfx}`;
 const ctxDbOk = () => !!(S.caps.db && S.caps.uid);
+/* Настройка источника — маленькая запись ctx_<pid> (переживает публикацию новой версии страницы: хранилище страницы
+   общее для всех версий, а память браузера — нет). Очередь несохранённых правок — отдельно, частями ctx_<pid>_q<i>:
+   выгрузка базы знаний легко больше предела одной записи (256 КБ), и тогда раньше не сохранялась и сама настройка. */
+const ctxChunks = (s) => { const out = []; for (let i = 0; i < s.length; i += CTX_CACHE_PART) out.push(s.slice(i, i + CTX_CACHE_PART)); return out; };
+async function ctxDbGet(path) {
+  for (let i = 0; ; i++) {
+    try { return (await S.caps.db.doc(path).get()).data() || null; }
+    catch (e) { if (i) throw e; await pause(400); } // сбой хранилища бывает мгновенным — одна повторная попытка
+  }
+}
+let ctxPersistNoted = false;
+function ctxPersistFail(e) {
+  if (ctxPersistNoted) return;
+  ctxPersistNoted = true;
+  toast(`Настройку источника контекста не удалось сохранить в хранилище QA pro${e?.code ? ` (${e.code})` : ''}: после перезагрузки страницы её, возможно, придётся задать заново.`, 'err');
+}
 async function ctxLoadSrc(pid) {
-  let v = null;
-  if (ctxDbOk()) { try { v = (await S.caps.db.doc(ctxDocPath(pid)).get()).data() || null; } catch { /* нет записи */ } }
-  if (!v) v = lsGet('qapro.ctx.' + pid, null);
-  return v && typeof v === 'object' ? v : null;
+  let v = null, dbErr = false;
+  if (ctxDbOk()) { try { v = await ctxDbGet(ctxDocPath(pid)); } catch { dbErr = true; } }
+  const ls = lsGet('qapro.ctx.' + pid, null);
+  if (!v?.src && ls?.src) {
+    v = { src: ls.src, lastPush: ls.lastPush || null, pending: [] };
+    // настройка была только в памяти браузера (запись в хранилище тогда не прошла) — сохраняем её туда сейчас
+    if (ctxDbOk() && !dbErr) S.caps.db.doc(ctxDocPath(pid)).set({ src: ls.src, lastPush: ls.lastPush || null, updatedAt: Date.now(), pendingParts: 0 }).catch(() => {});
+  }
+  if (!v || typeof v !== 'object') return null;
+  if (v.pendingParts) {
+    try {
+      let body = '';
+      for (let i = 0; i < v.pendingParts; i++) body += (await ctxDbGet(ctxDocPath(pid, '_q' + i)))?.s || '';
+      v = { ...v, pending: JSON.parse(body) };
+    } catch { v = { ...v, pending: [] }; }
+  }
+  return v;
 }
 async function ctxSaveSrc() {
   const C = S.ctx, pid = C.pid;
   if (!pid) return;
-  const v = { src: { ...C.src }, pending: [...C.pending].map((p) => [p, ctxText(p)]).filter((x) => x[1] != null), lastPush: C.lastPush || null, updatedAt: Date.now() };
-  lsSet('qapro.ctx.' + pid, { src: v.src, lastPush: v.lastPush });
-  if (ctxDbOk()) { try { await S.caps.db.doc(ctxDocPath(pid)).set(v); } catch { /* только в этом браузере */ } }
+  const src = { ...C.src }, lastPush = C.lastPush || null;
+  const pending = [...C.pending].map((p) => [p, ctxText(p)]).filter((x) => x[1] != null);
+  lsSet('qapro.ctx.' + pid, { src, lastPush });
+  if (!ctxDbOk()) return;
+  try {
+    const parts = pending.length ? ctxChunks(JSON.stringify(pending)) : [];
+    for (let i = 0; i < parts.length; i++) await S.caps.db.doc(ctxDocPath(pid, '_q' + i)).set({ s: parts[i] });
+    await S.caps.db.doc(ctxDocPath(pid)).set({ src, lastPush, updatedAt: Date.now(), pendingParts: parts.length }); // главная запись — последней
+  } catch (e) {
+    // очередь не влезла — сохраняем хотя бы саму настройку источника
+    try { await S.caps.db.doc(ctxDocPath(pid)).set({ src, lastPush, updatedAt: Date.now(), pendingParts: 0 }); } catch { ctxPersistFail(e); }
+  }
 }
 async function ctxCacheWrite() {
   const C = S.ctx;
@@ -449,6 +487,10 @@ async function ctxSwitch(pid) {
   if (cache) {
     for (const [p, t] of pend) { const f = cache.files.get(p); cache.files.set(p, { text: t, hash: f?.hash ?? null, dirty: true }); C.pending.add(p); }
     C.git = cache.git; ctxApplyFiles(cache.files, { at: cache.at, fromCache: true });
+  } else if (pend.size) {
+    // копии файлов нет, но правки в очереди — оставляем их поверх того, что прочитается из источника
+    C.files = new Map([...pend].map(([p, t]) => [p, { text: t, hash: null, dirty: true }]));
+    for (const p of pend.keys()) C.pending.add(p);
   }
   if (C.src.kind === 'folder') { if (!cache) { C.error = 'Копия папки не найдена — выберите папку заново.'; C.on = false; } renderCtxPane(); return; }
   ctxRefresh({ quiet: !!cache, tok }).catch(() => {});
