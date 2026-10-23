@@ -62,6 +62,36 @@ const stepDesc = (s, mode) => (mode === 'update' && s.descUpd ? s.descUpd : s.de
 const UPD_ST = { same: 'Без изменений', changed: 'Изменён', new: 'Новый', obsolete: 'Устарел' };
 const SUITES = ['smoke', 'regression'];
 const SUITE_RU = { smoke: 'Смоук', regression: 'Регресс' };
+/* ================= «чёрный ящик»: что делала страница перед зависанием =================
+   Последние шаги и подвисания главного потока (дольше 2 с) пишутся в память браузера сразу, синхронно —
+   они переживут зависание. При следующем открытии отчёт уходит в личное хранилище (data/users/<uid>/diag_*). */
+const DIAG_KEY = 'qapro.diag';
+const DG = { log: [], stalls: [], last: Date.now(), at: Date.now(), saved: 0 };
+function diagSave() { try { localStorage.setItem(DIAG_KEY, JSON.stringify({ open: true, at: DG.at, log: DG.log, stalls: DG.stalls })); } catch { /* без памяти браузера */ } DG.saved = Date.now(); }
+function diag(ev, force) {
+  DG.log.push([Date.now() - DG.at, String(ev).slice(0, 160)]);
+  if (DG.log.length > 80) DG.log.splice(0, DG.log.length - 80);
+  if (force || Date.now() - DG.saved > 400) diagSave();
+}
+// замер синхронного шага: долгий — в журнал
+function diagT(name, fn) {
+  const t = performance.now();
+  try { return fn(); } finally { const ms = performance.now() - t; if (ms > 150) diag(`${name} ${Math.round(ms)} мс`, ms > 1000); }
+}
+setInterval(() => {
+  const now = Date.now(), gap = now - DG.last;
+  DG.last = now;
+  if (gap > 2000) { DG.stalls.push({ at: now - DG.at, gap, before: DG.log.slice(-12) }); if (DG.stalls.length > 10) DG.stalls.shift(); diagSave(); }
+}, 250);
+addEventListener('pagehide', () => { try { const d = JSON.parse(localStorage.getItem(DIAG_KEY) || '{}'); d.open = false; d.log = DG.log; d.stalls = DG.stalls; localStorage.setItem(DIAG_KEY, JSON.stringify(d)); } catch { /* нет памяти */ } });
+const DIAG_PREV = (() => { try { return JSON.parse(localStorage.getItem(DIAG_KEY) || 'null'); } catch { return null; } })();
+diag('старт страницы', true);
+async function diagUpload() {
+  const p = DIAG_PREV;
+  if (!p || !S.caps.db || !S.caps.uid || (!p.open && !(p.stalls || []).length)) return;
+  try { await S.caps.db.doc(`data/users/${S.caps.uid}/diag_${p.at || Date.now()}`).set({ kind: 'diag', closedCleanly: !p.open, at: p.at || 0, savedAt: Date.now(), ua: navigator.userAgent.slice(0, 200), log: (p.log || []).slice(-80), stalls: (p.stalls || []).slice(-10) }); } catch { /* не вышло — не страшно */ }
+}
+
 const LIBS = {
   mammoth: ['https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js', 'https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js'],
   pdf: ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'],

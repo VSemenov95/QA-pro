@@ -195,7 +195,8 @@ function docsSumHTML(help, list, ready) {
 }
 /* панель документов. В «Базе знаний» — все документы продукта. В генерации и актуализации — только документы запуска
    (загруженные для него): выбирать из всех документов не нужно, остальное агент берёт из базы знаний. */
-function renderDocs() {
+function renderDocs() { return diagT('renderDocs', () => renderDocs0()); }
+function renderDocs0() {
   const help = S.settings.mode === 'help', upd = S.settings.mode === 'update';
   const prod = !!S.productId;
   const list = help ? S.docs : runDocList(), ready = list.filter((d) => d.status === 'ready'), total = ready.reduce((a, d) => a + d.chars, 0);
@@ -255,14 +256,19 @@ function docConflicts(d) {
   return out;
 }
 // старые разделы хранят расхождения только в самом разделе — подгружаем их один раз
+// Каждый раздел читается не больше одного раза: записи может не быть (удалили в другом окне, раздел переехал
+// в папку источника) — тогда раздел в кэш не попадает, и без этой отметки чтение и перерисовка шли бы по кругу.
 let kbCfLoading = false;
+const kbCfTried = new Set();
 function kbEnsureConflicts() {
   if (kbCfLoading || !S.kb.loaded || !S.caps.db) return;
-  const need = S.kb.index.blocks.filter((b) => b.conf && !arrOf(b.cf).length && !S.kb.cache[b.id]);
+  const pid = S.kb.pid, key = (b) => pid + '/' + b.id;
+  const need = S.kb.index.blocks.filter((b) => b.conf && !arrOf(b.cf).length && !S.kb.cache[b.id] && !S.kb.missing?.[b.id] && !kbCfTried.has(key(b)));
   if (!need.length) return;
   kbCfLoading = true;
-  (async () => { for (const b of need) { try { await kbBlock(b.id); } catch { /* без расхождений этого раздела */ } } })()
-    .finally(() => { kbCfLoading = false; renderDocs(); });
+  for (const b of need) kbCfTried.add(key(b));
+  (async () => { let got = 0; for (const b of need) { try { if (await kbBlock(b.id)) got++; } catch { /* без расхождений этого раздела */ } } return got; })()
+    .then((got) => { kbCfLoading = false; if (got && S.kb.pid === pid) renderDocs(); }, () => { kbCfLoading = false; });
 }
 function openDocConflicts(d) {
   const secs = docConflicts(d), n = secs.reduce((a, x) => a + x.items.length, 0);
@@ -452,8 +458,10 @@ function renderCfgTabs() {
 }
 function openSettings(tab) {
   if (tab) S.setTab = tab;
-  renderCfg();
+  diag('настройки: открыть ' + S.setTab, true);
+  diagT('renderCfg', renderCfg);
   openDialog('set-ov');
+  diag('настройки: открыты', true);
 }
 function renderRules() {
   const ta = $('#cfg-rules');
@@ -633,7 +641,8 @@ function renderTabs() {
   const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
-function renderTab() {
+function renderTab() { return diagT('renderTab', () => renderTab0()); }
+function renderTab0() {
   const body = $('#tab-body');
   if (S.settings.mode === 'help') return renderHelp();
   if (S.settings.mode === 'trace') { body.innerHTML = traceTab(); return; }
@@ -643,7 +652,7 @@ function renderTab() {
   if (S.tab === 'cases') { if (prodScope()) renderProdCases(); else { renderCaseList(); renderTmsBar(); } }
   S.pendingCasesRender = false;
 }
-function renderAll() { renderStatus(); renderProduct(); renderDocs(); renderRunControls(); renderTabs(); renderTab(); }
+function renderAll() { diagT('renderAll', () => { renderStatus(); renderProduct(); renderDocs(); renderRunControls(); renderTabs(); renderTab(); }); }
 let rafPending = false;
 function scheduleRender() {
   if (rafPending) return;
@@ -1265,7 +1274,8 @@ function helpItemHTML(it) {
       ${it.sources?.length ? `<div class="hq-src"><span class="muted small">Источники:</span>${it.sources.map((x) => (x.kbId ? `<button type="button" class="chip chip-link" data-act="kb-open" data-id="${esc(x.kbId)}" title="Открыть раздел">${esc(x.label)}</button>` : `<span class="chip" title="${esc(x.preview || '')}">${esc(x.label)}</span>`)).join('')}</div>` : ''}
       <div class="hq-foot">${canOpen ? (it.openAdded ? '<span class="chip ok">в открытых вопросах</span>' : `<button class="btn sm" type="button" data-act="help-open-add" data-id="${esc(it.id)}">В открытые вопросы</button>`) : ''}${meta ? `<span class="muted small">${esc(meta)}</span>` : ''}</div></div></div>`;
 }
-function renderHelp(force) {
+function renderHelp(force) { return diagT('renderHelp', () => renderHelp0(force)); }
+function renderHelp0(force) {
   if (S.settings.mode !== 'help') return;
   const body = $('#tab-body'), H = S.help;
   if (!$('#help-view')) {
@@ -1317,7 +1327,8 @@ function kbRelatedCases(blk) {
   const q = [...new Set(helpTokens(`${blk.title} ${blk.title} ${blk.summary || ''}`))];
   return S.prodIndex.cases.map((x) => ({ x, s: helpScore(q, x.n) })).filter((o) => o.s >= Math.min(2, q.length)).sort((a, b) => b.s - a.s).slice(0, 12).map((o) => o.x);
 }
-function renderKbPane(force) {
+function renderKbPane(force) { return diagT('renderKbPane', () => renderKbPane0(force)); }
+function renderKbPane0(force) {
   $('#kb-auto').checked = S.settings.kbAuto;
   const J = S.kb.job, pend = S.kb.loaded ? kbPending() : [];
   const v = S.settings.genAI, staleL = S.kb.loaded ? kbStale() : [], staleN = staleL.length;
@@ -2369,6 +2380,8 @@ function onAISelect(e) {
   if (S.tab === 'review' || S.tab === 'agent') renderTab();
 }
 function bind() {
+  // клики — в «чёрный ящик»: видно, после какого действия страница зависла
+  document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-act],[data-ctx-act],[data-settab],button,[id]'); if (b) diag('клик ' + (b.dataset?.act || b.dataset?.ctxAct || b.dataset?.settab || b.id || b.textContent || '').toString().trim().slice(0, 40)); }, true);
   bindEtalon(); // окно сравнения с эталоном
   // documents
   const drop = $('#drop'), fi = $('#file-input'), dp = $('#docs-panel');
@@ -2740,7 +2753,7 @@ function initCaps() {
   });
   Promise.allSettled([pSample, pUser, pDb, pDl, pMcp]).then(() => {
     S.caps.ready = true; renderAll(); renderAIHint(); renderCfgFoot();
-    if (S.caps.db && S.caps.uid) initProducts(); else { S.sessionReady = true; S.prodReady = true; renderAll(); }
+    if (S.caps.db && S.caps.uid) { initProducts(); diagUpload(); } else { S.sessionReady = true; S.prodReady = true; renderAll(); }
     if (relayOn()) sferaPing().then(() => { if (S.tab === 'cases') renderTmsBar(); }); // вкладка с загрузчиком начинает принимать задания
     if (S.caps.db && S.caps.uid && inClaude) { workerPeer(); setTimeout(workerStart, 1500); }
   });
