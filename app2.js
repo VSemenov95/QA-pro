@@ -3125,8 +3125,13 @@ function hostErr(e) {
   }
 }
 async function hostCall(tool, input, opts = {}) {
-  const r = await S.caps.mcp.callTool(hostName, tool, input, { cache: false, ...opts });
+  const t0 = Date.now();
+  diag(`мост → ${tool} ${input?.op || ''} ${(JSON.stringify(input) || '').length} зн.`, true);
+  let r;
+  try { r = await S.caps.mcp.callTool(hostName, tool, input, { cache: false, ...opts }); }
+  catch (e) { diag(`мост ✗ ${tool} ${e?.code || ''} ${Date.now() - t0} мс`, true); throw e; }
   const p = r?.payload;
+  diag(`мост ← ${tool} ${typeof p === 'string' ? p.length : (JSON.stringify(p) || '').length} зн. ${Date.now() - t0} мс`, true);
   if (typeof p === 'string') { const t = tryParse(p); return t.ok ? t.value : p; }
   return p;
 }
@@ -3532,6 +3537,7 @@ async function workerTakeRun() {
 // Документы, добавленные в окне, которое закрыли до конца разбора в базу знаний.
 async function workerKb() {
   if (!S.settings.kbAuto || !aiReady(S.settings.genAI)) return false;
+  diag('фон: проверка базы знаний');
   const ses = await readSession();
   const pid = ses?.productId || S.productId;
   if (!pid || !S.products.some((p) => p.id === pid)) return false;
@@ -4553,6 +4559,7 @@ async function kbIdxWriteDb(pid, blocks, docs, old) {
 }
 async function loadKb(pid = S.productId) {
   if (!pid || !S.caps.db) return;
+  diag('база знаний: загрузка');
   if (S.kb.pid !== pid) S.kb = { ...S.kb, pid, index: { blocks: [], docs: {} }, loaded: false, cache: {}, open: null, q: '', queue: [], synthQ: [], edit: null };
   try {
     const d = await kbIdxRead(pid);

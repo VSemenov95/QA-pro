@@ -27,6 +27,7 @@ const CTX_KINDS = {
 const CTX_BRIDGE = new Set(['local', 'git']);
 const CTX_TEXT_RX = /\.(md|markdown|txt|json|ya?ml)$/i;
 const CTX_TOOLS = ['context_read', 'context_write', 'context_git'];
+const CTX_READ_BYTES = 300000, CTX_READ_FILES = 60; // порция чтения папки через мост
 const CTX_CACHE_PART = 60000;   // запись хранилища — до 256 КБ: части по 60 тыс. знаков (даже по 4 байта на знак — меньше предела)
 const ctxBlank = () => ({ kind: 'qa', root: '', url: '', cloned: '', repo: '', branch: '', baseBranch: '', sub: '', slug: '' });
 S.ctx = { pid: null, src: ctxBlank(), draft: null, on: false, busy: '', error: '', files: new Map(), git: null, channel: '', loadedAt: 0, fromCache: false, conflicts: [], pending: new Set(), backup: null, kb: [], kbAt: 0, note: '', confirm: null, lastPush: null, warn: [] };
@@ -339,11 +340,15 @@ async function ctxSaveSrc() {
 async function ctxCacheWrite() {
   const C = S.ctx;
   if (!ctxDbOk() || !C.pid) return;
-  const body = JSON.stringify([...C.files].map(([p, f]) => [p, f.text, f.hash || null]));
+  diag('контекст: копия в хранилище');
+  const body = JSON.stringify([...C.files].map(([p, f]) => [p, f.text, f.hash || null, f.mtime || 0, f.size || 0]));
+  const sig = hash(body);
+  if (C.cacheSig === sig) return; // копия не изменилась — не перезаписываем ~2 МБ в хранилище
   const n = Math.ceil(body.length / CTX_CACHE_PART) || 1;
   try {
     for (let i = 0; i < n; i++) await S.caps.db.doc(ctxDocPath(C.pid, '_c' + i)).set({ s: body.slice(i * CTX_CACHE_PART, (i + 1) * CTX_CACHE_PART) });
     await S.caps.db.doc(ctxDocPath(C.pid, '_cache')).set({ n, at: C.loadedAt, where: ctxWhere(), git: C.git || null });
+    C.cacheSig = sig;
   } catch { /* копия не сохранилась — при следующем открытии файлы прочитаются заново */ }
 }
 async function ctxCacheRead(pid) {
@@ -354,7 +359,8 @@ async function ctxCacheRead(pid) {
     let body = '';
     for (let i = 0; i < m.n; i++) body += ((await S.caps.db.doc(ctxDocPath(pid, '_c' + i)).get()).data() || {}).s || '';
     const arr = JSON.parse(body);
-    return { at: m.at || 0, git: m.git || null, files: new Map(arr.map(([p, text, h]) => [p, { text, hash: h }])) };
+    S.ctx.cacheSig = hash(body);
+    return { at: m.at || 0, git: m.git || null, files: new Map(arr.map(([p, text, h, mtime, size]) => [p, { text, hash: h, mtime: mtime || 0, size: size || 0 }])) };
   } catch { return null; }
 }
 
@@ -383,15 +389,26 @@ async function ctxReadSource() {
   const root = ctxRootOf(src);
   const l = await ctxCall('context_read', { op: 'list', root, ...(ctxSub() ? { sub: ctxSub() } : {}) });
   const want = (l.files || []).map((f) => ({ ...f, rel: ctxRel(f.path) })).filter((f) => f.rel && ctxWanted(f.rel));
-  let queue = want.map((f) => f.path);
-  for (let guard = 0; queue.length && guard < 50; guard++) {
-    const r = await ctxCall('context_read', { op: 'read', root, paths: queue.slice(0, 200) });
+  /* Читаем только изменившиеся файлы: у файла из прежней копии тот же размер и время изменения — берём из копии.
+     И небольшими порциями: в приложении Claude весь ответ моста идёт через приложение, а папка — это мегабайты. */
+  const prev = C.files, sizeOf = new Map(want.map((f) => [f.path, f.size || 0]));
+  let queue = [];
+  for (const f of want) {
+    const old = prev.get(f.rel);
+    if (old && !old.dirty && !C.pending.has(f.rel) && old.mtime && old.mtime === f.mtime && old.size === f.size && old.text != null) files.set(f.rel, { text: old.text, hash: old.hash, mtime: old.mtime, size: old.size });
+    else queue.push(f.path);
+  }
+  C.readN = queue.length;
+  for (let guard = 0; queue.length && guard < 400; guard++) {
+    let take = 0, bytes = 0;
+    while (take < queue.length && take < CTX_READ_FILES && (take === 0 || bytes + (sizeOf.get(queue[take]) || 0) <= CTX_READ_BYTES)) bytes += sizeOf.get(queue[take++]) || 0;
+    const r = await ctxCall('context_read', { op: 'read', root, paths: queue.slice(0, take) });
     const later = [];
     for (const f of r.files || []) {
       if (f.later) later.push(f.path);
-      else if (f.text != null) files.set(ctxRel(f.path), { text: f.text, hash: f.hash });
+      else if (f.text != null) files.set(ctxRel(f.path), { text: f.text, hash: f.hash, mtime: f.mtime || 0, size: sizeOf.get(f.path) || 0 });
     }
-    queue = [...later, ...queue.slice(200)];
+    queue = [...later, ...queue.slice(take)];
   }
   C.git = l.git || null;
   return files;
@@ -399,7 +416,12 @@ async function ctxReadSource() {
 function ctxApplyFiles(files, { at = Date.now(), fromCache = false } = {}) {
   const C = S.ctx;
   // несохранённые изменения (GitHub, папка только для чтения) остаются поверх прочитанного
-  for (const p of C.pending) { const cur = C.files.get(p); if (cur && files.get(p)?.text !== cur.text) files.set(p, { ...cur, hash: files.get(p)?.hash ?? cur.hash, dirty: true }); }
+  for (const p of [...C.pending]) {
+    const cur = C.files.get(p), got = files.get(p);
+    // обрезанный паспорт в очереди (QA pro хранит до PASSPORT_MAX знаков) не затирает полный из источника
+    if (p === CP.passport(C) && cur && got && ctxPassportCut(cur.text || '', got.text)) { C.pending.delete(p); ctxPassportNote(); continue; }
+    if (cur && got?.text !== cur.text) files.set(p, { ...cur, hash: got?.hash ?? cur.hash, dirty: true, srcText: got ? got.text : cur.srcText });
+  }
   C.files = files; C.loadedAt = at; C.fromCache = fromCache;
   ctxApply();
 }
@@ -408,6 +430,7 @@ function ctxApplyFiles(files, { at = Date.now(), fromCache = false } = {}) {
 function ctxApply() {
   const C = S.ctx;
   if (!C.on) return;
+  diag(`контекст: применить ${C.files.size} файлов`, true);
   if (!C.backup) C.backup = { cfg: JSON.parse(JSON.stringify(S.cfg)), dirty: { ...S.cfgDirty }, lessons: S.lessons.slice() };
   C.warn = [];
   for (const k of CFG_KEYS) {
@@ -472,8 +495,9 @@ function ctxPut(rel, text, { now = false, del = false } = {}) {
   const C = S.ctx;
   const cur = C.files.get(rel);
   if (!del && cur && cur.text === text) return;
-  if (!del) C.files.set(rel, { text, hash: cur?.hash ?? null, dirty: true });
+  if (!del) C.files.set(rel, { text, hash: cur?.hash ?? null, dirty: true, srcText: cur?.dirty ? cur.srcText : cur?.text, mtime: cur?.mtime || 0, size: cur?.size || 0 });
   C.pending.add(rel);
+  (C.session || (C.session = new Set())).add(rel);
   if (CTX_BRIDGE.has(C.src.kind) && (now || !ctxDefer())) { clearTimeout(ctxFlushT); ctxFlushT = setTimeout(() => ctxFlush().catch(() => {}), 300); }
   else {
     ctxSaveSrc();
@@ -490,6 +514,7 @@ function ctxPut(rel, text, { now = false, del = false } = {}) {
    и GitHub ещё и фиксируются и отправляются — в ветку qa-pro/<дата>, прямо в main/master QA pro не отправляет. */
 const CTX_AUTO_DELAY = () => (typeof window.__ctxAutoDelay === 'number' ? window.__ctxAutoDelay : 4000);
 const CTX_AUTO_RETRY = 60000;
+const CTX_AUTO_MAX = 200000; // в приложении Claude автоматически — пачки до ~200 тыс. знаков
 let ctxAutoT = null;
 const ctxAutoOn = () => S.ctx.src.auto !== false && ctxWritable();
 const ctxAutoSends = () => S.ctx.src.kind === 'github' || (S.ctx.src.kind === 'git' && !!S.ctx.git?.repo && !!S.ctx.git?.remote);
@@ -504,16 +529,26 @@ async function ctxAutoRun() {
   if (!C.on || !ctxAutoOn() || C.autoPaused || C.conflicts.length || C.confirm) return;
   if (!C.pending.size && !(C.unsent && ctxAutoSends())) return;
   if (C.busy || S.running || S.kb.job.busy) return ctxAutoSchedule(Math.max(1000, CTX_AUTO_DELAY())); // агент ещё пишет — дождёмся конца
+  // в приложении Claude каждая запись — окно подтверждения и весь текст через приложение: сами отправляем только
+  // правки этого сеанса и только небольшие; очередь с прошлого раза и большие пачки — по кнопке «Записать в источник»
+  let only = null;
+  if (ctxDefer()) {
+    only = [...C.pending].filter((p) => C.session?.has(p));
+    const bytes = only.reduce((a, p) => a + (ctxText(p) || '').length, 0);
+    C.autoHeld = only.length < C.pending.size || bytes > CTX_AUTO_MAX;
+    if (bytes > CTX_AUTO_MAX) only = [];
+    if (!only.length) { renderCtxPane(); return; }
+  }
   try {
     if (ctxAutoSends()) { if (!(await ctxSend({ auto: true }))) throw Object.assign(new Error(C.error), { code: C.errorCode || '' }); }
     else {
       C.busy = 'write'; renderCtxPane();
-      try { await ctxFlush({ quiet: C.autoFails > 0 }); } finally { C.busy = ''; }
+      try { await ctxFlush({ quiet: C.autoFails > 0, ...(only ? { only } : {}) }); } finally { C.busy = ''; }
     }
     if (C.pid !== pid) return;
     C.autoFails = 0; C.lastAuto = Date.now();
     ctxSaveSrc(); renderCtxPane();
-    if (C.pending.size && !C.conflicts.length) ctxAutoSchedule(); // за время записи добавились новые правки
+    if (!C.autoHeld && C.pending.size && !C.conflicts.length) ctxAutoSchedule(); // за время записи добавились новые правки
   } catch (e) {
     if (C.pid !== pid) return;
     C.autoFails = (C.autoFails || 0) + 1;
@@ -546,8 +581,13 @@ async function ctxFlushNow() {
 async function ctxFlush({ force = false, only = null, quiet = false } = {}) {
   const C = S.ctx;
   if (!CTX_BRIDGE.has(C.src.kind) || !C.pending.size) return { written: 0 };
+  const pass = CP.passport(C), pf = C.files.get(pass);
+  if (C.pending.has(pass) && pf?.dirty && ctxPassportCut(pf.text || '', pf.srcText)) {
+    C.pending.delete(pass); C.files.set(pass, { text: pf.srcText, hash: pf.hash, mtime: pf.mtime, size: pf.size }); // вернуть полный паспорт из источника
+    ctxPassportNote(); ctxRehydrate();
+  }
   const paths = [...C.pending].filter((p) => !only || only.includes(p));
-  if (!paths.length) return { written: 0 };
+  if (!paths.length) { ctxSaveSrc(); renderCtxPane(); return { written: 0 }; }
   const files = paths.map(ctxWriteItem);
   try {
     const r = await ctxCall('context_write', { root: ctxRootOf(), files, ...(force ? { force: true } : {}) });
@@ -612,7 +652,22 @@ function ctxAddLesson(l) {
 }
 function ctxDeleteLesson(id) { S.lessons = S.lessons.filter((x) => x.id !== id); ctxSaveLessons(); renderCfg(); }
 function ctxSaveQaCtx() { if (S.ctx.src.kind !== 'folder') ctxPut(CP.context(S.ctx), ctxMakeQaCtx(S.qaCtx)); S.ctxDirty = false; }
-function ctxAfterPassport(pid, text) { if (ctxActive(pid) && S.ctx.src.kind !== 'folder') { ctxPut(CP.passport(S.ctx), String(text || '').trim() + '\n'); ctxRehydrate(); } }
+function ctxAfterPassport(pid, text) {
+  if (!ctxActive(pid) || S.ctx.src.kind === 'folder') return;
+  const rel = CP.passport(S.ctx), cur = S.ctx.files.get(rel), src = cur?.dirty ? cur.srcText : cur?.text;
+  const next = String(text || '').trim() + '\n';
+  if (ctxPassportCut(next, src)) { ctxPassportNote(); return; }
+  ctxPut(rel, next); ctxRehydrate();
+}
+/* QA pro хранит паспорт до PASSPORT_MAX знаков; паспорт в источнике бывает длиннее (его правят руками).
+   Короткая версия не должна затирать длинную: в источник паспорт тогда не пишем. */
+const ctxPassportCut = (next, src) => src != null && src.length > PASSPORT_MAX && next.length < src.length;
+let ctxPassNoted = false;
+function ctxPassportNote() {
+  if (ctxPassNoted) return;
+  ctxPassNoted = true;
+  toast(`Паспорт в источнике длиннее ${PASSPORT_MAX.toLocaleString('ru-RU')} знаков — QA pro не перезаписывает его своей короткой версией. Правьте паспорт в файле.`, 'err');
+}
 function ctxTeamCfg(k, value) { // подписка на настройки команды, пока действует источник: только в резервную копию
   const b = S.ctx.backup;
   if (!b || b.dirty[k]) return;
@@ -629,7 +684,7 @@ async function ctxSwitch(pid) {
   if (tok !== ctxTok || S.productId !== pid) return;
   const C = S.ctx;
   C.pid = pid; C.src = { ...ctxBlank(), ...(saved?.src || {}) }; C.lastPush = saved?.lastPush || null; C.draft = null; C.error = ''; C.confirm = null;
-  C.pending = new Set(); C.conflicts = []; C.autoPaused = false; C.autoFails = 0; C.unsent = false;
+  C.pending = new Set(); C.conflicts = []; C.autoPaused = false; C.autoFails = 0; C.unsent = false; C.session = new Set(); C.autoHeld = false;
   clearTimeout(ctxAutoT); ctxAutoT = null;
   if (C.src.kind === 'qa') { renderCtxPane(); return; }
   C.on = true;
@@ -894,7 +949,7 @@ function ctxPaneHTML() {
   const confirm = cf?.kind === 'export' ? `<div class="banner warn"><div><b>Выгрузить в источник ${cf.plan.size} ${plural(cf.plan.size, 'файл', 'файла', 'файлов')}?</b> Правила, шаблоны и память команды, паспорт, доп. контекст и разделы базы знаний продукта из QA pro${cf.over.length ? `. Будут перезаписаны: ${cf.over.slice(0, 8).map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${cf.over.length > 8 ? ` и ещё ${cf.over.length - 8}` : ''}` : ''}.
       <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="export-run">Выгрузить</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>`
     : cf?.kind === 'off' ? `<div class="banner warn"><div><b>Есть неотправленные изменения: ${C.pending.size}.</b> После отключения они пропадут.<div class="row" style="margin-top:8px"><button class="btn" type="button" data-ctx-act="off-force">Отключить без отправки</button><button class="btn" type="button" data-ctx-act="confirm-no">Отмена</button></div></div></div>` : '';
-  const bridgePend = C.pending.size && CTX_BRIDGE.has(C.src.kind) ? `<div class="banner ${C.error ? 'err' : 'info'}"><div>${C.error ? '<b>Не записано в источник.</b> ' : `<b>Ждут записи в источник: ${C.pending.size}.</b> `}${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${!C.error ? `<br><span class="hint">${ctxAutoOn() && !C.autoPaused ? 'Запишутся автоматически, когда агент закончит работу.' : ''}${ctxDefer() ? ' В приложении Claude правки записываются одним вызовом — приложение спросит подтверждение один раз.' : ''}</span>` : ''}
+  const bridgePend = C.pending.size && CTX_BRIDGE.has(C.src.kind) ? `<div class="banner ${C.error ? 'err' : 'info'}"><div>${C.error ? '<b>Не записано в источник.</b> ' : `<b>Ждут записи в источник: ${C.pending.size}.</b> `}${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${!C.error ? `<br><span class="hint">${ctxAutoOn() && !C.autoPaused ? (C.autoHeld && ctxDefer() ? 'Изменения с прошлого раза или большая пачка: в приложении Claude они записываются по кнопке.' : 'Запишутся автоматически, когда агент закончит работу.') : ''}${ctxDefer() ? ' В приложении Claude правки записываются одним вызовом — приложение спросит подтверждение один раз.' : ''}</span>` : ''}
       <div class="row" style="margin-top:8px"><button class="btn accent" type="button" data-ctx-act="flush" ${C.busy ? 'disabled' : ''}>${C.error ? 'Повторить запись' : 'Записать в источник'}</button></div></div></div>` : '';
   const pend = C.pending.size && !CTX_BRIDGE.has(C.src.kind) ? `<div class="hint">Изменения, ещё не ${C.src.kind === 'github' ? 'отправленные в GitHub' : 'записанные (папка только для чтения)'}: ${[...C.pending].map((x) => `<span class="mono">${esc(ctxFull(x))}</span>`).join(', ')}${C.src.kind === 'folder' ? ' · <button class="link" type="button" data-ctx-act="download">скачать файлы</button>' : ''}</div>` : '';
   const canSend = C.src.kind === 'github' ? C.pending.size > 0 : CTX_BRIDGE.has(C.src.kind) && !!C.git?.repo && !!C.git?.remote;
@@ -924,6 +979,7 @@ function ctxAutoHTML() {
   return `<label class="switch ctx-auto"><input type="checkbox" id="ctx-auto" ${ctxAutoOn() ? 'checked' : ''}><span class="sw"></span><span>Записывать изменения в источник автоматически ${esc(what)}${state}</span></label>`;
 }
 function renderCtxPane() {
+  diag('контекст: вкладка');
   const el = $('#ctx-body');
   renderCfgTabs();
   if (!el || $('#set-ctx')?.hidden) return;
