@@ -340,6 +340,7 @@ async function ctxSaveSrc() {
 async function ctxCacheWrite() {
   const C = S.ctx;
   if (!ctxDbOk() || !C.pid) return;
+  diag('контекст: копия в хранилище');
   const body = JSON.stringify([...C.files].map(([p, f]) => [p, f.text, f.hash || null, f.mtime || 0, f.size || 0]));
   const sig = hash(body);
   if (C.cacheSig === sig) return; // копия не изменилась — не перезаписываем ~2 МБ в хранилище
@@ -429,6 +430,7 @@ function ctxApplyFiles(files, { at = Date.now(), fromCache = false } = {}) {
 function ctxApply() {
   const C = S.ctx;
   if (!C.on) return;
+  diag(`контекст: применить ${C.files.size} файлов`, true);
   if (!C.backup) C.backup = { cfg: JSON.parse(JSON.stringify(S.cfg)), dirty: { ...S.cfgDirty }, lessons: S.lessons.slice() };
   C.warn = [];
   for (const k of CFG_KEYS) {
@@ -977,6 +979,7 @@ function ctxAutoHTML() {
   return `<label class="switch ctx-auto"><input type="checkbox" id="ctx-auto" ${ctxAutoOn() ? 'checked' : ''}><span class="sw"></span><span>Записывать изменения в источник автоматически ${esc(what)}${state}</span></label>`;
 }
 function renderCtxPane() {
+  diag('контекст: вкладка');
   const el = $('#ctx-body');
   renderCfgTabs();
   if (!el || $('#set-ctx')?.hidden) return;
