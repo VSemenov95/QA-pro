@@ -82,6 +82,26 @@ def test_target_one_gives_one_case(app):
     assert cases_count(app) == 1, plan_log(app)
 
 
+def test_missing_case_is_topped_up_to_the_target(app):
+    """Модель вернула меньше кейсов, чем проверок в плане: недостающий кейс дописывается до числа тестов."""
+    from tests.support.model import case_body
+    calls = []
+
+    def empty_then_full(call):
+        calls.append(call)
+        if len(calls) == 1:
+            return {'cases': []}
+        return {'cases': [{'planItem': p, 'requirementIds': [], 'suites': ['regression'], 'testCase': case_body('Кейс')} for p in re.findall(r'### ([A-Z]+-\d+)\.', call.prompt)]}
+
+    app.model.on('promptGenerate', empty_then_full)
+    app.page.fill('#target-n', '1')
+    app.page.dispatch_event('#target-n', 'change')
+    app.add_sample()
+    app.generate()
+    assert cases_count(app) == 1, cases_count(app)
+    assert any('дописываю пункты плана' in t for t in coverage_log(app)), coverage_log(app)
+
+
 @pytest.mark.parametrize('n', [1, 2, 3])
 def test_target_caps_cases_to_the_number(app, n):
     app.page.fill('#target-n', str(n))

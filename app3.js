@@ -650,6 +650,12 @@ function renderTabs() {
   const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
+// панель этапа: сколько раз звали модель и сколько токенов, что попало в запрос, последний промпт (только в текущем окне)
+function stepMetrics(r, id) {
+  const u = r.usage?.by?.[id], p = r.stepPrompt?.[id];
+  if (!u?.calls && !p) return '';
+  return `${u?.calls ? `<p class="st-m small muted">Вызовов ${u.calls} · токены: вход ${fmtN(u.in)}, выход ${fmtN(u.out)}${u.chars ? ` · промпт до ${fmtKChars(u.chars)}` : ''}</p>` : ''}${u?.sections?.length ? `<p class="st-m small">Использовано: ${u.sections.map((x) => esc(x)).join(', ')}</p>` : ''}${p ? `<details class="st-prompt"><summary class="small">Промпт последнего запроса</summary><pre class="inl-code">${esc(p)}</pre></details>` : ''}`;
+}
 function renderTab() { return diagT('renderTab', () => renderTab0()); }
 function renderTab0() {
   const body = $('#tab-body');
@@ -746,7 +752,7 @@ function agentTab() {
       const dur = st.t0 && st.status !== 'skipped' ? fmtDur((st.t1 || Date.now()) - st.t0) : '';
       const sl = { pending: 'ожидает', running: 'выполняется', done: '', error: 'с ошибками', stopped: 'остановлено', skipped: st.note || 'пропущено' }[st.status];
       const dot = st.status === 'done' ? '✓' : st.status === 'error' ? '!' : st.status === 'running' ? '' : String(i + 1);
-      return `<li class="st ${st.status}"><span class="dot">${dot}</span><div style="min-width:0"><div class="st-h"><h4>${stepTitle(s, r.mode)}</h4><span class="muted">${[sl, dur].filter(Boolean).join(' · ')}</span></div>${st.log.length ? `<ul class="log">${st.log.slice(-60).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : st.status === 'pending' ? `<p class="st-d">${stepDesc(s, r.mode)}</p>` : ''}</div></li>`;
+      return `<li class="st ${st.status}"><span class="dot">${dot}</span><div style="min-width:0"><div class="st-h"><h4>${stepTitle(s, r.mode)}</h4><span class="muted">${[sl, dur].filter(Boolean).join(' · ')}</span></div>${st.log.length ? `<ul class="log">${st.log.slice(-60).map((l) => `<li class="${l.kind}">${esc(l.text)}</li>`).join('')}</ul>` : st.status === 'pending' ? `<p class="st-d">${stepDesc(s, r.mode)}</p>` : ''}${stepMetrics(r, s.id)}</div></li>`;
     }).join('')}</ol>`;
   }
   if (r.usage?.calls) {
@@ -1063,7 +1069,11 @@ const CL_COMPONENT = { e2e: 'E2E', ui: 'FE', api: 'BE' };
 const CL_STATUS = [['', 'Не проставлен'], ['passed', 'Passed (пройдено)'], ['failed', 'Failed (ошибка)'], ['blocked', 'Blocked (заблокировано)'], ['skipped', 'Skipped (пропущено)']];
 const CL_COLS = ['№', 'Название', 'Приоритет', 'Компонент', 'Ожидаемый результат'];
 const checklistRows = (r) => checklistItems(r).filter((i) => i.check).map((i, k) => [String(k + 1), i.check, (PRIO_RU[normPrio(i.priority)] || 'Средний').toLowerCase(), CL_COMPONENT[i.type] || 'FE', i.expected || '']);
-const clFileName = (r, ext) => `checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.${ext}`;
+// имя выгрузки чек-листа: то, что задал пользователь (без запрещённых символов и расширения), иначе checklist_<дата>
+const clFileName = (r, ext) => {
+  const base = String(S.clFileName ?? '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').trim().replace(/\.(md|pdf|xlsx|docx|json)$/i, '').trim().slice(0, 120);
+  return `${base || `checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}`}.${ext}`;
+};
 function checklistMarkdown(r) {
   const cell = (x) => String(x).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
   return ['# Чек-лист', '', `| ${CL_COLS.join(' | ')} |`, `|${CL_COLS.map((c, k) => (k === 0 ? '---:' : '---')).join('|')}|`, ...checklistRows(r).map((row) => `| ${row.map(cell).join(' | ')} |`), ''].join('\n');
@@ -1161,7 +1171,7 @@ function checklistTab() {
       <div class="cl-acts">${S.clEdit === i.id ? '' : `<button class="icon-btn" type="button" data-act="cl-edit" data-id="${i.id}" aria-label="Изменить пункт ${i.id}" title="Изменить вручную">${ICON.pen}</button><button class="icon-btn" type="button" data-act="cl-refine" data-id="${i.id}" aria-label="Замечание к пункту ${i.id}" title="Замечание — доработать с ИИ">${ICON.chat}</button><button class="icon-btn" type="button" data-act="cl-del" data-id="${i.id}" aria-label="Удалить пункт ${i.id}" title="Удалить">${ICON.x}</button>`}</div></li>`;
   };
   return `<div class="toolbar">${chips}<span class="fsep" aria-hidden="true"></span>${schips}
-    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<button class="btn" type="button" data-act="cl-dl-pdf">Скачать .pdf</button><button class="btn" type="button" data-act="cl-dl-xlsx">Скачать .xlsx</button><button class="btn" type="button" data-act="cl-dl-docx">Скачать .docx</button><button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
+    <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" type="button" data-act="cl-newgroup">+ Группа</button>${S.caps.downloads ? '<input id="cl-file-name" type="text" class="mono" spellcheck="false" value="' + esc(S.clFileName ?? '') + '" placeholder="checklist_ГГГГ-ММ-ДД" title="Имя файла для выгрузки; расширение добавится само" style="max-width:200px"><button class="btn" type="button" data-act="cl-dl-pdf">Скачать .pdf</button><button class="btn" type="button" data-act="cl-dl-xlsx">Скачать .xlsx</button><button class="btn" type="button" data-act="cl-dl-docx">Скачать .docx</button><button class="btn" type="button" data-act="cl-dl-md">Скачать .md</button><button class="btn" type="button" data-act="cl-dl-json">Скачать .json</button>' : ''}<button class="btn" type="button" data-act="cl-copy">Копировать</button>${aiReady(r.settings.genAI || S.settings.genAI) && !S.running ? '<button class="btn" type="button" data-act="cl-regen">Составить заново</button>' : ''}</span></div>
     ${groups.length ? groups.map(({ g, gi, items: its }) => `<section class="cl-group"><h4>${S.clGroupEdit === gi ? `<span class="cl-edit" style="flex:1"><input type="text" id="clg-input" value="${esc(g.title)}" aria-label="Название группы"><button class="btn accent" type="button" data-act="cl-gsave" data-gi="${gi}">Сохранить</button><button class="btn" type="button" data-act="cl-gcancel">Отмена</button></span>`
       : `${esc(g.title)}<span>${its.length}</span><span class="cl-gacts"><button class="btn sm" type="button" data-act="cl-add" data-gi="${gi}">+ Пункт</button><button class="btn sm" type="button" data-act="cl-gedit" data-gi="${gi}">Переименовать</button><button class="btn sm danger" type="button" data-act="cl-gdel" data-gi="${gi}">Удалить</button></span>`}</h4>
       ${its.length ? `<ul class="cl-items">${its.map(itemHTML).join('')}</ul>` : '<p class="hint" style="padding:10px 12px">В группе нет пунктов.</p>'}</section>`).join('') : emptyHTML('Ничего не найдено', 'Измените фильтр.')}`;
@@ -1301,6 +1311,11 @@ function outputHead(o, which) {
   const size = o.kind === 'xlsx' ? o.rows.length + ' ' + plural(o.rows.length, 'строка', 'строки', 'строк') : fmtN(Math.ceil(new Blob([o.text]).size / 1024)) + ' КБ';
   return `<div class="sec-h"><h3 class="mono">${esc(o.filename)}.${esc(o.ext)}</h3><span class="muted small num">${size}</span>
     <span class="sp">${S.caps.downloads ? `<button class="btn accent" type="button" data-act="dl-out" data-w="${which}">Скачать</button>` : ''}<button class="btn" type="button" data-act="copy-out" data-w="${which}">Копировать</button></span></div>`;
+}
+// имя файла, которое задал пользователь: без запрещённых в именах символов, с расширением .json; пустое — стандартное
+function sferaFileName(raw) {
+  const base = String(raw ?? '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').trim().replace(/\.json$/i, '').trim().slice(0, 120);
+  return (base || 'qa-pro-sfera') + '.json';
 }
 async function downloadFile(filename, data) {
   if (!S.caps.downloads) return toast('Скачивание недоступно в этом окне — используйте «Копировать».', 'err');
@@ -2008,7 +2023,8 @@ function renderTmsBar() {
   el.innerHTML = `<div class="tms-row">
       ${S.tmsBusy ? `<button class="btn" type="button" data-act="tms-stop">${S.relay ? 'Отменить задание' : 'Остановить загрузку'}</button>` : `<button class="btn accent" type="button" data-act="tms-upload" ${pending.length ? '' : 'disabled'}>Загрузить в ${S.tms.kind === 'sfera' ? 'Сферу ФТ' : 'ТМС'}${pending.length ? ` (${pending.length})` : ''}</button>`}
       <button class="icon-btn gear" type="button" data-act="tms-settings" aria-label="Настройки загрузки в ТМС" title="Настройки ТМС">${ICON.gear}</button>
-      ${S.tms.kind === 'sfera' ? `<button class="btn" type="button" data-act="sfera-json" ${activeCases(S.run).length ? '' : 'disabled'} title="Все кейсы этого запуска (кроме устаревших), без учёта фильтров и уже загруженных. Для ручной загрузки: откройте файл в окне загрузчика">Скачать JSON для загрузчика (${activeCases(S.run).length})</button>` : ''}
+      ${S.tms.kind === 'sfera' ? `<label class="small muted" for="sfera-json-name">Имя файла</label><input id="sfera-json-name" type="text" class="mono" spellcheck="false" value="${esc(S.sferaJsonName ?? 'qa-pro-sfera.json')}" style="max-width:220px" title="Имя файла для сохранения; расширение .json добавится само">
+      <button class="btn" type="button" data-act="sfera-json" ${activeCases(S.run).length ? '' : 'disabled'} title="Все кейсы этого запуска (кроме устаревших), без учёта фильтров и уже загруженных. Для ручной загрузки: откройте файл в окне загрузчика">Скачать JSON для загрузчика (${activeCases(S.run).length})</button>` : ''}
       <span class="small muted">${esc(tmsSummary())}${done ? ` · уже загружено ${done}` : ''}</span>
       ${done && S.tms.kind !== 'sfera' ? `<label class="chk small"><input type="checkbox" id="tms-reup" ${S.tmsReup ? 'checked' : ''}> загрузить повторно</label>` : ''}
     </div>
@@ -2373,7 +2389,7 @@ function onTabClick(e) {
     case 'tms-upload': tmsUpload(tmsPending()); break;
     case 'tms-stop': S.tmsCtl?.abort(); break;
     case 'tms-settings': openTms(); break;
-    case 'sfera-json': { const list = activeCases(S.run); if (list.length) downloadFile('qa-pro-sfera.json', sferaExportJSON(list)); break; }
+    case 'sfera-json': { const list = activeCases(S.run); if (list.length) downloadFile(sferaFileName(S.sferaJsonName), sferaExportJSON(list)); break; }
     case 'sfera-zip': downloadUploaderZip(); break;
     case 'relay-copy': copyText(QA_PRO_URL); break;
     case 'bridge-mcpb': downloadBridge(); break;
@@ -2427,7 +2443,7 @@ function onTabClick(e) {
     case 'cl-dl-pdf': checklistPdf(r); break;
     case 'cl-dl-xlsx': checklistXlsx(r); break;
     case 'cl-dl-docx': downloadFile(clFileName(r, 'docx'), checklistDocx(r)); break;
-    case 'cl-dl-json': downloadFile(`checklist_${new Date(r.createdAt).toISOString().slice(0, 10)}.json`, JSON.stringify(checklistJSON(r), null, 2)); break;
+    case 'cl-dl-json': downloadFile(clFileName(r, 'json'), JSON.stringify(checklistJSON(r), null, 2)); break;
     // ревью
     case 'start-review': startReview(); break;
     case 'start-review-full': startReview(true); break;
@@ -2797,7 +2813,7 @@ function bind() {
   });
   body.addEventListener('toggle', (e) => { if (e.target.matches?.('.kb-parts')) S.kb.partsOpen = e.target.open ? S.kb.open : null; }, true);
   $('#prod-import-file').addEventListener('change', (e) => { const f = e.target.files?.[0]; if (f) importProduct(f); e.target.value = ''; });
-  body.addEventListener('change', (e) => { if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+  body.addEventListener('change', (e) => { if (e.target.id === 'kb-auto') { S.settings.kbAuto = e.target.checked; saveSettings(); return; } if (e.target.id === 'sfera-json-name') { S.sferaJsonName = e.target.value; return; } if (e.target.id === 'cl-file-name') { S.clFileName = e.target.value; return; } if (e.target.id === 'tms-reup') { S.tmsReup = e.target.checked; renderTmsBar(); } else if (e.target.dataset.kind === 'bool') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
   body.addEventListener('keydown', (e) => {
     if (e.target.id === 'sec-in') { if (e.key === 'Enter') { e.preventDefault(); body.querySelector('[data-act="sec-save"]')?.click(); } else if (e.key === 'Escape') { e.preventDefault(); S.secEdit = null; renderTab(); } }
     else if (e.target.classList?.contains('pc-row') && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.target.click(); }
@@ -2913,6 +2929,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
 initCaps();
 })();

@@ -5,44 +5,150 @@ idPrefix: API-
 ## Правила
 
 - Один тест-кейс проверяет один эндпоинт и одну ситуацию (позитивную или негативную).
-- В названии: метка [BE] (для проверки сообщений Kafka — [Kafka]), метод, путь и проверяемое условие.
-- Метод, путь, заголовки и тело запроса пиши в шагах (см. правило вызова API), отдельного блока запроса в кейсе нет.
-- Если нужен запрос в БД всегда пиши запрос целиком в блоке кода.
+- В названии: метод, путь и проверяемое условие.
+- Пиши запрос в БД целиком и оборачивай в блок кода также, как запрос или ответ от API
+- В request — метод, путь, заголовки и тело запроса с конкретными значениями.
 - В steps — действие и проверяемый результат: код ответа, ключевые поля тела, побочные эффекты (запись в БД, отправка письма).
 - Для негативных проверок указывай ожидаемый код ошибки и её код/текст из документации.
-- priority: P3_HIGH — основной сценарий и безопасность, P2_MEDIUM — валидации и ошибки, P1_LOW — редкие граничные случаи, P4_CRITICAL — потеря данных, безопасность, остановка сервиса. Других значений нет.
+- priority: P3_HIGH — основной пользовательский путь, P2_MEDIUM — валидации и сообщения, P1_LOW — косметика и редкие случаи, P4_CRITICAL — блокирует работу или безопасность. Других значений нет.
+
+### Эталон хорошего API-кейса
+- Предусловия: получить токен; выбрать конкретные значения справочников и подставить их в поля запроса. Плейсхолдеры вида «{{Значение справочника …}}» не оставлять.
+- Шаг: метод и путь (`{{baseURL}}/api/v1/...`), Bearer Token, тело запроса; ожидаемый результат — код ответа.
+- Адрес стенда в кейсе указывать полностью, например https://sfera.ppcps-stable.test.sfera-t1.ru/app/teams, а не только {{baseURL}}.
+- Проверка в два уровня: поля ответа API, затем значения в БД (запрос целиком в блоке кода) и сравнение API с БД.
+- Ожидаемый результат — только проверяемые значения, без целого JSON-ответа.
 
 ## Образец
 
 ```json
 {
-  "id": "API-001",
-  "title": "[BE] POST /api/v1/password-reset — запрос ссылки для зарегистрированного email",
-  "priority": "P3_HIGH",
-  "preconditions": [
-    "Пользователь user@example.ru зарегистрирован и активен"
-  ],
-  "steps": [
-    {
-      "step": 1,
-      "action": "Вызвать POST /api/v1/password-reset с телом:\n\n```json\n{\n  \"email\": \"user@example.ru\"\n}\n```",
-      "expected": "Код ответа 202 Accepted"
-    },
-    {
-      "step": 2,
-      "action": "Проверить тело ответа",
-      "expected": "Тело ответа: {\"status\": \"sent\"}"
-    },
-    {
-      "step": 3,
-      "action": "Проверить очередь писем",
-      "expected": "Письмо на user@example.ru поставлено в очередь"
-    }
-  ],
-  "expectedResult": "Запрос принят, письмо со ссылкой для сброса пароля отправлено",
-  "tags": [
-    "password-reset",
-    "positive"
-  ]
+	"ti_regressive": true,
+	"name": "Копия [BE][Стрим] Базовое создание",
+	"sectionId": 212573,
+	"description": "",
+	"type": "T1_TEST_CASE",
+	"priority": "P4_CRITICAL",
+	"automationStatus": "A2_NOT_AUTOMATED",
+	"preConditions": [
+		{
+			"action": "<p>В системе существует:</p>\n<p>Бизнес юнит BUT-1</p>\n<p>Департамент (DPT-1) связан с BUT-1 связью parentOf</p>",
+			"expectedResult": "",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить access_token (= Bearer Token):</strong></p>\n<p>1.Отправить POST-запрос https://sfera.ppcps-stable.test.sfera-t1.ru/app/ppau/api/auth/login</p>\n<p>в теле запроса указать:</p>\n<p><span style=\"color: #000000;\">{<br>    \"username\": \"&lt;login&gt;\",<br>    \"password\": \"&lt;password&gt;\"<br>}</span></p>\n<p><span style=\"color: #000000;\">где &lt;login&gt; и &lt;password&gt; - данные учетной записи пользователя, от имени которого будет выполнятся запрос</span></p>",
+			"expectedResult": "",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p>Выполнить GET https://sfera.ppcps-stable.test.sfera-t1.ru/app/teams/api/v1/entities?page=0&amp;size=100&amp;offset=0&amp;query=%28type%20%3D%20%27streamType%27%29%20and%20%28archivalSign%20%3D%20%27false%27%29&amp;domainContext=catalogs<br><br>И</p>\n<p></p>\n<p>Выбрать любой number из ответа, например, CATALOG-383 <br><br>И</p>\n<p></p>\n<p>Подставить выбранный номер CATALOG-383 в поле streamTypeCode</p>",
+			"expectedResult": "<p>200ОК<br>Ответ:</p>\n<pre data-id=\"e668adf8-fec9-47c6-8fcd-68327810dce4\" style=\"height: 47.968753814697266px\">{\n    \"content\": [\n        {\n            \"number\": \"CATALOG-381\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Центр экспертизы (равномерное распределение)\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": true,\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-355\",\n                \"CATALOG-360\",\n                \"CATALOG-353\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Центр экспертизы (равномерное распределение)\",\n            \"isHasTeam\": true,\n            \"evenEngagement\": true,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-2029\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"active\",\n            \"state\": \"Normal\",\n            \"priority\": \"average\",\n            \"name\": \"Бизнес-стрим-импорт\",\n            \"createDate\": \"2025-04-04T10:45:15Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-04-04T10:46:54Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"externalId\": \"aa899d0e-78fb-4560-b0b7-3a1bc5faa7a0\",\n            \"needControlEngagement\": false,\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Бизнес-стрим-импорт\",\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-382\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Управленческий стрим\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-359\",\n                \"CATALOG-360\",\n                \"CATALOG-367\",\n                \"CATALOG-353\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Управленческий стрим\",\n            \"isHasTeam\": true,\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-385\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Внешний\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-368\",\n                \"CATALOG-355\",\n                \"CATALOG-357\",\n                \"CATALOG-358\",\n                \"CATALOG-361\",\n                \"CATALOG-362\",\n                \"CATALOG-367\",\n                \"CATALOG-353\",\n                \"CATALOG-354\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Внешний\",\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-2028\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"active\",\n            \"state\": \"Normal\",\n            \"priority\": \"average\",\n            \"name\": \"Внешний-импорт\",\n            \"createDate\": \"2025-04-04T10:45:02Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-04-04T10:48:37Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"externalId\": \"722c6fbc-2f8a-4c1a-9a71-183a78488a2b\",\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-2030\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Внешний-импорт\",\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-386\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Центр экспертизы/сервиса\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": true,\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-355\",\n                \"CATALOG-360\",\n                \"CATALOG-367\",\n                \"CATALOG-353\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Центр экспертизы/сервиса\",\n            \"isHasTeam\": true,\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-384\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"ИТ-Стрим (БФКО)\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"needControlEngagement\": true,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-371\",\n                \"CATALOG-378\",\n                \"CATALOG-370\",\n                \"CATALOG-375\",\n                \"CATALOG-374\",\n                \"CATALOG-379\",\n                \"CATALOG-369\",\n                \"CATALOG-372\",\n                \"CATALOG-376\",\n                \"CATALOG-373\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"ИТ-Стрим (БФКО)\",\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-380\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Бизнес-стрим\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"externalId\": \"test1827\",\n            \"needControlEngagement\": false,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-368\",\n                \"CATALOG-362\",\n                \"CATALOG-353\"\n            ],\n            \"techStream\": true,\n            \"isDefaultStreamType\": false,\n            \"streamTypeName\": \"Бизнес-стрим\",\n            \"isHasTeam\": true,\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": false,\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-383\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"ИТ-стрим\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"expertCenter\": false,\n            \"needControlEngagement\": true,\n            \"streamTypeToTeamType\": [\n                \"CATALOG-370\",\n                \"CATALOG-368\",\n                \"CATALOG-355\",\n                \"CATALOG-369\",\n                \"CATALOG-357\",\n                \"CATALOG-358\",\n                \"CATALOG-361\",\n                \"CATALOG-362\",\n                \"CATALOG-363\",\n                \"CATALOG-367\",\n                \"CATALOG-353\",\n                \"CATALOG-354\"\n            ],\n            \"techStream\": false,\n            \"isDefaultStreamType\": true,\n            \"streamTypeName\": \"ИТ-стрим\",\n            \"isHasTeam\": true,\n            \"evenEngagement\": false,\n            \"appReportPeriod\": \"\",\n            \"planningSign\": true,\n            \"archivalSign\": false\n        }\n    ],\n    \"number\": 0,\n    \"totalElements\": 9,\n    \"totalPages\": 1,\n    \"size\": 100\n}</pre>\n<p></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p>Выполнить GET https://sfera.ppcps-stable.test.sfera-t1.ru/app/teams/api/v1/entities?page=0&amp;size=100&amp;offset=0&amp;query=%28type%20%3D%20%27activityArea%27%29%20and%20%28archivalSign%20%3D%20%27false%27%29&amp;domainContext=catalogs<br><br>И</p>\n<p></p>\n<p>Выбрать любой number из ответа, например, CATALOG-606 <br><br>И</p>\n<p></p>\n<p>Подставить выбранный номер CATALOG-606 в поле Activities</p>",
+			"expectedResult": "<p>200ОК<br>Ответ:</p>\n<pre data-id=\"e668adf8-fec9-47c6-8fcd-68327810dce4\" style=\"height: 1055.9549560546875px;\">{\n    \"content\": [\n        {\n            \"number\": \"CATALOG-604\",\n            \"area\": \"Catalogs\",\n            \"type\": \"activityArea\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Обеспечение бизнеса\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"activityAreaName\": \"Обеспечение бизнеса\",\n            \"isHasTeam\": true,\n            \"appReportPeriod\": \"\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-606\",\n            \"area\": \"Catalogs\",\n            \"type\": \"activityArea\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Внесите изменения\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"activityAreaName\": \"Внесите изменения\",\n            \"isHasTeam\": true,\n            \"appReportPeriod\": \"\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-605\",\n            \"area\": \"Catalogs\",\n            \"type\": \"activityArea\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Развитие бизнеса\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"activityAreaName\": \"Развитие бизнеса\",\n            \"isHasTeam\": true,\n            \"appReportPeriod\": \"\",\n            \"archivalSign\": false\n        }\n    ],\n    \"number\": 0,\n    \"totalElements\": 3,\n    \"totalPages\": 1,\n    \"size\": 100\n}</pre>\n<p></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p>Выполнить GET Выполнить GET <br>https://sfera.ppcps-stable.test.sfera-t1.ru/app/teams/api/v1/entities?page=0&amp;size=100&amp;offset=0&amp;query=%28type%20%3D%20%27streamArcType%27%29%20and%20%28archivalSign%20%3D%20%27false%27%29&amp;domainContext=catalogs<br><br>И</p>\n<p></p>\n<p>Выбрать любой number из ответа, например, CATALOG-1555 <br><br>И</p>\n<p></p>\n<p>Подставить выбранный номер CATALOG-1555 в поле streamArcType</p>",
+			"expectedResult": "<p>200ОК<br>Ответ:</p>\n<pre data-id=\"e668adf8-fec9-47c6-8fcd-68327810dce4\" style=\"height: 1055.9549560546875px;\">{\n    \"content\": [\n        {\n            \"number\": \"CATALOG-1555\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Канальные\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Канальные\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Канальные\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1556\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Омниканальные продукты\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Омниканальные продукты\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Омниканальные продукты\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1554\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Общебанковские сервисы\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Общебанковские сервисы\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Общебанковские сервисы\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1558\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Технологическая платформа\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Технологическая платформа\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Технологическая платформа\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1552\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Поддерживающие бизнес-операции (вкл. АБС)\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Поддерживающие бизнес-операции (вкл. АБС)\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Поддерживающие бизнес-операции (вкл. АБС)\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1557\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"Моделирование\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Моделирование\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Моделирование\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-2034\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"active\",\n            \"state\": \"Normal\",\n            \"priority\": \"average\",\n            \"name\": \"Поддерживающие бизнес-операции-импорт\",\n            \"createDate\": \"2025-04-04T10:49:07Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-04-04T10:49:07Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"Поддерживающие бизнес-операции (вкл. АБС)-импорт\",\n            \"externalId\": \"d9bee71e-644e-41c7-ba85-ac1b015e2fe5\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"Поддерживающие бизнес-операции-импорт\",\n            \"archivalSign\": false\n        },\n        {\n            \"number\": \"CATALOG-1553\",\n            \"area\": \"Catalogs\",\n            \"type\": \"streamArcType\",\n            \"status\": \"created\",\n            \"state\": \"Normal\",\n            \"priority\": \"default\",\n            \"name\": \"не применимо\",\n            \"description\": \"\",\n            \"createDate\": \"2025-01-08T17:13:28Z\",\n            \"createdBy\": \"system\",\n            \"updateDate\": \"2025-01-08T17:13:28Z\",\n            \"updatedBy\": \"system\",\n            \"rank\": \"0|qzzzzz:\",\n            \"code\": \"не применимо\",\n            \"appReportPeriod\": \"\",\n            \"streamArcTypeName\": \"не применимо\",\n            \"archivalSign\": false\n        }\n    ],\n    \"number\": 0,\n    \"totalElements\": 8,\n    \"totalPages\": 1,\n    \"size\": 100\n}</pre>\n<p></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		}
+	],
+	"steps": [
+		{
+			"action": "<p><strong>Отправить POST-запрос на создание сущности: </strong>{{baseURL}}/api/v1/entities</p>\n<p><br><strong>где:</strong><br>1.{{baseURL}} -адрес тестового стенда, например,</p>\n<p>st = https://sfera.ppcps-stable.test.sfera-t1.ru/app/teams</p>\n<p><br>С типом авторизации = Bearer Token<br><strong></strong></p>\n<p><strong></strong></p>\n<p><strong>В body указать:</strong></p>\n<p><br>{<br>    \"name\": \"Тестовый стрим\",<br>    \"area\": \"FuncStruct\",<br>    \"type\": \"stream\",</p>\n<p>    \"parent\":\"DPT-1\",<br>    \"description\": \"Тестовый Стрим\",<br>    \"streamTypeCode\": \"<span style=\"color: rgb(0, 114, 195);\">{{Значение справочника \"Вид стрима\"}}</span>\",<br>    \"Activities\": \"<span style=\"color: rgb(0, 114, 195);\">{{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}</span>\",<br>    \"streamArchTypeCode\": \"<span style=\"color: rgb(0, 114, 195);\">{{Значение справочника \"Тип по архитектуре\"}}</span>\",<br>    \"approvalDateCode\": \"2024-03-10\",<br>    \"startDate\": \"2024-03-10\",<br><span style=\"background-color: rgb(196, 234, 255);\">    \"streamPerimeter\": \"Тестовый периметр\",</span><br><span style=\"background-color: rgb(196, 234, 255);\">    \"restrictions\": \"Нет ограничений\"</span><br>}</p>",
+			"expectedResult": "<p><strong>API вернул код 201 Created</strong></p>\n<p><strong>Пример ответа:</strong></p>\n<p></p>\n<p>{<br>    \"number\": \"STR-1\",<br>    \"area\": \"FuncStruct\",</p>\n<p>     \"parentNumber\":\"DPT-1\",<br>    \"type\": \"stream\",<br>    \"status\": \"draft\",<br>    \"state\": \"Normal\",<br>    \"priority\": \"average\",<br>    \"name\": \"Тестовый стрим\",<br>    \"description\": \"Тестовый Стрим\",<br>    \"createDate\": \"2024-03-10T14:47:35Z\",<br>    \"createdBy\": \"system\",<br>    \"updateDate\": \"2024-03-10T14:47:35Z\",<br>    \"updatedBy\": \"system\",<br>    \"rank\": \"0|qzzznj:\",<br>    \"children\": [],<br>    \"relations\": [],<br><span style=\"color: rgb(0, 114, 195);\">    \"streamArchTypeCode\": \"{{Значение справочника \"Тип по архитектуре\"}}\",</span><br><span style=\"color: rgb(0, 114, 195);\">    \"Activities\": \"{{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}\",</span><br>    \"comments\": [],<br>    \"approvalDateCode\": \"2024-03-10\",<br>    \"label\": [],<br>    \"component\": [],<br><span style=\"color: rgb(0, 114, 195);\">    \"streamTypeCode\": \"{{Значение справочника \"Вид стрима\"}}\",</span><br>    \"startDate\": \"2024-03-10\",<br><span style=\"background-color: rgb(196, 234, 255);\">    \"streamPerimeter\": \"Тестовый периметр\",</span><br><span style=\"background-color: rgb(196, 234, 255);\">    \"restrictions\": \"Нет ограничений\",</span></p>\n<p><span style=\"color: rgb(0, 114, 195);\">    \"catalogs\":[</span><br><span style=\"color: rgb(0, 114, 195);\">        {</span><br><span style=\"color: rgb(0, 114, 195);\">            \"number\": \"{{Значение справочника \"Вид стрима\"}}\",</span></p>\n<p><span style=\"color: rgb(0, 114, 195);\">...</span><br><span style=\"color: rgb(0, 114, 195);\">        },</span><br><span style=\"color: rgb(0, 114, 195);\">       {</span><br><span style=\"color: rgb(0, 114, 195);\">            \"number\": \"{{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}\",</span><br><span style=\"color: rgb(0, 114, 195);\">...</span><br><span style=\"color: rgb(0, 114, 195);\">        },</span><br><span style=\"color: rgb(0, 114, 195);\">       {</span><br><span style=\"color: rgb(0, 114, 195);\">            \"number\": \"{{Значение справочника \"Тип по архитектуре\"}}\",</span><br><span style=\"color: rgb(0, 114, 195);\">...</span><br><span style=\"color: rgb(0, 114, 195);\">        }</span></p>\n<p><span style=\"color: rgb(0, 114, 195);\">]</span><br>}</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Проверить значения полей в ответе от API:</strong><br>1.name<br>2.area<br>3.type<br>4.status<br>5.description</p>\n<p>6.parentNumber</p>",
+			"expectedResult": "<p><strong>Значение полей в ответе:</strong></p>\n<p>1.name = \"Тестовый стрим\"</p>\n<p>2 area = \"FuncStruct\"</p>\n<p>3.type = \"stream\"</p>\n<p>4.status = draft</p>\n<p><span>5.description</span></p>\n<p><span>6.DPT-1</span></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить значение name по запросу:</strong></p>\n<p></p>\n<p>select name from entities</p>\n<p>where number = 'STR-1'</p>",
+			"expectedResult": "<p><strong>Вернулось значение:</strong></p>\n<p>Тестовый стрим</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить значение area по запросу:</strong></p>\n<p></p>\n<p>select code from areas where id =</p>\n<p>(select area_id from entities<br>where number = 'STR-1')</p>",
+			"expectedResult": "<p><strong>Вернулось значение:</strong></p>\n<p>FuncStruct</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить значение type по запросу:</strong></p>\n<p><strong></strong></p>\n<p>select code from entity_types where id =<br>(select type_id from entities<br>where number = 'STR-1')</p>",
+			"expectedResult": "<p><strong>Вернулось значение:</strong></p>\n<p>stream</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить значение status по запросу:</strong></p>\n<p><strong></strong></p>\n<p>select code from entity_statuses where id =<br>(select status_id from entities<br>where number = 'STR-1')</p>",
+			"expectedResult": "<p><strong>Вернулось значение:</strong></p>\n<p>draft</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Получить значение parent по запросу:</strong></p>\n<p><strong></strong></p>\n<p>select code from entity where id =<br>(select parent_id from entities<br>where number = 'STR-1')</p>",
+			"expectedResult": "<p><strong>Вернулось значение:</strong></p>\n<p>DPT-1</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Проверить значения кастомных полей в ответе от API:</strong></p>\n<p></p>\n<p>1.Activities<br>2.streamArchTypeCode<br>3.startDate<br>4.approvalDateCode</p>\n<p><span style=\"background-color: rgb(196, 234, 255);\">5.streamPerimeter</span><br><span style=\"background-color: rgb(196, 234, 255);\">6.restrictions</span></p>\n<p><span style=\"background-color: rgb(196, 234, 255);\">7.streamTypeCode</span></p>",
+			"expectedResult": "<p><strong>В ответе от API:</strong></p>\n<p></p>\n<p>1.\"Activities\": \"{{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}\"</p>\n<p>2.\"streamArchTypeCode\": \"{{Значение справочника \"Тип по архитектуре\"}}\"</p>\n<p>3.\"startDate\": \"2024-03-10\"</p>\n<p>4.\"approvalDateCode\": \"2024-03-10\"<br><span style=\"background-color: rgb(196, 234, 255);\">5.streamPerimeter = Тестовый периметр</span><br><span style=\"background-color: rgb(196, 234, 255);\">6.restrictions = Нет ограничений</span></p>\n<p><span style=\"background-color: rgb(196, 234, 255);\">7.streamTypeCode = {{Значение справочника \"Вид стрима\"}}</span></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Проверить значение кастомных полей в БД:</strong></p>\n<p><strong></strong></p>\n<p>1.Activities<br>2.streamArchTypeCode<br>3.startDate<br>4.approvalDateCode<br><span style=\"background-color: rgb(196, 234, 255);\">5.streamPerimeter</span><br><span style=\"background-color: rgb(196, 234, 255);\">6.restrictions</span></p>\n<p><span style=\"background-color: rgb(196, 234, 255);\">7.streamTypeCode</span></p>\n<p></p>\n<p><strong>выполнив запрос в БД:</strong></p>\n<p><strong></strong></p>\n<p>select properties -&gt; '{codeField}'<br>from teams.entities<br>where number ='STR-1'</p>\n<p></p>\n<p>где:</p>\n<p>1.{codeField} - код кастомного поля</p>",
+			"expectedResult": "<p><strong>Вернулись значение:</strong></p>\n<p><strong></strong></p>\n<p>1.\"{{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}\"</p>\n<p>2.\"{{Значение справочника \"Тип по архитектуре\"}}\"</p>\n<p>3.\"2024-03-10\"</p>\n<p>4.\"2024-03-10\"<br><span style=\"background-color: rgb(196, 234, 255);\">5.Тестовый периметр</span><br><span style=\"background-color: rgb(196, 234, 255);\">6.Нет ограничений</span></p>\n<p><span style=\"background-color: rgb(196, 234, 255);\">7.{{Значение справочника \"Вид стрима\"}}</span></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Сравнить значения кастомных полей в ответе от API со значениями в БД</strong></p>",
+			"expectedResult": "<p><strong>Значения совпадают</strong></p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p><strong>Проверить наличие массива catalogs в ответе от API</strong></p>",
+			"expectedResult": "<p>Массив catalogs присутствует в теле ответа</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		},
+		{
+			"action": "<p>Проверить наличие объектов в массиве catalogs в ответе от API с number = <br>- {{Значение справочника \"Тип по архитектуре\"}}<br>- {{Значение справочника \"Вид стрима\"}}<br>- {{Значение справочника \"Тип по принадлжености продукта к направлению деятельности\"}}</p>",
+			"expectedResult": "<p>Объекты присутствуют</p>",
+			"actionAttachments": [],
+			"resultAttachments": []
+		}
+	],
+	"postConditions": [
+		{
+			"action": "",
+			"expectedResult": ""
+		}
+	],
+	"referencedTestIssues": [],
+	"order": 0,
+	"links": [
+	],
+	"attachments": [],
+	"labels": [],
+	"externalId": "8872d0f7-0d29-4e6e-a347-c67159856d74",
+	"statusId": "0ce9b91e-5080-11f1-96c8-005056053b2e"
 }
 ```

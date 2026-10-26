@@ -69,9 +69,16 @@ def test_limit_takes_the_most_important_positive_checks_first(app):
     got = app.state('S.run.checklist.groups.flatMap((g) => g.items.map((i) => i.check))')
     assert sorted(got) == sorted(['Критичный позитив', 'Высокий позитив', 'Средний позитив'])
     prompt = app.model.calls_of('promptChecklist')[0].prompt
-    assert 'Не больше 3 пунктов' in prompt and 'позитивные' in prompt
+    assert 'Ровно 3 пункта в этом ответе' in prompt and 'позитивные' in prompt
     log = app.state('S.run.steps.checklist.log.map((l) => l.text).join("\\n")')
     assert 'ограничен числом проверок: 3 (было 6)' in log
+
+
+def test_strict_count_is_split_between_fragments_exactly(app):
+    """35 проверок при разбиении на фрагменты: квоты пропорциональны числу требований и в сумме дают 35."""
+    assert app.call('a.splitQuota(35, [40, 10])') == [28, 7]
+    assert app.call('a.splitQuota(35, [1, 1, 1])') == [12, 12, 11]
+    assert app.call('a.splitQuota(35, [])') == []
 
 
 def test_negative_checks_follow_positive_by_priority(app):

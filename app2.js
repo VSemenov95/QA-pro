@@ -340,7 +340,11 @@ const noReqDeep = (v, key = '') => (typeof v === 'string' ? noReqRefs(v, DESC_KE
 /* Тексты промптов лежат в prompts/<имя>.md; build.py подставляет их в PROMPTS.
    ⟦имя⟧ в тексте заменяется значением из vars (в порядке выражений исходного шаблона). */
 const PROMPTS = /*@prompts*/null;
+// правила, которые попали в последний собранный промпт: вставки *_RULE без заголовков, по ним видно, что агент применял
+const RULE_NAMES = { SCOPE_RULE: 'объём тестов', SUITES_RULE: 'наборы смоук/регресс', LIMIT_RULE: 'лимит количества', REQ_REF_RULE: 'ссылки на требования', TITLE_TAG_RULE: 'метки названий', KAFKA_RULE: 'правила Kafka', PRIORITY_RULE: 'приоритеты', API_CALL_RULE: 'вызов API', SERVICE_STEPS_RULE: 'шаги с сервисами', PRECONDITIONS_RULE: 'предусловия' };
+let lastRules = [];
 function renderPrompt(name, vars) {
+  lastRules = Object.keys(vars).filter((k) => /_RULE$/.test(k) && String(vars[k] || '').trim()).map((k) => RULE_NAMES[k] || k);
   return PROMPTS[name].replace(/⟦(\w+)⟧/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 }
 function promptAnalyze(chunk, i, total, types, ctx, run) {
@@ -417,16 +421,17 @@ function runCover(id, variant) {
   }, 'gen');
 }
 function reqCompact(r) { return `${r.id} [${r.types.join(', ')}] [${r.priority}] ${r.title}: ${r.description}${r.criteria.length ? ' Критерии: ' + r.criteria.join('; ') : ''}`; }
-function promptChecklist(run, reqs, types, depth) {
+function promptChecklist(run, reqs, types, depth, quota = 0) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
   const rules = rulesText();
   const ex = relevantExisting(run, 'checklist', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' '));
-  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": d.prompt, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length) });
+  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": d.prompt, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length, quota) });
 }
-/* лимит проверок: в чек-лист сначала самые приоритетные позитивные, затем негативные */
-function checklistLimitRule(run, hasExisting) {
+/* лимит проверок: в чек-лист сначала самые приоритетные позитивные, затем негативные; quota — сколько пунктов нужно в этом фрагменте */
+function checklistLimitRule(run, hasExisting, quota = 0) {
   const n = strictTarget(run) ? run.settings.target : 0;
   if (!n) return `Каждое требование должно попасть хотя бы в один пункт${hasExisting ? ', кроме уже полностью проверенных существующими пунктами продукта' : ''}.`;
+  if (quota) return `Ровно ${quota} ${plural(quota, 'пункт', 'пункта', 'пунктов')} в этом ответе — не меньше и не больше. Один пункт — одна проверка. Сначала самые приоритетные позитивные проверки основного сценария (P4_CRITICAL, затем P3_HIGH, P2_MEDIUM, P1_LOW), негативные — только после них. Если требований больше, чем пунктов, распределяй пункты так, чтобы каждое требование получило хотя бы один.`;
   return `Не больше ${n} ${plural(n, 'пункта', 'пунктов', 'пунктов')} во всём ответе — это строгий лимит. Сначала самые приоритетные позитивные проверки основного сценария (P4_CRITICAL, затем P3_HIGH, P2_MEDIUM, P1_LOW), негативные — только после них, пока не наберётся ${n}. Если пунктов не хватает на все требования, без проверок остаются наименее важные.`;
 }
 function promptPlan(run, reqs, types, depth) {
@@ -897,6 +902,19 @@ const CACHE_MARK = '\n\u2063<<VAR>>\u2063\n';   // граница: до неё �
 const JSON_TAIL = '\n\nОтвет — один компактный JSON без отступов и пояснений.';
 function estTok(s) { const t = String(s || ''); const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length; return Math.round(cyr / 2.6 + (t.length - cyr) / 3.8); }
 const STEP_RU = { gen_api: 'генерация API', gen_ui: 'генерация UI', gen_e2e: 'генерация E2E', cover: 'покрытие требования', trace: 'трассировка', defect: 'баг-репорт', kb: 'разделы базы знаний', help: 'база знаний', analyze: 'анализ', checklist: 'чек-лист', plan: 'план', generate: 'генерация', coverage: 'покрытие', map: 'сверка', actualize: 'актуализация', answers: 'ответы', review: 'ревью', fix: 'исправления', knowledge: 'знания', export: 'экспорт', refine: 'доработка', lesson: 'правила', other: 'прочее' };
+// что берёт агент в запрос этапа: по заголовкам промпта; размер — наибольший запрос этапа. Текст последнего запроса — только в памяти текущего окна
+const PROMPT_PARTS = [['Правила команды:', 'правила команды'], ['## Правила из замечаний команды', 'замечания команды'], ['## Шаблон', 'шаблон кейса'], ['## Знания о продукте', 'паспорт продукта'], ['## Дополнительный контекст от QA', 'контекст QA'], ['## Исходные документы', 'документы'], ['## Фрагменты исходных документов', 'фрагменты документов'], ['## База знаний продукта', 'база знаний'], ['## Уже есть в продукте', 'уже есть в продукте'], ['## Уточнения аналитика', 'ответы аналитика']];
+function notePrompt(step, full) {
+  const run = S.run;
+  if (!run || !step || step === 'help' || step === 'kb' || run.fromHistory === 'readonly' || run.fromHistory === 'follow') return;
+  const sections = [...PROMPT_PARTS.filter(([h]) => full.includes(h)).map(([, n]) => n), ...lastRules];
+  lastRules = [];   // правила относятся только к одному запросу
+  run.usage = run.usage || { in: 0, out: 0, cached: 0, calls: 0, by: {} };
+  const b = run.usage.by[step] || (run.usage.by[step] = { in: 0, out: 0, calls: 0 });
+  b.sections = [...new Set([...(b.sections || []), ...sections])];
+  b.chars = Math.max(b.chars || 0, full.length);
+  run.stepPrompt = { ...(run.stepPrompt || {}), [step]: full };
+}
 function meterAdd(step, inT, outT, cached = 0) {
   const run = S.run;
   const add = (u) => { u.in += inT; u.out += outT; u.cached += cached; u.calls++; const b = u.by[step] || (u.by[step] = { in: 0, out: 0, calls: 0 }); b.in += inT; b.out += outT; b.calls++; };
@@ -917,6 +935,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
   if (problem) throw { code: 'provider_unavailable', message: problem };
   const sig = signal || S.ctl?.signal;
   const full = prompt + JSON_TAIL;
+  notePrompt(step, full);
   if (t.kind === 'claude') {
     const flat = full.replace(CACHE_MARK, '\n');
     const opts = { signal: sig, modelTier: stageTier(stageOf(step, stage)) || tier || t.tier };
@@ -1464,7 +1483,10 @@ async function pipeline(run) {
       send(run, id, run.failed.some((f) => f.batch?.type === t) ? 'error' : 'done');
     }
     if (run.regenFrom?.length) await regenTopUp(run);
-    else if (!stepComplete(run, 'coverage') || pendingParts(run, 'G-')) await stepCoverage(run);
+    else {
+      if (strictTarget(run)) await strictTopUp(run);
+      if (!stepComplete(run, 'coverage') || pendingParts(run, 'G-')) await stepCoverage(run);
+    }
   } else { skipStep(run, 'plan'); for (const id of GEN_STEPS) skipStep(run, id); skipStep(run, 'coverage'); }
   if (run.productId && !stepComplete(run, 'knowledge') && (run.cases.length || checklistItems(run).length)) await stepKnowledge(run);
 }
@@ -1608,6 +1630,13 @@ function normChecklistItem(run, it, types) {
 /* порядок отбора при лимите: позитивные по убыванию приоритета, затем негативные */
 const PRIO_RANK = { P4_CRITICAL: 0, P3_HIGH: 1, P2_MEDIUM: 2, P1_LOW: 3 };
 const clRank = (i) => (i.kind === 'negative' ? 10 : 0) + (PRIO_RANK[normPrio(i.priority)] ?? 2);
+function splitQuota(n, sizes) {
+  const q = sizes.map((s) => Math.floor((n * s) / (sizes.reduce((a, x) => a + x, 0) || 1)));
+  if (!q.length) return q;
+  let rest = n - q.reduce((a, x) => a + x, 0);
+  for (let i = 0; rest > 0; i = (i + 1) % q.length, rest--) q[i]++;
+  return q;
+}
 function capChecklist(groups, n) {
   const all = groups.flatMap((g, gi) => g.items.map((it, k) => ({ it, gi, k })));
   if (all.length <= n) return { groups, total: all.length };
@@ -1629,11 +1658,13 @@ async function stepChecklist(run) {
   const chunks = [];
   for (let i = 0; i < reqs.length; i += 40) chunks.push(reqs.slice(i, i + 40));
   const results = [];
+  // строгое число проверок делится между фрагментами пропорционально числу требований в них
+  const quotas = strictTarget(run) ? splitQuota(run.settings.target, chunks.map((c) => c.length)) : [];
   await pool(chunks, CONCURRENCY, async (ch, i) => {
     const label = chunks.length > 1 ? `Чек-лист ${i + 1}/${chunks.length}` : 'Чек-лист';
     const line = slog(run, 'checklist', `${label}: модель думает…`);
     try {
-      const res = await ask(promptChecklist(run, ch, types, run.settings.depth), { step: 'checklist',
+      const res = await ask(promptChecklist(run, ch, types, run.settings.depth, quotas[i] || 0), { step: 'checklist',
         onProgress: (n) => { line.text = `${label}: пишет пункты — ${fmtKChars(n)}`; scheduleRender(); },
       });
       results[i] = res;
@@ -1660,6 +1691,7 @@ async function stepChecklist(run) {
   if (strictTarget(run)) {
     const got = new Set(items.flatMap((i) => i.requirementIds)), gaps = reqs.filter((r) => !got.has(r.id)).map((r) => r.id);
     if (gaps.length && items.length) slog(run, 'checklist', `Строгое число проверок (${run.settings.target}): без пунктов чек-листа остались требования ${gaps.join(', ')}`, 'warn');
+    if (items.length < run.settings.target) slog(run, 'checklist', `Модель вернула ${items.length} из ${run.settings.target} проверок — не добавляю пункты сверх ответа модели`, 'warn');
   }
   const smoke = items.filter((i) => i.suites.includes('smoke')).length;
   if (items.length) slog(run, 'checklist', `Итого ${items.length} ${plural(items.length, 'пункт', 'пункта', 'пунктов')} в ${run.checklist.groups.length} ${plural(run.checklist.groups.length, 'группе', 'группах', 'группах')}, смоук: ${smoke}`, 'ok');
@@ -1715,6 +1747,23 @@ function planFromRegen(run) {
   slog(run, 'plan', `Перегенерация того же набора: ${n} ${plural(n, 'кейс', 'кейса', 'кейсов')} — каждый переписывается по текущим правилам и шаблонам`, 'ok');
   for (const t of TYPES) { const k = run.plan.filter((p) => p.type === t).length; if (k) slog(run, 'plan', `${TL[t]}: ${k}`); }
   send(run, 'plan');
+}
+// строгое число тестов: проверки плана, по которым модель не вернула кейс (или пачка упала), дописываются — до числа проверок
+async function strictTopUp(run) {
+  const plan = run.plan.filter((p) => p.id.startsWith('P-'));
+  const want = Math.min(run.settings.target, plan.reduce((a, p) => a + p.checks.length, 0));
+  for (let k = 0; k < 2 && run.cases.length < want; k++) {
+    // пункты плана, по которым кейсов меньше, чем проверок в пункте (модель пропустила проверку или пачка упала)
+    const miss = plan.filter((p) => run.cases.filter((c) => c.planItem === p.id).length < p.checks.length);
+    if (!miss.length) break;
+    const ids = new Set(miss.map((p) => p.id));
+    slog(run, 'coverage', `Кейсов ${run.cases.length} из ${want}: дописываю пункты плана, где модель вернула меньше кейсов — ${miss.length}`, 'warn');
+    run.doneKeys = (run.doneKeys || []).filter((key) => !ids.has(key.split('#')[0]));
+    run.failed = run.failed.filter((f) => !f.batch?.items?.some((it) => ids.has(it.id)));
+    await generateItems(run, miss, 'coverage');
+  }
+  const n = run.cases.length;
+  if (n < want) slog(run, 'coverage', `Кейсов ${n} из ${want}: модель не вернула ${want - n} — нажмите «Продолжить с места остановки»`, 'warn');
 }
 // перегенерация: кейсы, которых модель не вернула, дописываются — число кейсов как было
 async function regenTopUp(run) {

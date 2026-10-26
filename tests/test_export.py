@@ -194,6 +194,19 @@ def test_sfera_json_button_counts_cases(done):
     assert done.text('[data-act=sfera-json]') == 'Скачать JSON для загрузчика (4)'
 
 
+def test_sfera_json_file_name_is_user_defined(done):
+    """Имя файла задаёт пользователь; расширение .json добавляется само, запрещённые символы убираются."""
+    done.tab('cases')
+    assert done.page.input_value('#sfera-json-name') == 'qa-pro-sfera.json'
+    done.page.fill('#sfera-json-name', 'мой набор')
+    done.page.dispatch_event('#sfera-json-name', 'change')
+    name, out = sfera_download(done)
+    assert name == 'мой набор.json' and out['format'] == 'qa-pro/sfera-v1'
+    done.page.fill('#sfera-json-name', 'x/y:z.json')
+    done.page.dispatch_event('#sfera-json-name', 'change')
+    assert sfera_download(done)[0] == 'xyz.json'
+
+
 @pytest.mark.parametrize('prio,expected', [('High', 'P3_HIGH'), ('Medium', 'P2_MEDIUM'), ('Low', 'P1_LOW'), ('Высокий', 'P3_HIGH'), ('Низкий', 'P1_LOW'), ('', 'P2_MEDIUM'), ('Blocker', 'P2_MEDIUM')])
 def test_sfera_priority(app, prio, expected):
     assert app.call("a.sferaCase({ uid: 'u', dispId: 'API-001', type: 'api', suites: [], requirementIds: [], testCase: { title: 'x', priority: arg, steps: [] } }).priority", prio) == expected
@@ -277,6 +290,16 @@ def test_standalone_checklist_download(alone):
     alone.tab('checklist')
     name, data = anchor_download(alone, '[data-act=cl-dl-md]')
     assert name == f'checklist_{created_day(alone)}.md' and data.decode('utf-8').startswith('# Чек-лист\n\n| № | Название | Приоритет | Компонент | Ожидаемый результат |')
+
+
+def test_checklist_download_uses_the_name_the_user_typed(alone):
+    alone.tab('checklist')
+    alone.page.fill('#cl-file-name', 'итоги.pdf')
+    alone.page.dispatch_event('#cl-file-name', 'change')
+    name, _ = anchor_download(alone, '[data-act=cl-dl-md]')
+    assert name == 'итоги.md'
+    name, _ = anchor_download(alone, '[data-act=cl-dl-json]')
+    assert name == 'итоги.json'
 
 
 def test_standalone_sfera_json_download(alone):

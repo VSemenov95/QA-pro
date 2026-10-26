@@ -216,6 +216,21 @@ def remove_doc(app, name):
     app.wait_idle()
 
 
+def test_removing_a_document_from_the_run_keeps_knowledge_sections(limits):
+    """«Убрать из запуска» оставляет документ в продукте и не трогает разделы: ни части, ни сводки, ни новые запросы к модели."""
+    shape = "S.kb.index.blocks.map((b) => [b.title, [...b.docIds].sort().join(','), b.conf, b.sh])"
+    product_docs = "S.products.find((p) => p.id === S.productId).docs.map((m) => m.name)"
+    before, calls, before_titles = limits.state(shape), limits.model.kb.synth_calls, titles(limits)
+    docs_before = limits.state(product_docs)
+    limits.mode('generate')
+    limits.page.click('#doc-list [data-doc-act=unrun]')   # в запуске — пример ТЗ, его части есть в обоих разделах
+    limits.wait_idle()
+    assert limits.state(product_docs) == docs_before
+    assert limits.state(shape) == before and limits.model.kb.synth_calls == calls
+    limits.mode('help')
+    assert titles(limits) == before_titles
+
+
 def test_deleting_a_document_removes_sections_made_only_from_it(limits, tmp_path):
     add_docs(limits, tmp_path, ('отчёты.md', '# Отчёты\n## Отчёты по операциям\n- Формат выгрузки: CSV\n'))
     assert 'Отчёты по операциям' in titles(limits)
