@@ -147,6 +147,21 @@ def test_review_finds_uncovered_requirement_without_model(generated):
     assert ['req', 'R-003', 'Покрытие', 'Требование R-003 «Сквозное восстановление» не покрыто тест-кейсами.', 'auto'] in f
 
 
+def test_review_skips_coverage_check_after_reduce(generated):
+    """После сокращения набор выбран осознанно: ревью не пишет «не покрыто», даже если требование осталось без кейсов."""
+    generated.model.on('promptReviewCases', {'findings': []}).on('promptReviewChecklist', {'findings': []})
+    generated.tab('cases')
+    generated.page.click('#case-list article:has(.case-id:text-is("E2E-001")) .case-h')
+    generated.page.click('#case-list article:has(.case-id:text-is("E2E-001")) [data-act=del-case]')
+    generated.page.click('#case-list article:has(.case-id:text-is("E2E-001")) [data-act=del-case]')
+    generated.page.evaluate('() => { window.__qa.S.run.reduced = true; }')
+    generated.tab('review')
+    generated.page.click('[data-act=start-review]')
+    generated.wait_idle()
+    f = generated.state("S.run.findings.map((f) => [f.kind, f.category])")
+    assert ['req', 'Покрытие'] not in f
+
+
 def test_review_warns_about_title_without_tag_after_manual_edit(generated):
     """Вручную правленые названия метка не поправляется, но ревью предупреждает."""
     generated.model.on('promptReviewCases', {'findings': []}).on('promptReviewChecklist', {'findings': []})

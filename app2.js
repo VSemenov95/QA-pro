@@ -2488,7 +2488,7 @@ async function saveRun(run) {
     docs: run.docs, settings: run.settings, requirements: reqs, questions: run.questions, checklist, findings: run.findings ? run.findings.slice(0, 300) : null,
     plan: run.plan.map((p) => ({ id: p.id, type: p.type, title: p.title, requirementIds: p.requirementIds, checks: p.checks })),
     counts, coverage: coveragePct(run), partsCount: parts.length, status: run.status, counters: run.counters, error: run.error || null,
-    stage: run.stage || 'added', addedAt: run.addedAt || null, auditDone: !!run.auditDone,
+    stage: run.stage || 'added', addedAt: run.addedAt || null, auditDone: !!run.auditDone, reduced: !!run.reduced,
     doneKeys: run.doneKeys || [], doneChecks: run.doneChecks || [], taskStart: run.taskStart || null, qaCtx: run.qaCtx || null, usage: run.usage || null,
     productId: run.productId || null, docIds: run.docIds || null, coveredExisting: run.coveredExisting || [], baseCounters: run.baseCounters || null, by: run.by || '', failedInfo: run.failed.length ? failedInfo(run).slice(0, 40).map((f) => ({ ...f, error: f.error.slice(0, 500) })) : null,
     hb: S.running && !S.unloading && run === S.run ? Date.now() : 0, hbTab: S.tabId,
@@ -2553,7 +2553,7 @@ async function openHistory(id, opts = {}) {
       questions: (meta.questions || []).map((q, i) => (typeof q === 'string' ? { id: 'Q-' + pad(i + 1, 2), text: q, answer: '', appliedAnswer: '' } : q)),
       checklist: meta.checklist || null, findings: meta.findings || null, plan: meta.plan || [], cases, counters: { api: 0, ui: 0, e2e: 0, cl: 0, ...(meta.counters || {}) },
       status: meta.status || 'done', error: meta.error || null, fromHistory: true, savedParts: meta.partsCount || 0,
-      stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
+      stage: meta.stage || 'added', addedAt: meta.addedAt || null, auditDone: meta.auditDone !== false, reduced: !!meta.reduced, // запуски до черновика — уже в продукте; до сверки покрытия — не сверять задним числом
       doneKeys: meta.doneKeys || null, doneChecks: meta.doneChecks || [], taskStart: meta.taskStart || null, updatedAt: meta.updatedAt, usage: meta.usage || null, etalon: meta.etalon || null,
       qaCtx: meta.qaCtx ? { all: '', api: '', ui: '', e2e: '', ...meta.qaCtx } : null,
       productId: pid || null, docIds: meta.docIds || null, coveredExisting: meta.coveredExisting || [], by: meta.by || '', failedInfo: meta.failedInfo || null,
@@ -2705,7 +2705,7 @@ function startReview(full = false, tab = 'review') {
     slog(run, 'review', `Ревьюер: ${aiLabelStage(aiValue('review'), 'review')}${S.cfg.reviewRules.trim() ? ' · правила ревью команды' : ''}${S.lessons.length ? ` · правил из замечаний: ${S.lessons.length}` : ''}`);
     if (keepCase.size + keepItem.size) slog(run, 'review', `Не менялись с прошлого ревью: ${keepCase.size ? `кейсов ${keepCase.size}` : ''}${keepCase.size && keepItem.size ? ', ' : ''}${keepItem.size ? `пунктов чек-листа ${keepItem.size}` : ''} — их замечания сохранены, повторно не проверяю`, 'ok');
     // проверки без модели
-    if (run.cases.length) for (const r of uncovered(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'major', category: 'Покрытие', message: `Требование ${r.id} «${r.title}» не покрыто тест-кейсами.`, suggestion: 'Дописать тест-кейсы для этого требования.', source: 'auto' });
+    if (run.cases.length && !run.reduced) for (const r of uncovered(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'major', category: 'Покрытие', message: `Требование ${r.id} «${r.title}» не покрыто тест-кейсами.`, suggestion: 'Дописать тест-кейсы для этого требования.', source: 'auto' });
     // правила команды: безопасные исправления — на месте, остальное — замечаниями с кнопкой «Исправить»
     let fixed = 0; const byRule = {};
     for (const c of activeCases(run)) {
@@ -2833,9 +2833,12 @@ function fixCaseFindings(uid) {
   const run = S.run, c = run?.cases.find((x) => x.uid === uid);
   if (c) fixFindings(caseFindings(run, c));
 }
+// «Исправить все» берёт только выбранную серьёзность: критичные, существенные или мелкие; «все» и «открытые» — без отбора
+const fixScope = (list, sev) => (['critical', 'major', 'minor'].includes(sev) ? list.filter((f) => f.severity === sev) : list);
+const SEV_FIX_RU = { critical: 'критичные', major: 'существенные', minor: 'мелкие' };
 function fixDraftAll() {
   const run = S.run;
-  if (run) fixFindings((run.findings || []).filter((f) => f.status === 'open' && f.kind === 'case'));
+  if (run) fixFindings(fixScope((run.findings || []).filter((f) => f.status === 'open' && f.kind === 'case'), S.draftFilter));
 }
 function dropDraftCase(uid) {
   const run = S.run, c = run?.cases.find((x) => x.uid === uid);
@@ -2877,6 +2880,7 @@ async function regenDrafts() {
   const n = run.cases.length;
   // тот же набор кейсов: каждый старый кейс переписывается по текущим правилам и шаблонам — число кейсов не меняется
   const expOf = (tc) => { const st = arrOf(tc?.steps), v = tc?.expectedResult ?? tc?.expected ?? tc?.expected_result ?? (st.length ? st[st.length - 1]?.expected ?? st[st.length - 1]?.expectedResult : ''); return typeof v === 'string' ? v : JSON.stringify(v ?? ''); };
+  run.reduced = false;
   run.regenFrom = run.cases.map((c) => ({ type: c.type, title: String(pickTitleText(c.testCase) || c.dispId).replace(KNOWN_TAG_RX, '').trim(), exp: String(expOf(c.testCase)).replace(/\s+/g, ' ').trim().slice(0, 300), reqs: arrStr(c.requirementIds), cl: c.checklistId || '' }));
   run.cases = []; S.caseUI.clear();
   if (run.findings) run.findings = run.findings.filter((f) => f.kind !== 'case');
@@ -2908,7 +2912,25 @@ function reduceSelect(cases, keepIds, target) {
     if (!best) break;
     minCov.push(best); for (const r of reqsOf(best)) left.delete(r);
   }
-  if (minCov.length > target) {
+  // жадный набор не всегда минимальный: точный поиск набора не больше k кейсов (ветвление по самому редкому требованию)
+  const exactCover = (k) => {
+    let steps = 0, found = null;
+    const rec = (chosen, uncovered) => {
+      if (found || steps++ > 200000) return;
+      if (!uncovered.size) { found = chosen; return; }
+      if (chosen.length >= k) return;
+      let rq = null, opts = null;
+      for (const r of uncovered) { const o = [...byId.keys()].filter((x) => reqsOf(x).includes(r)); if (!opts || o.length < opts.length) { rq = r; opts = o; } }
+      for (const x of opts.sort((a, b) => rankOf(a) - rankOf(b))) {
+        const nu = new Set(uncovered); for (const r of reqsOf(x)) nu.delete(r);
+        rec([...chosen, x], nu);
+        if (found) return;
+      }
+    };
+    rec([], new Set(all));
+    return found;
+  };
+  if (minCov.length > target && !exactCover(target)) {
     // покрытие при таком N не сохранить: предлагаем набор с максимальным покрытием, но просим подтверждения
     const pick = [], left = new Set(all);
     while (pick.length < target) {
@@ -2940,15 +2962,13 @@ function reduceSelect(cases, keepIds, target) {
     }
     return ids;
   };
-  let keep = fill(trim([...new Set((keepIds || []).filter((id) => byId.has(id)))]));
-  for (let guard = 0; !covers(keep) && guard < cases.length + 5; guard++) {
-    const s = cov(keep), miss = [...all].find((r) => !s.has(r));
-    const cands = [...byId.keys()].filter((x) => !keep.includes(x) && reqsOf(x).includes(miss));
-    if (!cands.length) break;
-    cands.sort((a, b) => gainOf(keep, b) - gainOf(keep, a) || rankOf(a) - rankOf(b));
-    keep.push(cands[0]);
-    keep = trim(keep, cands[0]);
-  }
+  // база — набор модели, если он покрывает все требования; иначе — минимальное покрытие (оно есть, раз minCov ≤ N).
+  // обрезка убирает только лишние кейсы и покрытие не ломает, добор только добавляет — покрытие сохраняется
+  const cover = exactCover(target) || [...minCov];   // набор, покрывающий всё, не больше N
+  let base = [...new Set((keepIds || []).filter((id) => byId.has(id)))];
+  if (!covers(base)) base = [...cover];
+  let keep = fill(trim(base));
+  if (!covers(keep)) keep = fill([...cover]);   // обрезка набора модели могла потерять покрытие — тогда от найденного покрытия
   if (keep.length !== target || !covers(keep)) return { error: 'Не удалось сохранить покрытие требований при таком количестве. Попробуйте больше кейсов.', min: minCov.length };
   return { keep };
 }
@@ -2970,6 +2990,7 @@ let reducePending = null;
 function applyReduce(run, keepIds) {
   const keep = new Set(keepIds), removed = run.cases.filter((c) => !keep.has(c.dispId));
   run.cases = run.cases.filter((c) => keep.has(c.dispId));
+  run.reduced = true;   // после сокращения ревью не проверяет полноту покрытия: набор выбран осознанно
   for (const c of removed) S.caseUI.delete(c.uid);
   if (run.findings) run.findings = run.findings.filter((f) => !(f.kind === 'case' && removed.some((c) => c.dispId === f.targetId)));
   queueSave(run); renderTabs(); renderTab();

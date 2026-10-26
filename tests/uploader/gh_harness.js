@@ -71,7 +71,7 @@ function autoDecide(allow) { const t = setInterval(() => { for (const id of api.
     out.grants = settings.ctxGrants;
     out.read = await api.ghCall(page, 'read', { repo: 'team/ctx', paths: ['rules/generation.md', 'нет.md'] });
     const h = out.read.files.find((f) => f.path === 'rules/generation.md').hash;
-    out.c1 = await api.ghCall(page, 'commit', { repo: 'team/ctx', branch: 'main', files: [{ path: 'rules/generation.md', text: 'НОВОЕ', base: h }, { path: 'products/moi/lessons.md', text: '- урок', base: null }], message: 'm1' });
+    out.c1 = await api.ghCall(page, 'commit', { repo: 'team/ctx', branch: 'main', files: [{ path: 'rules/generation.md', text: 'НОВОЕ', base: h }, { path: 'products/moi/memory.md', text: '- урок', base: null }], message: 'm1' });
     out.mainAfter = trees[commits[refs.main].tree].files['rules/generation.md'];
     out.branchAfter = trees[commits[refs[out.c1.branch]].tree].files;
     // вторая отправка из своей ветки — в ту же ветку

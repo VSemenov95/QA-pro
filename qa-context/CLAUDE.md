@@ -4,7 +4,7 @@
 QA pro читает его через мост qa-pro-bridge, загрузчик в браузере или API GitHub и записывает изменения обратно.
 
 ## Порядок работы
-1. Перед составлением тест-кейсов прочитай `rules/generation.md`, шаблон нужного вида из `templates/` и память агента `products/<продукт>/lessons.md`.
+1. Перед составлением тест-кейсов прочитай `rules/generation.md`, шаблон нужного вида из `templates/` и память агента `products/<продукт>/memory.md`.
 2. Термины, роли, экраны и связи бери из `products/<продукт>/passport.md` и разделов `products/<продукт>/kb/` и `knowledge/`.
 3. Кейсы оформляй строго по образцу JSON из шаблона, без полей, которых в нём нет.
 4. Перед выдачей проверь кейсы по `rules/review.md`.
@@ -14,6 +14,6 @@ QA pro читает его через мост qa-pro-bridge, загрузчик
 - `templates/api.md`, `templates/ui.md`, `templates/e2e.md` — шаблоны: префикс ID, правила оформления, образец JSON.
 - `templates/export.md` — формат экспорта.
 - `knowledge/` — общая база знаний.
-- `products/тмбс/` — продукт: `passport.md`, `context.md`, `lessons.md`, `kb/`.
+- `products/тмбс/` — продукт: `passport.md`, `context.md`, `memory.md`, `kb/`.
 
 Изменения правил и шаблонов — через ветку и запрос на слияние: QA pro отправляет их в ветку `qa-pro/<дата>`.

@@ -12,7 +12,7 @@
      knowledge/**.md                           — общая база знаний для всех продуктов
      products/<папка продукта>/passport.md     — знания о продукте (паспорт)
      products/<папка продукта>/context.md      — доп. контекст QA: «## Для всех», «## API», «## UI», «## E2E»
-     products/<папка продукта>/lessons.md      — память агента: «- [генерация|ревью|оба] правило»
+     products/<папка продукта>/memory.md      — память агента: «- [генерация|ревью|оба] правило»
      products/<папка продукта>/kb/**.md        — разделы базы знаний продукта
 
    Каналы: папка и git — мост qa-pro-bridge (в приложении Claude — инструменты context_*, в браузере — через загрузчик),
@@ -39,7 +39,7 @@ const CP = {
   tpl: (t) => `templates/${t}.md`,
   passport: (C) => `products/${ctxSlug(C)}/passport.md`,
   context: (C) => `products/${ctxSlug(C)}/context.md`,
-  lessons: (C) => `products/${ctxSlug(C)}/lessons.md`,
+  lessons: (C) => `products/${ctxSlug(C)}/memory.md`,
   kbDir: (C) => `products/${ctxSlug(C)}/kb/`,
 };
 const ctxCfgPath = (k) => (k === 'rules' ? CP.rules : k === 'review' ? CP.review : k === 'export' ? CP.export : CP.tpl(k));
@@ -104,7 +104,7 @@ function ctxClaudeMd(slug) {
 QA pro читает его через мост qa-pro-bridge, загрузчик в браузере или API GitHub и записывает изменения обратно.
 
 ## Порядок работы
-1. Перед составлением тест-кейсов прочитай \`rules/generation.md\`, шаблон нужного вида из \`templates/\` и память агента \`products/<продукт>/lessons.md\`.
+1. Перед составлением тест-кейсов прочитай \`rules/generation.md\`, шаблон нужного вида из \`templates/\` и память агента \`products/<продукт>/memory.md\`.
 2. Термины, роли, экраны и связи бери из \`products/<продукт>/passport.md\` и разделов \`products/<продукт>/kb/\` и \`knowledge/\`.
 3. Кейсы оформляй строго по образцу JSON из шаблона, без полей, которых в нём нет.
 4. Перед выдачей проверь кейсы по \`rules/review.md\`.
@@ -114,7 +114,7 @@ QA pro читает его через мост qa-pro-bridge, загрузчик
 - \`templates/api.md\`, \`templates/ui.md\`, \`templates/e2e.md\` — шаблоны: префикс ID, правила оформления, образец JSON.
 - \`templates/export.md\` — формат экспорта.
 - \`knowledge/\` — общая база знаний.
-- \`products/${slug}/\` — продукт: \`passport.md\`, \`context.md\`, \`lessons.md\`, \`kb/\`.
+- \`products/${slug}/\` — продукт: \`passport.md\`, \`context.md\`, \`memory.md\`, \`kb/\`.
 
 Изменения правил и шаблонов — через ветку и запрос на слияние: QA pro отправляет их в ветку \`qa-pro/<дата>\`.
 `;

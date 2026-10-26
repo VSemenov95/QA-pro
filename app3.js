@@ -2167,7 +2167,7 @@ function reviewTab() {
   const open = F.filter((f) => f.status === 'open');
   const list = F.filter(cur[2]).sort((a, b) => ['critical', 'major', 'minor'].indexOf(a.severity) - ['critical', 'major', 'minor'].indexOf(b.severity));
   return head + ruleCardHTML(F) + `<div class="toolbar">${filters.map(([id, name, fn]) => `<button class="fchip" type="button" data-act="fd-filter" data-f="${id}" aria-pressed="${S.fdFilter === id}">${name}<span class="n">${n(fn)}</span></button>`).join('')}
-      <span style="margin-left:auto"><button class="btn accent" type="button" data-act="fd-fixall" ${open.length && !S.running ? '' : 'disabled'}>Исправить все открытые${open.length ? ` (${open.length})` : ''}</button></span></div>
+      <span style="margin-left:auto"><button class="btn accent" type="button" data-act="fd-fixall" ${fixScope(open, S.fdFilter).length && !S.running ? '' : 'disabled'}>${SEV_FIX_RU[S.fdFilter] ? `Исправить ${SEV_FIX_RU[S.fdFilter]} (${fixScope(open, S.fdFilter).length})` : `Исправить все открытые${open.length ? ` (${open.length})` : ''}`}</button></span></div>
     ${list.length ? `<div class="fd-list">${list.map((f) => findingHTML(r, f)).join('')}</div>` : emptyHTML(F.length ? 'В этом фильтре пусто' : 'Замечаний нет', F.length ? '' : 'Ревьюер не нашёл проблем.')}`;
 }
 /* ---------- черновик: проверка сгенерированных кейсов перед добавлением в проект ---------- */
@@ -2195,7 +2195,8 @@ function draftTab() {
       ${busy ? `<div class="exp-row"><span class="small">${step === 'fix' ? 'Агент исправляет замечания…' : 'Ревьюер проверяет кейсы…'}</span></div>${logHTML(r.steps[step].log)}` : ''}
       <div class="draft-acts">
         <button class="btn" type="button" data-act="draft-review" ${aiReady(v) && !lock ? '' : 'disabled'} title="${esc(aiProblem(v) || 'Субагент сверит кейсы с документами, требованиями, шаблоном и правилами ревью')}">${r.findings ? 'Повторить ревью' : 'Запустить ревью'}</button>
-        <button class="btn" type="button" data-act="draft-fixall" ${open.length && !lock ? '' : 'disabled'}>Исправить все${open.length ? ` (${open.length})` : ''}</button>
+        <button class="btn" type="button" data-act="draft-fixall" ${fixScope(open, S.draftFilter).length && !lock ? '' : 'disabled'}>${SEV_FIX_RU[S.draftFilter] ? `Исправить ${SEV_FIX_RU[S.draftFilter]} (${fixScope(open, S.draftFilter).length})` : `Исправить все${open.length ? ` (${open.length})` : ''}`}</button>
+        <span class="toolbar" style="margin:0">${[['all', 'Все', open.length], ['critical', 'Критичные', sev('critical')], ['major', 'Существенные', sev('major')], ['minor', 'Мелкие', sev('minor')]].map(([id, name, n]) => `<button class="fchip" type="button" data-act="draft-filter" data-f="${id}" aria-pressed="${(S.draftFilter || 'all') === id}">${name}<span class="n">${n}</span></button>`).join('')}</span>
         <button class="btn" type="button" data-act="etalon-open" ${S.running ? 'disabled' : ''} title="Сравнить ${selN ? 'выбранные' : 'все'} кейсы с эталонными и получить правила генерации">Сравнить с эталоном${selN ? ` (${selN})` : ''}</button>
         ${r.etalon ? `<button class="link" type="button" data-act="etalon-result">Правила из эталона${etalonPending(r) ? ` · ждут решения ${etalonPending(r)}` : ''}</button>` : ''}
         <span class="sp"></span>
@@ -2448,7 +2449,8 @@ function onTabClick(e) {
     case 'start-review': startReview(); break;
     case 'start-review-full': startReview(true); break;
     case 'fd-filter': S.fdFilter = el.dataset.f; renderTab(); break;
-    case 'fd-fixall': fixFindings(r.findings.filter((x) => x.status === 'open')); break;
+    case 'fd-fixall': fixFindings(fixScope(r.findings.filter((x) => x.status === 'open'), S.fdFilter)); break;
+    case 'draft-filter': S.draftFilter = el.dataset.f; renderTab(); break;
     case 'sel-del': if (armed(el, `Удалить выбранные (${S.caseSel.size})?`)) deleteSelected(el.dataset.where); break;
     case 'sel-none': S.caseSel.clear(); if (S.tab === 'cases') renderCaseList(); else renderTab(); break;
     case 'draft-review': startReview(false, 'draft'); break;

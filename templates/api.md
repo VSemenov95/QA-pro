@@ -38,7 +38,6 @@ idPrefix: API-
       "expected": "Письмо на user@example.ru поставлено в очередь"
     }
   ],
-  "expectedResult": "Запрос принят, письмо со ссылкой для сброса пароля отправлено",
   "tags": [
     "password-reset",
     "positive"

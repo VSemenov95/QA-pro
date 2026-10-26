@@ -14,7 +14,7 @@ def make_folder(tmp_path):
     (d / 'rules' / 'generation.md').write_text('# Правила для агента\n\nПРАВИЛО-С-ДИСКА\n', encoding='utf-8')
     (d / 'products' / 'moi' / 'kb').mkdir(parents=True)
     (d / 'products' / 'moi' / 'kb' / 'parol.md').write_text('# Восстановление пароля\n\nСсылка действует 30 минут.\n', encoding='utf-8')
-    (d / 'products' / 'moi' / 'lessons.md').write_text('- [ревью] УРОК-С-ДИСКА\n', encoding='utf-8')
+    (d / 'products' / 'moi' / 'memory.md').write_text('- [ревью] УРОК-С-ДИСКА\n', encoding='utf-8')
     return d
 
 
@@ -107,12 +107,12 @@ def test_claude_app_writes_to_the_folder(desk_run):
     _, desk, folder = desk_run
     desk.call('a.addLesson("УРОК-ИЗ-ПРИЛОЖЕНИЯ", "generation")')   # в приложении автоматические записи копятся
     desk.page.wait_for_selector('[data-ctx-act=flush]', timeout=10000)
-    assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' not in (folder / 'products' / 'moi' / 'lessons.md').read_text(encoding='utf-8')
+    assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' not in (folder / 'products' / 'moi' / 'memory.md').read_text(encoding='utf-8')
     calls = len(h_calls(desk_run))
     desk.page.click('[data-ctx-act=flush]')
     desk.page.wait_for_function('() => !window.__qa.S.ctx.pending.size && !window.__qa.S.ctx.busy', timeout=10000)
     assert h_calls(desk_run)[calls:].count('context_write') == 1
-    assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' in (folder / 'products' / 'moi' / 'lessons.md').read_text(encoding='utf-8')
+    assert '- [генерация] УРОК-ИЗ-ПРИЛОЖЕНИЯ' in (folder / 'products' / 'moi' / 'memory.md').read_text(encoding='utf-8')
 
 
 def test_claude_app_page_without_context_tools_explains_what_to_do(make_host, tmp_path):

@@ -567,3 +567,18 @@ def test_prompt_documentation_is_limited(draft, tmp_path):
     assert len(text) > 120000 and len(doc) <= 60000
     assert 'Лимит запросов на сброс пароля — не более 3 за 15 минут' in doc
     assert doc.count('Зебра') < 4000
+
+
+def test_select_finds_a_cover_when_greedy_takes_too_many(app):
+    """Жадный набор взял бы три кейса, а покрыть всё можно двумя: при N = 2 набор должен находиться, а не давать ошибку."""
+    cases = """[
+      { dispId: 'A', requirementIds: ['R1', 'R2', 'R3', 'R4'], testCase: { priority: 'Low' }, type: 'api' },
+      { dispId: 'B', requirementIds: ['R1', 'R2', 'R5'], testCase: { priority: 'Low' }, type: 'api' },
+      { dispId: 'C', requirementIds: ['R3', 'R4', 'R6'], testCase: { priority: 'High' }, type: 'api' }]"""
+    r = app.call(f"""(() => {{
+      const cases = {cases};
+      const r = a.reduceSelect(cases, [], 2);
+      const cov = new Set(cases.filter((c) => (r.keep || []).includes(c.dispId)).flatMap((c) => c.requirementIds));
+      return {{ error: r.error || null, keep: r.keep || [], covered: cov.size }};
+    }})()""")
+    assert r['error'] is None and sorted(r['keep']) == ['B', 'C'] and r['covered'] == 6, r

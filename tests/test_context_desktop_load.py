@@ -89,7 +89,7 @@ def test_small_change_of_this_session_is_written_in_claude_app(make_app):
     app.call('(S.ctx.channel = "app", true)')
     app.call('a.addLesson("УРОК-СЕЙЧАС", "generation")')
     app.page.wait_for_function('() => window.__qa.S.ctx.pending.size === 0 && !window.__qa.S.ctx.busy', timeout=8000)
-    assert 'УРОК-СЕЙЧАС' in app.page.evaluate('() => window.__repo.files["products/moi/lessons.md"]')
+    assert 'УРОК-СЕЙЧАС' in app.page.evaluate('() => window.__repo.files["products/moi/memory.md"]')
 
 
 def test_long_passport_is_written_whole(make_app):

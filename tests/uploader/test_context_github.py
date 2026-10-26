@@ -46,7 +46,7 @@ def test_commit_goes_to_a_new_branch_not_main(flow):
     c = flow['c1']
     assert c['committed'] and c['branch'].startswith('qa-pro/') and c['base'] == 'main'
     assert flow['mainAfter'] == 'ПРАВИЛО'
-    assert flow['branchAfter']['rules/generation.md'] == 'НОВОЕ' and flow['branchAfter']['products/moi/lessons.md'] == '- урок'
+    assert flow['branchAfter']['rules/generation.md'] == 'НОВОЕ' and flow['branchAfter']['products/moi/memory.md'] == '- урок'
     assert c['pr'] == f"https://github.com/team/ctx/compare/main...{c['branch']}?expand=1"
 
 

@@ -19,7 +19,7 @@ REPO = {
     'templates/api.md': TPL_API,
     'products/moi/passport.md': '## Термины\n- ПАСПОРТ-ИЗ-РЕПО: личный кабинет клиента\n',
     'products/moi/context.md': '# Доп. контекст QA\n\n## Для всех\n\nОКРУЖЕНИЕ-ИЗ-РЕПО stage\n\n## UI\n\nЭКРАН-ИЗ-РЕПО Главная → Профиль\n',
-    'products/moi/lessons.md': '# Память агента\n\n- [генерация] УРОК-ГЕН: email в шагах — test@example.ru\n- [ревью] УРОК-РЕВЬЮ\n- УРОК-БЕЗ-МЕТКИ\n',
+    'products/moi/memory.md': '# Память агента\n\n- [генерация] УРОК-ГЕН: email в шагах — test@example.ru\n- [ревью] УРОК-РЕВЬЮ\n- УРОК-БЕЗ-МЕТКИ\n',
     'products/moi/kb/vosstanovlenie.md': '# Восстановление пароля\n\nСсылка на восстановление пароля действует 30 минут. ЗНАНИЕ-ИЗ-РЕПО: повторный запрос ссылки — не чаще раза в минуту.\n',
     'knowledge/glossary.md': '# Глоссарий\n\nЛК — личный кабинет. ОБЩЕЕ-ЗНАНИЕ.\n',
     'other/notes.md': 'не контекст — не читается',
@@ -136,7 +136,7 @@ def test_template_saved_in_repository_format(cx):
 
 def test_new_lesson_goes_to_lessons_file(cx):
     cx.call('a.addLesson("НОВЫЙ-УРОК для ревью", "review")')
-    assert '- [ревью] НОВЫЙ-УРОК для ревью' in wait_repo(cx, 'products/moi/lessons.md', 'НОВЫЙ-УРОК')
+    assert '- [ревью] НОВЫЙ-УРОК для ревью' in wait_repo(cx, 'products/moi/memory.md', 'НОВЫЙ-УРОК')
     assert cx.db.store.get('lessons') is None and not [k for k in cx.db.store if k.startswith('lessons/')]
 
 
@@ -192,7 +192,7 @@ def test_claude_app_collects_automatic_writes(cx):
     cx.call('a.addLesson("УРОК-В-ОЧЕРЕДИ", "generation")')
     cx.call('a.savePassport(S.productId, "## Термины\\n- ПАСПОРТ-В-ОЧЕРЕДИ", null)')
     cx.page.wait_for_timeout(1500)
-    assert cx.state('[...S.ctx.pending].sort()') == ['products/moi/context.md', 'products/moi/lessons.md', 'products/moi/passport.md']
+    assert cx.state('[...S.ctx.pending].sort()') == ['products/moi/context.md', 'products/moi/memory.md', 'products/moi/passport.md']
     assert 'БАЗОВЫЙ-URL' not in repo(cx, 'products/moi/context.md')   # в источник ещё не ушло
     writes = lambda: cx.page.evaluate('() => window.__repo.calls.filter((c) => c[0] === "context_write").length')
     assert writes() == 0
@@ -203,7 +203,7 @@ def test_claude_app_collects_automatic_writes(cx):
     cx.page.click('[data-ctx-act=flush]')
     cx.page.wait_for_function('() => window.__qa.S.ctx.pending.size === 0 && !window.__qa.S.ctx.busy', timeout=8000)
     assert writes() == 1   # одна запись — одно подтверждение
-    assert 'БАЗОВЫЙ-URL' in repo(cx, 'products/moi/context.md') and 'УРОК-В-ОЧЕРЕДИ' in repo(cx, 'products/moi/lessons.md')
+    assert 'БАЗОВЫЙ-URL' in repo(cx, 'products/moi/context.md') and 'УРОК-В-ОЧЕРЕДИ' in repo(cx, 'products/moi/memory.md')
     assert 'ПАСПОРТ-В-ОЧЕРЕДИ' in repo(cx, 'products/moi/passport.md')
 
 
@@ -219,7 +219,7 @@ def test_claude_app_queue_survives_reload(cx):
     cx.page.wait_for_timeout(600)
     cx.reload()
     cx.page.wait_for_function('() => window.__qa.S.ctx.on && !window.__qa.S.ctx.busy && window.__qa.S.ctx.files.size > 0', timeout=15000)
-    assert cx.state('[...S.ctx.pending]') == ['products/moi/lessons.md']
+    assert cx.state('[...S.ctx.pending]') == ['products/moi/memory.md']
     assert 'УРОК-ДО-ПЕРЕЗАГРУЗКИ' in cx.state('S.lessons.map((l) => l.text).join(" ")')
 
 
@@ -249,7 +249,7 @@ def test_export_qa_base_into_empty_repository(make_app):
     files = repo(app)
     assert files['rules/generation.md'] == '# Правила для агента\n\nПРАВИЛА-КОМАНДЫ\n'
     assert {'templates/api.md', 'templates/ui.md', 'templates/e2e.md'} <= set(files)
-    assert '- [генерация] УРОК-КОМАНДЫ' in files['products/moi/lessons.md']
+    assert '- [генерация] УРОК-КОМАНДЫ' in files['products/moi/memory.md']
     assert 'products/moi/' in files['CLAUDE.md']
     assert app.call('a.ctxParseTpl(arg, "e2e").example', files['templates/e2e.md']) == app.state('S.cfg.tpl.e2e.example')
 
