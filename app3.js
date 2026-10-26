@@ -12,7 +12,9 @@ const label = (k) => LABELS[k] || k;
 const TITLE_KEYS = ['title', 'name', 'summary', 'название', 'Название', 'caseName', 'testName', 'Title', 'Name'];
 function pickTitle(tc) {
   for (const k of TITLE_KEYS) if (typeof tc?.[k] === 'string' && tc[k].trim()) return { key: k, text: tc[k] };
-  const v = Object.entries(tc || {}).find(([k, x]) => typeof x === 'string' && x.length > 8 && !ID_KEYS.includes(k));
+  // запасной вариант: только текст (с пробелом или кириллицей), не служебные поля вроде priority или suites
+  const SERVICE = ['priority', 'priorityRu', 'suites', 'suitesRu', 'type', 'typeRu', 'status', 'statusRu', 'tags', 'requirementIds', 'automationStatus', 'statusId'];
+  const v = Object.entries(tc || {}).find(([k, x]) => typeof x === 'string' && x.length > 8 && !ID_KEYS.includes(k) && !SERVICE.includes(k) && /[\sЀ-ӿ]/.test(x));
   return v ? { key: v[0], text: v[1] } : { key: null, text: 'Без названия' };
 }
 function pickTitleText(tc) { return pickTitle(tc).text; }
@@ -1008,6 +1010,11 @@ function deleteSelected(where) {
   const one = del.length === 1;
   toast(`${one ? `Кейс ${del[0].dispId} удалён` : `Удалено ${del.length} ${plural(del.length, 'кейс', 'кейса', 'кейсов')}`}${isDraft(r) ? ' из черновика' : r.productId ? ` — в продукте ${one ? 'его' : 'их'} больше нет` : ''}`);
 }
+// ответы агента на вопросы по кейсу: сохраняются вместе с кейсом
+function askLogHTML(c) {
+  if (!c.askLog?.length) return '';
+  return `<div class="ask-log">${c.askLog.map((x) => `<div class="fd-inline"><p><b>Вопрос:</b> ${esc(x.q)}</p><p>${esc(x.a)}</p></div>`).join('')}</div>`;
+}
 function caseHTML(c) {
   const ui = caseUI(c.uid), tc = c.testCase || {};
   const t = pickTitle(tc), prio = prioOf(tc);
@@ -1029,6 +1036,12 @@ function caseHTML(c) {
         ${ui.error ? `<p class="case-note err">${esc(ui.error)}</p>` : ''}
         <div class="case-acts">${ui.busy ? `<span class="case-note muted">Модель дорабатывает кейс…</span><button class="btn" type="button" data-act="stop-refine" data-uid="${c.uid}">Остановить</button>`
           : `<button class="btn accent" type="button" data-act="do-refine" data-uid="${c.uid}">Доработать</button><button class="btn" type="button" data-act="cancel-mode" data-uid="${c.uid}">Отмена</button>`}</div></div>`;
+    } else if (ui.mode === 'ask') {
+      body = `<div class="case-edit"><label class="lbl" for="ask-${c.uid}">Вопрос по кейсу</label>
+        <textarea id="ask-${c.uid}" rows="3" data-uid="${c.uid}" data-field="comment" placeholder="Например: почему проверка на два запроса, а не на один?" ${ui.busy ? 'disabled' : ''}>${esc(ui.comment)}</textarea>
+        ${ui.error ? `<p class="case-note err">${esc(ui.error)}</p>` : ''}
+        <p class="case-note muted">Агент объясняет решение по данным кейса, требованиям и правилам. Это не запись его рассуждений при генерации.</p>
+        <div class="case-acts">${ui.busy ? '<span class="case-note muted">Агент отвечает…</span>' : `<button class="btn accent" type="button" data-act="do-ask" data-uid="${c.uid}">Спросить</button><button class="btn" type="button" data-act="cancel-mode" data-uid="${c.uid}">Отмена</button>`}</div>${askLogHTML(c)}</div>`;
     } else {
       body = updBlockHTML(c, ui) + `<div class="suites-row">Наборы: ${suiteToggles(c.suites, 'case-suite', `data-uid="${c.uid}"`)}</div>` + (fds.length ? `<div class="fd-inline">${fds.map((f) => `<p><span class="chip sev-${f.severity}">${SEV_RU[f.severity]}</span> ${esc(f.message)}</p>`).join('')}</div>` : '') + kvHTML(cleanCase(tc), 1, skip) + (ui.note ? `<p class="case-note muted">${esc(ui.note)}</p>` : '') +
         `<div class="case-acts">
@@ -1036,6 +1049,7 @@ function caseHTML(c) {
           <button class="btn" type="button" data-act="refine-case" data-uid="${c.uid}">Доработать с ИИ</button>
           <button class="btn" type="button" data-act="edit-case" data-uid="${c.uid}">Изменить JSON</button>
           <button class="btn" type="button" data-act="copy-case" data-uid="${c.uid}">Копировать JSON</button>
+          <button class="btn" type="button" data-act="ask-case" data-uid="${c.uid}">Спросить агента</button>
           ${ui.prev ? `<button class="btn" type="button" data-act="undo-case" data-uid="${c.uid}">Вернуть прежний вариант</button>` : ''}
           ${c.status && c.status !== 'new' ? `<button class="btn" type="button" data-act="case-obsolete" data-uid="${c.uid}">${c.status === 'obsolete' ? 'Вернуть в актуальные' : 'Пометить устаревшим'}</button>` : ''}
           <button class="btn danger" type="button" data-act="del-case" data-uid="${c.uid}">Удалить</button>
@@ -1049,7 +1063,7 @@ function caseHTML(c) {
         <div class="case-sub">${c.status ? `<span class="chip ust-${c.status}" title="${esc(c.note || '')}">${UPD_ST[c.status]}</span>` : ''}${String(c.dispId || '').toUpperCase().startsWith(TL[c.type].toUpperCase()) ? '' : `<span class="chip ${c.type}">${TL[c.type]}</span>`}${suiteChips(c.suites)}${prio != null ? `<span class="chip ${prioClass(prio)}">${esc(prio)}</span>` : ''}${c.requirementIds.map((id) => `<span class="rq">${esc(id)}</span>`).join('')}${c.checklistId ? `<button class="chip cl-link" type="button" data-act="go-cl" data-id="${esc(c.checklistId)}" title="Кейс написан по пункту чек-листа">${esc(c.checklistId)}</button>` : ''}${missing.length ? `<span class="chip p-medium" title="Поля шаблона, которых нет в кейсе">нет полей: ${esc(missing.join(', '))}</span>` : ''}${fds.length ? `<span class="chip fd-chip sev-${fds[0].severity}" title="Открытые замечания ревьюера">замечаний: ${fds.length}</span>` : ''}${c.tms ? `<span class="chip ok" title="Загружен в ТМС">в ТМС${c.tms.id ? ' · ' + esc(c.tms.id) : ''}</span>` : ''}${c.manual ? '<span class="chip">вручную</span>' : ''}</div></div>
       <span class="muted" style="transform:rotate(${ui.open ? 180 : 0}deg);display:grid">${ICON.chev}</span>
     </div>
-    ${ui.open ? `<div class="case-b">${body}</div>` : ''}
+    ${ui.open ? `<div class="case-b">${body}${ui.mode === 'view' ? askLogHTML(c) : ''}</div>` : ''}
   </article>`;
 }
 
@@ -2380,6 +2394,12 @@ function onTabClick(e) {
     case 'stop-refine': ui.ctl?.abort(); break;
     case 'undo-case': if (ui.prev) { const cur = c.testCase; c.testCase = ui.prev; ui.prev = cur; ui.note = 'Возвращён прежний вариант.'; renderCaseList(); queueSave(r); } break;
     case 'copy-case': copyText(JSON.stringify(c.testCase, null, 2)); break;
+    case 'ask-case': ui.mode = 'ask'; ui.error = ''; renderCaseList(); $('#ask-' + uid)?.focus(); break;
+    case 'do-ask': {
+      const q = (ui.comment || '').trim();
+      if (!q) { ui.error = 'Введите вопрос.'; renderCaseList(); break; }
+      askCase(r, c, q); break;
+    }
     case 'del-case':
       if (!armed(el, 'Точно удалить?')) break;
       r.cases = r.cases.filter((x) => x.uid !== uid); S.caseUI.delete(uid);

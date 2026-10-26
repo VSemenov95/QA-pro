@@ -1987,7 +1987,7 @@ const CASES_SCHEMA = {
       planItem: { type: 'string' },
       requirementIds: { type: 'array', items: { type: 'string' } },
       suites: { type: 'array', items: { type: 'string', enum: ['smoke', 'regression'] } },
-      testCase: { type: 'object', properties: { priority: { type: 'string', enum: PRIOS } } },
+      testCase: { type: 'object', properties: { title: { type: 'string' }, priority: { type: 'string', enum: PRIOS } }, required: ['title'] },
     }, required: ['testCase'] } },
   },
   required: ['cases'],
@@ -2722,6 +2722,7 @@ function startReview(full = false, tab = 'review') {
       const info = tplInfo(c.type);
       const miss = info.ok ? info.fields.filter((k) => !(k in (c.testCase || {}))) : [];
       if (miss.length) addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'minor', category: 'Шаблон', message: `Нет полей шаблона: ${miss.join(', ')}.`, suggestion: 'Заполнить недостающие поля по образцу шаблона.', source: 'auto' });
+      if (!pickTitle(c.testCase || {}).key) addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'major', category: 'Шаблон', message: 'Нет названия кейса.', suggestion: 'Добавить название кейса.', source: 'auto' });
       if (!titleTagOk(c)) { const tag = titleTagFor(c.type, pickTitleText(c.testCase)); addFinding(run, { kind: 'case', targetId: c.dispId, severity: 'minor', category: 'Название', message: `В названии нет метки вида теста ${tag}.`, suggestion: `Начать название с ${tag}.`, source: 'auto' }); }
     }
     const auto = run.findings.length;
@@ -2788,6 +2789,29 @@ async function refineItemCore(run, it, comment, signal) {
   if (res.suites !== undefined) it.suites = normSuites(res.suites);
 }
 const findingComment = (fs) => fs.map((f) => `Замечание ревьюера (${SEV_RU[f.severity].toLowerCase()}, ${f.category}): ${f.message}${f.suggestion ? ` Рекомендация: ${f.suggestion}` : ''}`).join('\n');
+// вопрос агенту по кейсу: почему кейс составлен так. Ответ — по данным кейса, требований, пункта чек-листа и правил
+async function askCase(run, c, question) {
+  const ui = caseUI(c.uid);
+  ui.busy = true; ui.error = ''; renderCaseList();
+  try {
+    const reqs = arrStr(c.requirementIds).map((id) => reqLine(run.reqById?.[id])).filter(Boolean);
+    const cl = c.checklistId ? checklistItems(run).find((i) => i.id === c.checklistId) : null;
+    const pl = c.planItem ? (run.plan || []).find((p) => p.id === c.planItem) : null;
+    const prompt = renderPrompt("promptAskCase", {
+      "e1": JSON.stringify(c.testCase, null, 2),
+      "e2": reqs.length ? '## Требования, которые проверяет кейс\n' + reqs.join('\n') + '\n' : '',
+      "e3": cl ? `## Пункт чек-листа, из которого сделан кейс\n${cl.id} · ${cl.check}${cl.expected ? ' → ' + cl.expected : ''}\n` : '',
+      "e4": pl ? `## План проверок для кейса\n${pl.title || pl.id}: ${arrOf(pl.checks).join('; ')}\n` : '',
+      "e5": rulesText() || 'нет',
+      "e6": question,
+    });
+    const res = await ask(prompt, { step: 'other' });
+    c.askLog = [...(c.askLog || []), { q: question, a: String(res?.answer || '').trim() || 'Ответ пустой.', at: Date.now() }];
+    ui.comment = ''; ui.mode = 'view';
+    queueSave(run);
+  } catch (e) { if (e?.code !== 'cancelled') ui.error = errText(e); }
+  finally { ui.busy = false; renderCaseList(); }
+}
 async function fixFindings(list) {
   const open = list.filter((f) => f.status === 'open');
   if (!open.length) return;

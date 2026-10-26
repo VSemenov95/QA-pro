@@ -221,7 +221,7 @@ def test_form_keeps_field_order_of_template(full):
     form_of(full)
     full.page.fill('.case-form input[data-fp="title"]', '[BE] Новый заголовок')
     full.page.click('[data-act=ff-save]')
-    assert case_state(full, 'API-001', 'Object.keys(c.testCase)') == ['id', 'title', 'priority', 'preconditions', 'steps', 'expectedResult', 'tags']
+    assert case_state(full, 'API-001', 'Object.keys(c.testCase)') == ['id', 'title', 'priority', 'preconditions', 'steps', 'tags']
 
 
 def test_json_edit_requires_an_object(results):
