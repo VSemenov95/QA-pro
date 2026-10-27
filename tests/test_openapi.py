@@ -15,8 +15,8 @@ def set_filter(app, value):
     app.page.wait_for_function("() => /Фильтр (применён|применится)/.test(document.querySelector('#api-hint').textContent)", timeout=10000)
 
 
-def test_api_field_is_off_until_a_spec_is_loaded(app, tmp_path):
-    assert app.page.is_disabled('#api-filter')
+def test_api_field_is_always_active(app, tmp_path):
+    assert not app.page.is_disabled('#api-filter')
     app.upload(files.openapi_spec(tmp_path))
     assert not app.page.is_disabled('#api-filter')
 
@@ -74,7 +74,7 @@ def test_json_that_is_not_a_spec_is_a_plain_document(app, tmp_path):
     app.upload(p)
     d = doc_of(app, 'data.json')
     assert d['status'] == 'ready' and 'hello' in d['text']
-    assert app.page.is_disabled('#api-filter')
+    assert not app.page.is_disabled('#api-filter')
 
 
 def test_generation_applies_the_same_rules_to_spec_documents(app, tmp_path):

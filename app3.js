@@ -400,6 +400,16 @@ async function reduceGo() {
   toast(`Осталось ${res.kept} ${plural(res.kept, 'тест', 'теста', 'тестов')}, убрано ${res.removed}${confirmed ? '' : '. Покрытие требований сохранено'}.`);
   renderRunControls();
 }
+// подсказка под полем «API»: зависит от того, есть ли в запуске спецификация; сообщение о применённом фильтре не перетирает
+const API_HINT_NO_SPEC = 'Фильтр работает со спецификацией OpenAPI или Swagger (.json, .yaml, .yml). Добавьте её в документы запуска, и отберутся нужные эндпоинты.';
+const API_HINT_SPEC = 'Фильтр применяется к спецификации OpenAPI или Swagger: берутся эндпоинты, в пути, методе, теге или operationId которых есть это значение. Несколько значений — через запятую.';
+function renderApiHint() {
+  const hint = $('#api-hint'); if (!hint) return;
+  const hasSpec = S.docs.some((d) => d.openapi && isRunDoc(d));
+  const cur = hint.textContent || '';
+  if (!hasSpec) hint.textContent = API_HINT_NO_SPEC;
+  else if (cur === API_HINT_NO_SPEC || cur.startsWith('Для спецификации')) hint.textContent = API_HINT_SPEC;
+}
 function renderRunControls() {
   const run = $('#btn-run'), stop = $('#btn-stop'), note = $('#run-note'), rev = $('#btn-review');
   run.hidden = S.running; stop.hidden = !S.running;
@@ -421,11 +431,10 @@ function renderRunControls() {
     if (form && (S.running || !dr)) form.hidden = true;
   }
   if (reducing) run.disabled = true;
-  // поле «API» активно только когда в запуске есть спецификация OpenAPI / Swagger
-  // спецификация, которая ещё читается из базы или разбирается, поле не выключает: выключает только отсутствие спецификации в запуске
-  const apiOn = S.docs.some((d) => d.openapi && isRunDoc(d) && d.status !== 'error');
-  const af = $('#api-filter'); if (af) af.disabled = !apiOn;
-  const ab = $('#api-block'); if (ab) ab.classList.toggle('is-off', !apiOn);
+  // поле «API» всегда активно: фильтр действует на спецификацию OpenAPI / Swagger, если она есть в запуске
+  const af = $('#api-filter'); if (af) af.disabled = false;
+  const ab = $('#api-block'); if (ab) ab.classList.remove('is-off');
+  renderApiHint();
   const docs = docsFor(null), types = selectedTypes(), o = S.settings.outputs, upd = S.settings.mode === 'update';
   run.disabled = !docs.length || !types.length || (!upd && !o.cases && !o.checklist) || runDocList().some((d) => d.status === 'parsing' || d.status === 'loading') || (upd && S.upd.file?.status !== 'ready');
   renderProdSelect();
