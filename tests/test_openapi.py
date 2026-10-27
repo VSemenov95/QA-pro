@@ -87,3 +87,10 @@ def test_generation_applies_the_same_rules_to_spec_documents(app, tmp_path):
     assert analyze and any('## POST /api/v1/password-reset' in p for p in analyze)
     gen = app.model.prompts_of('promptGenerate')[0]
     assert 'Приоритет указывай только одним из четырёх значений' in gen and 'Сообщение в Kafka описывай без метода' in gen
+
+
+def test_api_field_stays_on_after_reload(app, tmp_path):
+    """Регрессия: поле «API» выключалось само, пока спецификация подгружалась из базы после перезагрузки."""
+    app.upload(files.openapi_spec(tmp_path))
+    app.reload()
+    assert not app.page.is_disabled('#api-filter')

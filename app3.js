@@ -422,7 +422,8 @@ function renderRunControls() {
   }
   if (reducing) run.disabled = true;
   // поле «API» активно только когда в запуске есть спецификация OpenAPI / Swagger
-  const apiOn = docsFor(null).some((d) => d.openapi);
+  // спецификация, которая ещё читается из базы или разбирается, поле не выключает: выключает только отсутствие спецификации в запуске
+  const apiOn = S.docs.some((d) => d.openapi && isRunDoc(d) && d.status !== 'error');
   const af = $('#api-filter'); if (af) af.disabled = !apiOn;
   const ab = $('#api-block'); if (ab) ab.classList.toggle('is-off', !apiOn);
   const docs = docsFor(null), types = selectedTypes(), o = S.settings.outputs, upd = S.settings.mode === 'update';
