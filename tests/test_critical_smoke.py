@@ -12,15 +12,22 @@ def test_helper_adds_both_suites_for_critical_only(app):
     assert app.call("a.withCritical('P3_HIGH', ['regression'])") == ['regression']
 
 
-def test_low_priority_is_out_of_all_suites(app):
-    assert app.call("a.withCritical('P1_LOW', ['smoke', 'regression'])") == []
-    assert app.call("a.withCritical('Low', ['regression'])") == []
+def test_manual_choice_of_suites_is_kept_below_critical(app):
+    assert app.call("a.withCritical('P1_LOW', ['regression'])") == ['regression']
+    assert app.call("a.withCritical('P2_MEDIUM', ['regression'])") == ['regression']
 
 
-def test_medium_priority_only_in_regression_when_smoke(app):
-    assert app.call("a.withCritical('P2_MEDIUM', ['regression'])") == []
-    assert app.call("a.withCritical('P2_MEDIUM', [])") == []
-    assert app.call("a.withCritical('P2_MEDIUM', ['smoke'])") == ['smoke', 'regression']
+def test_model_low_priority_is_out_of_all_suites(app):
+    assert app.call("a.suitesByPrio('P1_LOW', ['smoke', 'regression'])") == []
+    assert app.call("a.suitesByPrio('Low', ['regression'])") == []
+
+
+def test_model_medium_priority_only_in_regression_when_smoke(app):
+    assert app.call("a.suitesByPrio('P2_MEDIUM', ['regression'])") == []
+    assert app.call("a.suitesByPrio('P2_MEDIUM', [])") == []
+    assert app.call("a.suitesByPrio('P2_MEDIUM', ['smoke'])") == ['smoke', 'regression']
+    assert app.call("a.suitesByPrio('P3_HIGH', ['regression'])") == ['regression']
+    assert app.call("a.suitesByPrio('P4_CRITICAL', [])") == ['smoke', 'regression']
 
 
 def test_generated_critical_cases_get_smoke_even_if_model_says_regression(app):

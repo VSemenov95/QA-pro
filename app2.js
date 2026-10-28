@@ -28,14 +28,15 @@ function normSuites(v) {
   }
   return SUITES.filter((s) => out.has(s));
 }
-/* наборы по приоритету (код, а не просьба модели): P4 — всегда смоук и регресс; P1 — не входит ни в один набор;
-   P2 — только если отмечен смоук (в регресс попадают наиболее важные средние проверки); P3 — как предложила модель */
-const withCritical = (prio, suites) => {
+/* проверка с приоритетом P4_CRITICAL всегда входит в смоук и в регресс (код, а не просьба модели); ручной выбор наборов в остальном не трогаем */
+const withCritical = (prio, suites) => (normPrio(prio) === 'P4_CRITICAL' ? [...SUITES] : suites);
+/* наборы для ответов модели: P1 — ни в один набор; P2 — в регресс только наиболее важные (те, что отмечены смоуком);
+   P3 — как предложила модель; P4 — всегда смоук и регресс */
+const suitesByPrio = (prio, suites) => {
   const p = normPrio(prio);
-  if (p === 'P4_CRITICAL') return [...SUITES];
   if (p === 'P1_LOW') return [];
   if (p === 'P2_MEDIUM') return suites.includes('smoke') ? [...SUITES] : [];
-  return suites;
+  return withCritical(p, suites);
 };
 function indexReqs(run) { run.reqById = Object.fromEntries(run.requirements.map((r) => [r.id, r])); }
 function hash(str) {
@@ -1386,7 +1387,7 @@ function acceptCases(run, b, res) {
       if (typeof tc.priority === 'string') tc.priority = normPrio(cl.priority); // приоритет — как у пункта чек-листа
       if (!arrStr(c.requirementIds).some((id) => run.reqById[id]) && cl.requirementIds.length) reqIds = cl.requirementIds.slice();
     }
-    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: withCritical(tc.priority, normSuites(c.suites).length ? normSuites(c.suites) : cl?.suites || []), testCase: tc, dispId, ...(cl ? { checklistId: clId } : {}) };
+    const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: suitesByPrio(tc.priority, normSuites(c.suites).length ? normSuites(c.suites) : cl?.suites || []), testCase: tc, dispId, ...(cl ? { checklistId: clId } : {}) };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
     added++;
@@ -1633,7 +1634,7 @@ function normChecklistItem(run, it, types) {
   return {
     id: '', check: String(it?.check || it?.title || it?.text || '').trim(), expected: String(it?.expected || it?.expectedResult || '').trim(), kind: clKind(it?.kind),
     type: types.includes(type) ? type : types[0],
-    priority: normPrio(it?.priority), suites: withCritical(it?.priority, normSuites(it?.suites)), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
+    priority: normPrio(it?.priority), suites: suitesByPrio(it?.priority, normSuites(it?.suites)), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
   };
 }
 /* порядок отбора при лимите: позитивные по убыванию приоритета, затем негативные */
@@ -1994,7 +1995,7 @@ async function stepActualize(run) {
         if (info.ok && info.idField) tc[info.idField] = dispId;
         tc = orderLikeTemplate(tc, info, b.type);
         run.cases.push({
-          uid: rid('c'), type: b.type, planItem: 'SRC', requirementIds: sc.reqIds.slice(), suites: withCritical(tc.priority, normSuites(r.suites)), testCase: tc, dispId,
+          uid: rid('c'), type: b.type, planItem: 'SRC', requirementIds: sc.reqIds.slice(), suites: suitesByPrio(tc.priority, normSuites(r.suites)), testCase: tc, dispId,
           status: sc.status, note: sc.reason, changes: sc.status === 'changed' ? arrStr(r.changes).slice(0, 8) : [], srcIdx: sc.index, sourceId: sc.srcId || null,
         });
         sc.done = true; ok++;
@@ -2319,7 +2320,7 @@ async function reviseCases(run, updates) {
         u.c.testCase = orderLikeTemplate(tc, info, b.type);
         touchCase(u.c, 'По ответу аналитика: ' + u.instruction.slice(0, 160));
         if (r.suites !== undefined) u.c.suites = normSuites(r.suites);
-        u.c.suites = withCritical(u.c.testCase.priority, u.c.suites || []);
+        u.c.suites = (r.suites !== undefined ? suitesByPrio : withCritical)(u.c.testCase.priority, u.c.suites || []);
         n++;
       }
       line.text = `${label}: исправлено ${n}`; line.kind = n ? 'ok' : 'warn';
@@ -2855,8 +2856,7 @@ async function refineItemCore(run, it, comment, signal) {
   if (typeof res.expected === 'string' && res.expected.trim()) it.expected = res.expected.trim();
   if (res.kind) it.kind = clKind(res.kind);
   if (res.priority) it.priority = normPrio(res.priority);
-  it.suites = withCritical(it.priority, it.suites || []);
-  if (res.suites !== undefined) it.suites = normSuites(res.suites);
+  it.suites = res.suites !== undefined ? suitesByPrio(it.priority, normSuites(res.suites)) : withCritical(it.priority, it.suites || []);
 }
 const findingComment = (fs) => fs.map((f) => `Замечание ревьюера (${SEV_RU[f.severity].toLowerCase()}, ${f.category}): ${f.message}${f.suggestion ? ` Рекомендация: ${f.suggestion}` : ''}`).join('\n');
 // вопрос агенту по кейсу: почему кейс составлен так. Ответ — по данным кейса, требований, пункта чек-листа и правил
@@ -3141,7 +3141,8 @@ async function addDraftToProduct() {
     if (ren.size) toast(`Номера заняли другие запуски — ${ren.size} ${plural(ren.size, 'кейс получил', 'кейса получили', 'кейсов получили')} следующие свободные номера`);
   }
   run.stage = 'added'; run.addedAt = Date.now();
-  queueSave(run); renderRunControls();
+  // кнопки черновика убираются сразу, а не после синхронизации с продуктом: иначе кейсы можно добавить повторно
+  queueSave(run); renderTabs(); renderTab(); renderRunControls();
   await productSync(run);
   renderTabs(); renderTab(); renderProduct(); renderRunControls();
   const n = run.cases.length;

@@ -101,6 +101,8 @@ const LIBS = {
   // выгрузка чек-листа в PDF: pdfmake и шрифт Roboto с кириллицей
   pdfmake: ['https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/pdfmake.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js'],
   pdfmakeFonts: ['https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/vfs_fonts.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.min.js'],
+  // OCR для сканов PDF и картинок в DOCX (грузится, только если в файле есть текст на картинках)
+  tesseract: ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', 'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js'],
 };
 
 /* ================= default templates (заменяются шаблонами команды) ================= */
@@ -313,14 +315,19 @@ function anchorDownload(filename, data) {
 
 /* ================= libraries ================= */
 const libCache = {};
+/* промис, который отклоняется по таймауту: зависший запрос к CDN не должен держать файл в статусе «разбор» */
+function withTimeout(p, ms, msg) {
+  let t;
+  return Promise.race([p, new Promise((_, reject) => { t = setTimeout(() => reject(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
+}
 function loadScriptFrom(url) {
-  return new Promise((resolve, reject) => {
+  return withTimeout(new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = url; s.async = true;
     s.onload = () => resolve();
     s.onerror = () => { s.remove(); reject(new Error('load failed: ' + url)); };
     document.head.append(s);
-  });
+  }), 20000, 'load timeout: ' + url);
 }
 function lib(name) {
   if (!libCache[name]) {
@@ -361,13 +368,33 @@ function htmlToText(html) {
   walk(doc.body);
   return out.join('\n\n');
 }
-async function parsePdf(buf) {
+/* OCR: распознавание текста с картинок и сканов. Движок грузится один раз на файл и закрывается в конце разбора */
+const OCR_LIMIT = 40;          // страниц сканов и картинок из одного файла
+const OCR_MIN_BYTES = 4096;    // меньше — значки и иконки, их не распознаём
+const OCR_MIN_CHARS = 40;      // страница с меньшим текстовым слоем считается сканом
+const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
+let ocrWorker = null;
+/* языковые данные (rus+eng) весят десятки МБ и грузятся при первом запуске: даём им время, но не бесконечно */
+async function ocrRecognize(src) {
+  await lib('tesseract');
+  if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
+  if (!ocrWorker) ocrWorker = await withTimeout(window.Tesseract.createWorker('rus+eng'), 180000, 'OCR: не загрузились языковые данные');
+  try {
+    const r = await withTimeout(ocrWorker.recognize(src), 120000, 'OCR: страница распознаётся слишком долго');
+    return (r.data.text || '').trim();
+  } catch (e) { await ocrDone(); throw e; }   // зависший воркер закрываем, следующая страница получит новый
+}
+async function ocrDone() {
+  if (ocrWorker) { const w = ocrWorker; ocrWorker = null; await w.terminate(); }
+}
+async function parsePdf(buf, onProgress) {
   await lib('pdf');
   await lib('pdfWorker');
   const pdfjs = window.pdfjsLib;
   if (!pdfjs) throw new Error('Библиотека PDF не загрузилась.');
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableFontFace: true }).promise;
   const pages = [];
+  let scanned = 0, failed = 0;
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const tc = await page.getTextContent();
@@ -381,9 +408,31 @@ async function parsePdf(buf) {
       lastX = x + (it.width || 0); lastY = y;
       if (it.hasEOL) { s += '\n'; lastX = null; }
     }
-    pages.push(`--- Страница ${p} ---\n` + s.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim());
+    let text = s.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
+    if (text.replace(/\s/g, '').length < OCR_MIN_CHARS && scanned < OCR_LIMIT) {
+      // скан без текстового слоя: страница рисуется в картинку и распознаётся
+      const vp = page.getViewport({ scale: 2 });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      onProgress?.(`OCR: страница ${p} из ${doc.numPages}`);
+      const t = await ocrRecognize(canvas).catch(() => null);
+      if (t === null) failed++; else { text = t; scanned++; }
+    }
+    pages.push(`--- Страница ${p} ---\n` + text);
   }
-  return { text: pages.join('\n\n'), pages: doc.numPages };
+  return { text: pages.join('\n\n'), pages: doc.numPages, scanned, failed };
+}
+/* распознаёт растровые картинки из DOCX; значки меньше OCR_MIN_BYTES и векторные форматы пропускаются */
+async function ocrImages(pics) {
+  const out = [];
+  for (const p of pics) {
+    if (out.length >= OCR_LIMIT) break;
+    if (!RASTER_TYPES.includes(p.type) || p.b64.length * 0.75 < OCR_MIN_BYTES) continue;
+    const t = await ocrRecognize(`data:${p.type};base64,${p.b64}`);
+    if (t) out.push(t);
+  }
+  return out;
 }
 async function parseSheet(buf) {
   await lib('xlsx');
@@ -477,19 +526,32 @@ async function parseSpec(ext, buf) {
   if (ext === 'json' && spec !== null) return { text: raw };   // обычный JSON без OpenAPI — как текст
   throw new Error('Это не спецификация OpenAPI или Swagger: в файле нет поля openapi или swagger');
 }
-async function parseFile(file) {
+async function parseFile(file, onProgress) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   const buf = await file.arrayBuffer();
   if (['txt', 'md', 'markdown', 'csv'].includes(ext)) return { text: decodeText(buf) };
   if (['json', 'yaml', 'yml'].includes(ext)) return parseSpec(ext === 'yml' ? 'yaml' : ext, buf);
   if (ext === 'docx') {
     await lib('mammoth');
-    const r = await window.mammoth.convertToHtml({ arrayBuffer: buf });
-    return { text: htmlToText(r.value) };
+    const pics = [];   // картинки достаём из документа, текст с них распознаём отдельно
+    const r = await window.mammoth.convertToHtml({
+      arrayBuffer: buf,
+      convertImage: window.mammoth.images.imgElement(async (image) => {
+        pics.push({ type: image.contentType, b64: await image.read('base64') });
+        return { src: '' };
+      }),
+    });
+    let ocr = [];
+    try { ocr = await ocrImages(pics); } catch { ocr = null; } finally { await ocrDone(); }
+    const text = htmlToText(r.value) + (ocr || []).map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join('');
+    const warn = ocr === null ? 'Картинки в документе не распознаны: не загрузился движок OCR' : ocr.length ? `Текст с ${ocr.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
+    return { text, warn };
   }
   if (ext === 'pdf') {
-    const r = await parsePdf(buf);
-    const warn = r.text.replace(/--- Страница \d+ ---/g, '').trim().length < 40 * r.pages ? 'Мало текста — возможно, это скан без текстового слоя' : '';
+    let r;
+    try { r = await parsePdf(buf, onProgress); } finally { await ocrDone(); }
+    const dense = r.text.replace(/--- Страница \d+ ---/g, '').trim().length < OCR_MIN_CHARS * r.pages;
+    const warn = r.failed ? 'Часть страниц-сканов не распознана: не загрузился движок OCR' : r.scanned ? `Распознано страниц-сканов: ${r.scanned} — проверьте, что текст прочитан верно` : dense ? 'Мало текста — возможно, это скан без текстового слоя' : '';
     return { text: r.text, warn };
   }
   if (ext === 'xlsx' || ext === 'xls') return { text: await parseSheet(buf) };
@@ -508,8 +570,8 @@ function addFiles(files) {
     S.docs.push(d);
     // в генерации и актуализации загруженный документ идёт в запуск (и, как всегда, сохраняется в продукт и базу знаний)
     if (forRun()) S.runDocs.add(d.id);
-    parseFile(f).then((r) => {
-      d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
+    parseFile(f, (msg) => { d.progress = msg; renderDocs(); }).then((r) => {
+      d.progress = ''; d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
       d.status = d.chars ? 'ready' : 'error';
       if (!d.chars) d.error = 'В файле не найден текст';
       if (r.openapi) { d.openapi = true; rawSpecs.set(d.id, r.raw); }

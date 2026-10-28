@@ -401,7 +401,7 @@ def test_checklist_shows_groups_and_items(checklist):
 
 def test_checklist_filter_chips(checklist):
     chips = checklist.page.eval_on_selector_all('.toolbar:not(.scope-sw) .fchip', "els => els.map((e) => e.innerText.replace(/\\s+/g, ' '))")
-    assert chips == ['Все 4', 'API 2', 'UI 2', 'Смоук 2', 'Регресс 4']
+    assert chips == ['Все 4', 'API 2', 'UI 2', 'Смоук 2', 'Регресс 2']   # средние без смоука в регресс не входят
     checklist.page.click('[data-act=cl-fsuite][data-s=smoke]')
     assert [i for i, _ in cl_texts(checklist)] == ['CL-001', 'CL-003']
     checklist.page.click('[data-act=cl-ftype][data-t=api]')
@@ -410,7 +410,8 @@ def test_checklist_filter_chips(checklist):
 
 def test_checklist_suite_toggle(checklist):
     checklist.page.click('[data-act=cl-suite][data-id=CL-002][data-s=smoke]')
-    assert checklist.state("S.run.checklist.groups[0].items[1].suites") == ['smoke', 'regression']
+    # средний пункт после генерации без наборов; ручная отметка «Смоук» сохраняется как выбрал пользователь
+    assert checklist.state("S.run.checklist.groups[0].items[1].suites") == ['smoke']
     assert checklist.text('[data-act=cl-fsuite][data-s=smoke] .n') == '3'
 
 
