@@ -384,7 +384,7 @@ def test_read_only_folder(make_app):
     assert app.state('S.ctx.files.size') == 8
     app.call('(a.S.cfg.rules = "ПОПЫТКА", a.S.cfgDirty.rules = true, a.saveCfg("rules"))')
     assert any('только для чтения' in t for t in app.toast_texts())
-    assert 'Выбрать папку заново' in app.text('#ctx-body') and 'Выгрузить' not in app.text('#ctx-body')
+    assert 'Выбрать папку заново' in app.text('#ctx-body') and 'Записать всё из QA pro в папку' not in app.text('#ctx-body')
 
 
 # ---------- разбор файлов ----------

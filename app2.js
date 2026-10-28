@@ -1407,6 +1407,7 @@ async function runAgent() {
   stopFollow(); cancelResumeCountdown();
   if (S.ctxDirty && S.productId) saveProductCtx();
   const run = S.run = newRun();
+  run.uploadedChecklist = S.uploadedChecklist ? structuredClone(S.uploadedChecklist.groups) : null;   // загруженный чек-лист — основа кейсов
   S.caseUI.clear(); S.reqOpen.clear(); S.filter = { type: 'all', suite: 'all', q: '' }; S.clFilter = { type: 'all', suite: 'all' }; S.clEdit = null; S.exp = null;
   S.tab = 'agent';
   executeRun(run, false);
@@ -1455,7 +1456,8 @@ async function pipeline(run) {
     run.requirements = []; run.reqById = {}; run.questions = [];
     await stepAnalyze(run, docs, types);
   } else indexReqs(run);
-  if (out.checklist) { if (!stepComplete(run, 'checklist')) { run.counters.cl = run.baseCounters?.cl || 0; await stepChecklist(run); } }
+  if (run.uploadedChecklist) { if (!stepComplete(run, 'checklist')) loadUploadedChecklist(run); }
+  else if (out.checklist) { if (!stepComplete(run, 'checklist')) { run.counters.cl = run.baseCounters?.cl || 0; await stepChecklist(run); } }
   else skipStep(run, 'checklist');
   if (run.mode === 'update') {
     if (!stepComplete(run, 'map') || srcPending(run, 'mapped')) await stepMap(run);
@@ -1644,6 +1646,67 @@ function capChecklist(groups, n) {
   const out = groups.map((g) => ({ ...g, items: g.items.filter((it) => keep.has(it)).sort((a, b) => clRank(a) - clRank(b)) })).filter((g) => g.items.length);
   return { groups: out, total: all.length };
 }
+// чек-лист из файла: поля пунктов как в выгрузке QA pro; пункты попадают в запуск, из них пишутся тест-кейсы
+function normUploadedChecklist(j) {
+  const groups = arrOf(j?.groups).map((g) => ({ title: String(g?.title || 'Проверки').trim() || 'Проверки', items: arrOf(g?.items).map((it) => ({ check: String(it?.check || it?.title || '').trim(), expected: String(it?.expected || '').trim(), kind: it?.kind, type: String(it?.type || '').toLowerCase(), priority: it?.priority, suites: it?.suites, requirementIds: it?.requirementIds })).filter((it) => it.check) })).filter((g) => g.items.length);
+  if (!groups.length) throw new Error('в файле нет пунктов чек-листа');
+  return groups;
+}
+// чтение файла чек-листа: JSON (как выгрузка), Markdown и DOCX с таблицей выгрузки (№, Название, Приоритет, Компонент, Ожидаемый результат)
+const CL_PRIO_BY_RU = { 'критический': 'P4_CRITICAL', 'высокий': 'P3_HIGH', 'средний': 'P2_MEDIUM', 'низкий': 'P1_LOW' };
+const CL_TYPE_BY_COMP = { BE: 'api', FE: 'ui', E2E: 'e2e' };
+function checklistFromRows(rows, title) {
+  let hdr = null; const items = [];
+  for (const row of rows) {
+    const cells = row.map((c) => String(c || '').trim());
+    if (cells.includes('Название')) { hdr = Object.fromEntries(cells.map((c, k) => [c, k])); continue; }
+    if (!hdr) continue;
+    const g = (name) => (hdr[name] !== undefined ? cells[hdr[name]] || '' : '');
+    const check = g('Название');
+    if (!check) continue;
+    items.push({ check, expected: g('Ожидаемый результат'), kind: 'positive', type: CL_TYPE_BY_COMP[g('Компонент').toUpperCase()] || 'ui', priority: CL_PRIO_BY_RU[g('Приоритет').toLowerCase()] || 'P2_MEDIUM', suites: [], requirementIds: [] });
+  }
+  return items.length ? [{ title, items }] : [];
+}
+function mdTableRows(text) {
+  return String(text || '').split('\n').filter((l) => l.trim().startsWith('|') && !/^\|\s*:?-{3,}/.test(l.trim())).map((l) => l.trim().split('|').slice(1, -1).map((c) => c.replace(/\\\|/g, '|').trim()));
+}
+function mdBulletItems(text) {
+  const items = String(text || '').split('\n').map((l) => l.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/)).filter(Boolean).map((m) => ({ check: m[1].trim(), expected: '', kind: 'positive', type: 'ui', priority: 'P2_MEDIUM', suites: [], requirementIds: [] }));
+  return items.length ? [{ title: 'Проверки', items }] : [];
+}
+function htmlTableRows(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return [...doc.querySelectorAll('table tr')].map((tr) => [...tr.children].map((td) => td.textContent || ''));
+}
+async function readChecklistFile(f) {
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  const title = f.name.replace(/\.[^.]+$/, '') || 'Проверки';
+  if (ext === 'json') return normUploadedChecklist(JSON.parse(await f.text()));
+  if (ext === 'md' || ext === 'markdown') {
+    const text = await f.text();
+    return normUploadedChecklist({ groups: checklistFromRows(mdTableRows(text), title).concat(mdBulletItems(text)).slice(0, 1) });
+  }
+  if (ext === 'docx') {
+    await lib('mammoth');
+    const r = await window.mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() });
+    return normUploadedChecklist({ groups: checklistFromRows(htmlTableRows(r.value), title) });
+  }
+  if (ext === 'doc') throw new Error('формат .doc не поддерживается — сохраните файл как .docx');
+  throw new Error('неподдерживаемый формат: .' + ext);
+}
+function loadUploadedChecklist(run) {
+  sstart(run, 'checklist');
+  run.counters.cl = run.baseCounters?.cl || 0;
+  run.checklist = { groups: [] };
+  let n = 0;
+  for (const g of run.uploadedChecklist) {
+    const items = g.items.map((it) => normChecklistItem(run, it, run.settings.types)).filter((it) => it.check);
+    if (items.length) { addChecklistGroup(run, g.title, items); n += items.length; }
+  }
+  slog(run, 'checklist', `Чек-лист загружен из файла: ${n} ${plural(n, 'пункт', 'пункта', 'пунктов')}`, n ? 'ok' : 'warn');
+  send(run, 'checklist', n ? 'done' : 'error');
+}
 function addChecklistGroup(run, title, items) {
   run.checklist = run.checklist || { groups: [] };
   const key = normKey(title);
@@ -1711,7 +1774,7 @@ function capChecks(items, n) {
    в начале проверки («CL-012 · …»), по нему кейс связывается с пунктом. */
 const clCheckText = (i) => `${i.id} · ${i.check}${i.expected ? `. Ожидаемый результат: ${i.expected}` : ''} (приоритет: ${PRIO_RU[normPrio(i.priority)].toLowerCase()}, ${i.kind === 'negative' ? 'негативная' : 'позитивная'})`;
 const clIdOf = (check) => (/^(CL-\d+) · /.exec(String(check || '')) || [])[1] || '';
-const planFromChecklistOn = (run) => run.mode !== 'update' && !!outputsOf(run).checklist && checklistItems(run).some((i) => i.check);
+const planFromChecklistOn = (run) => run.mode !== 'update' && (!!outputsOf(run).checklist || !!run.uploadedChecklist) && checklistItems(run).some((i) => i.check);
 function planFromChecklist(run, types) {
   sstart(run, 'plan');
   const items = [];

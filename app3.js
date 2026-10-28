@@ -410,6 +410,14 @@ function renderApiHint() {
   if (!hasSpec) hint.textContent = API_HINT_NO_SPEC;
   else if (cur === API_HINT_NO_SPEC || cur.startsWith('Для спецификации')) hint.textContent = API_HINT_SPEC;
 }
+// виджет «Чек-лист»: загруженный файл, из которого пишутся тест-кейсы
+function renderUploadedChecklist() {
+  const el = $('#cl-upload-info'); if (!el) return;
+  const u = S.uploadedChecklist;
+  el.innerHTML = u
+    ? `Чек-лист «${esc(u.name)}»: ${u.n} ${plural(u.n, 'пункт', 'пункта', 'пунктов')}. Тест-кейсы будут написаны по его пунктам, документы — контекстом. <button class="link" type="button" id="cl-upload-clear">Убрать</button>`
+    : 'Если загрузить чек-лист, сохранённый из QA pro (JSON, Markdown или DOCX), тест-кейсы будут написаны по его пунктам с опорой на документы.';
+}
 function renderRunControls() {
   const run = $('#btn-run'), stop = $('#btn-stop'), note = $('#run-note'), rev = $('#btn-review');
   run.hidden = S.running; stop.hidden = !S.running;
@@ -2779,6 +2787,25 @@ function bind() {
   });
   // run
   $('#btn-run').addEventListener('click', runAgent);
+  const clu = $('#cl-upload');
+  if (clu) {
+    clu.addEventListener('change', async () => {
+      const f = clu.files?.[0]; if (!f) return;
+      try {
+        const groups = await readChecklistFile(f);
+        S.uploadedChecklist = { name: f.name, groups, n: groups.reduce((a, g) => a + g.items.length, 0) };
+      } catch (err) {
+        S.uploadedChecklist = null; clu.value = '';
+        toast('Не удалось прочитать чек-лист: ' + (err.message || 'неверный формат'), 'err');
+      }
+      renderUploadedChecklist();
+    });
+    $('#cl-upload-info')?.addEventListener('click', (e) => {
+      if (e.target.id !== 'cl-upload-clear') return;
+      S.uploadedChecklist = null; clu.value = ''; renderUploadedChecklist();
+    });
+    renderUploadedChecklist();
+  }
   const af = $('#api-filter');
   if (af) {
     af.value = S.settings.apiFilter || '';
