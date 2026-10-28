@@ -28,8 +28,15 @@ function normSuites(v) {
   }
   return SUITES.filter((s) => out.has(s));
 }
-/* проверка с приоритетом P4_CRITICAL всегда входит в смоук и в регресс (код, а не просьба модели) */
-const withCritical = (prio, suites) => (normPrio(prio) === 'P4_CRITICAL' ? [...SUITES] : suites);
+/* наборы по приоритету (код, а не просьба модели): P4 — всегда смоук и регресс; P1 — не входит ни в один набор;
+   P2 — только если отмечен смоук (в регресс попадают наиболее важные средние проверки); P3 — как предложила модель */
+const withCritical = (prio, suites) => {
+  const p = normPrio(prio);
+  if (p === 'P4_CRITICAL') return [...SUITES];
+  if (p === 'P1_LOW') return [];
+  if (p === 'P2_MEDIUM') return suites.includes('smoke') ? [...SUITES] : [];
+  return suites;
+};
 function indexReqs(run) { run.reqById = Object.fromEntries(run.requirements.map((r) => [r.id, r])); }
 function hash(str) {
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
