@@ -34,7 +34,7 @@ function etalonAddFiles(list) {
     const ext = (f.name.split('.').pop() || '').toLowerCase();
     const x = { id: rid('e'), name: f.name, ext, status: 'parsing', text: '', chars: 0, error: '' };
     S.etalon.files.push(x);
-    parseFile(f).then((res) => { x.text = String(res.text || '').trim(); x.chars = x.text.length; x.status = x.chars ? 'ready' : 'error'; if (!x.chars) x.error = 'В файле не найден текст'; })
+    parseFile(f).then(async (res) => { if (res.ocr) res = await res.ocr(); x.text = String(res.text || '').trim(); x.chars = x.text.length; x.status = x.chars ? 'ready' : 'error'; if (!x.chars) x.error = 'В файле не найден текст'; })
       .catch((e) => { x.status = 'error'; x.error = e.message || String(e); })
       .finally(renderEtalon);
   }

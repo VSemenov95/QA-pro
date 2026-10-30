@@ -29,7 +29,7 @@ def test_economy_is_off_by_default(app):
 
 def test_hint_describes_what_economy_does_in_generation(app):
     toggle(app)
-    assert hint(app) == 'Включён: быстрая модель для сверки кейсов и знаний о продукте, меньше знаний и фрагментов ТЗ в каждом запросе, без поиска по документам.'
+    assert hint(app) == 'Включён: быстрая модель для сверки кейсов и знаний о продукте, меньше знаний в каждом запросе, без поиска по документам.'
 
 
 def test_hint_describes_what_economy_does_in_knowledge_base(app):

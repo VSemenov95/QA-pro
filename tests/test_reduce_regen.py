@@ -555,18 +555,28 @@ def test_prompt_has_requirements_and_target(with_spec):
     assert 'R-003 «Сквозное восстановление»' in p and re.search(r'(?<!\d)2 (штук|кейсов)', p)
 
 
-def test_prompt_documentation_is_limited(draft, tmp_path):
-    """Большой документ обрезается до выдержек, близких к требованиям и кейсам (не больше 60 000 знаков на все документы)."""
-    filler = '\n'.join(f'Зебра номер {i} пасётся на лугу' for i in range(4000))
+def _reduce_doc(draft, tmp_path, lines):
+    filler = '\n'.join(f'Зебра номер {i} пасётся на лугу' for i in range(lines))
     text = filler[:len(filler) // 2] + '\nЛимит запросов на сброс пароля — не более 3 за 15 минут\n' + filler[len(filler) // 2:]
     draft.page.click('#btn-newses')
     draft.upload(files.write(tmp_path / 'большой.md', text))
     draft.generate()
     p = reduce_prompt(draft)
-    doc = p.split('### Документ «большой.md»', 1)[1].split('\n\n## Кейсы', 1)[0]
-    assert len(text) > 120000 and len(doc) <= 60000
+    return text, p.split('### Документ «большой.md»', 1)[1].split('\n\n## Кейсы', 1)[0]
+
+
+def test_prompt_documentation_is_whole(draft, tmp_path):
+    """Документы, которые помещаются в контекст модели (до 300 000 знаков), идут в запрос сокращения целиком."""
+    text, doc = _reduce_doc(draft, tmp_path, 4000)
+    assert len(text) > 120000 and doc.count('Зебра') == 4000
     assert 'Лимит запросов на сброс пароля — не более 3 за 15 минут' in doc
-    assert doc.count('Зебра') < 4000
+
+
+def test_prompt_documentation_over_context_is_limited(draft, tmp_path):
+    """Сверх 300 000 знаков — выдержки, близкие к требованиям и кейсам."""
+    text, doc = _reduce_doc(draft, tmp_path, 11000)
+    assert len(text) > 300000 and len(doc) <= 300000 and doc.count('Зебра') < 11000
+    assert 'Лимит запросов на сброс пароля — не более 3 за 15 минут' in doc
 
 
 def test_select_finds_a_cover_when_greedy_takes_too_many(app):

@@ -150,3 +150,50 @@ def openapi_spec(tmp_path, name='auth-api.json', yaml=False):
         text = '# OpenAPI\n' + j.dumps(spec, ensure_ascii=False, indent=2)   # JSON — корректный YAML
         return write(os.path.join(str(tmp_path), name.replace('.json', '.yaml')), text)
     return write(os.path.join(str(tmp_path), name), _json.dumps(spec, ensure_ascii=False, indent=1))
+
+
+def pdf_with_screens(tmp_path, name='ТЗ-со-скриншотами.pdf', pages=None):
+    """PDF без сторонних библиотек: страницы с текстовым слоем и вставленными картинками.
+    pages — список страниц, страница — (текст, [(ширина, высота, (r, g, b)), ...]); картинка — сплошной цвет, одинаковые — один объект."""
+    pages = pages or [
+        ('Section 1. Login form: the user enters email and password and presses Sign in. ' * 3, [(240, 160, (200, 30, 30))]),
+        ('Section 2. Profile screen shows the name, avatar and the Save button. ' * 3, [(240, 160, (200, 30, 30)), (240, 160, (20, 150, 60)), (24, 24, (0, 0, 255))]),
+    ]
+    imgs = {}
+    for _, pics in pages:
+        for p in pics:
+            imgs.setdefault(p, None)
+    objs = []   # тела объектов, номер = индекс + 1
+
+    def add(body):
+        objs.append(body)
+        return len(objs)
+    font = add(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    for (w, h, rgb) in list(imgs):
+        data = bytes(rgb) * (w * h)
+        imgs[(w, h, rgb)] = add(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length %d >>\nstream\n' % (w, h, len(data)) + data + b'\nendstream')
+    page_ids = []
+    for k, (text, pics) in enumerate(pages):
+        lines = [text[i:i + 80] for i in range(0, len(text), 80)]   # длинный текст — строками по ширине страницы
+        draw = b'BT /F1 12 Tf 14 TL 72 760 Td ' + b' '.join(b'(' + s.encode('latin-1') + b') Tj T*' for s in lines) + b' ET\n'
+        y = 560
+        for n, p in enumerate(pics):
+            draw += b'q %d 0 0 %d 72 %d cm /Im%d Do Q\n' % (p[0], p[1], y, n)
+            y -= p[1] + 20
+        content = add(b'<< /Length %d >>\nstream\n' % len(draw) + draw + b'endstream')
+        xo = b' '.join(b'/Im%d %d 0 R' % (n, imgs[p]) for n, p in enumerate(pics))
+        page_ids.append(add(b'<< /Type /Page /Parent PARENT /MediaBox [0 0 612 792] /Contents %d 0 R /Resources << /Font << /F1 %d 0 R >> /XObject << %s >> >> >>' % (content, font, xo)))
+    parent = add(b'<< /Type /Pages /Kids [%s] /Count %d >>' % (b' '.join(b'%d 0 R' % i for i in page_ids), len(page_ids)))
+    objs[:] = [o.replace(b'PARENT', b'%d 0 R' % parent) for o in objs]
+    root = add(b'<< /Type /Catalog /Pages %d 0 R >>' % parent)
+    out, offs = bytearray(b'%PDF-1.4\n'), []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b'%d 0 obj\n' % i + o + b'\nendobj\n'
+    xref = len(out)
+    out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % x for x in offs)
+    out += b'trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%EOF\n' % (len(objs) + 1, root, xref)
+    p = os.path.join(tmp_path, name)
+    with open(p, 'wb') as f:
+        f.write(bytes(out))
+    return p

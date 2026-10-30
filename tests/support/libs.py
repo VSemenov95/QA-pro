@@ -41,7 +41,7 @@ def ensure():
         try:
             os.makedirs(d, exist_ok=True)
             with tempfile.TemporaryDirectory() as tmp:
-                out = subprocess.run(['npm', 'pack', pkg, '--silent'], cwd=tmp, capture_output=True, text=True, timeout=180)
+                out = subprocess.run([shutil.which('npm') or 'npm', 'pack', pkg, '--silent'], cwd=tmp, capture_output=True, text=True, timeout=180)
                 tgz = os.path.join(tmp, out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
                 if not tgz or not os.path.exists(tgz):
                     raise RuntimeError(out.stderr[-300:])
@@ -53,7 +53,14 @@ def ensure():
     return ok
 
 
+# заглушки вместо тяжёлых библиотек (OCR тянет десятки МБ языковых данных)
+STUBS = {'tesseract.js@5.1.1/dist/tesseract.min.js': os.path.join(HERE, 'support', 'tesseract_stub.js')}
+
+
 def local_file(url):
+    for key, path in STUBS.items():
+        if key in url:
+            return path
     for key, (pkg, rel) in LIBS.items():
         if key in url:
             p = os.path.join(_dir(pkg), 'package', rel)

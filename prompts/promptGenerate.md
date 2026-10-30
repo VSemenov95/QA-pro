@@ -19,7 +19,7 @@
 - ⟦SUITES_RULE⟧
 - Язык — русский, кроме кода, путей, имён полей и значений из документации.
 
-Формат ответа: {"cases":[{"planItem":"P-01","requirementIds":["R-001"],"suites":["regression"],"testCase":{ ...объект строго по образцу шаблона... }}]}⟦CACHE_MARK⟧
+Формат ответа: {"cases":[{"planItem":"P-01","requirementIds":["R-001"],"suites":["regression"],"testCase":{ ...объект строго по образцу шаблона... }}]}⟦DOCS⟧⟦CACHE_MARK⟧
 ## Что покрыть
 ⟦e12⟧
 ⟦e13⟧⟦e14⟧⟦e15⟧⟦e16⟧

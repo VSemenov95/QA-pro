@@ -42,8 +42,8 @@ const STAGES = [
 ];
 // какой этап использует шаг запроса (шаг — поле step у ask)
 const STAGE_OF_STEP = { cover: 'generate', trace: 'analyze', defect: 'analyze', analyze: 'analyze', checklist: 'analyze', plan: 'analyze', map: 'analyze', generate: 'generate', gen_api: 'generate', gen_ui: 'generate', gen_e2e: 'generate', coverage: 'generate', actualize: 'generate', refine: 'generate', answers: 'generate', fix: 'generate', review: 'review', etalon: 'analyze', knowledge: 'aux', kb: 'aux', help: 'aux', lesson: 'aux', export: 'aux', other: 'aux' };
-const CHUNK = 24000;          // знаков на один вызов анализа
-const FULLDOC_LIMIT = 15000;  // до этого объёма документы целиком идут в генерацию
+const CHUNK = 24000;          // знаков, из которых один вызов анализа выделяет требования (весь текст документов он видит целиком)
+const DOCS_FULL_MAX = 300000; // до этого объёма документы целиком идут в каждый запрос; больше не помещается в контекст модели — фрагменты по теме и поиск
 const CONCURRENCY = 2;
 const STEPS = [
   { id: 'parse', title: 'Разбор документов', desc: 'Текст извлекается из DOCX, PDF, XLSX, CSV, TXT и MD прямо в браузере — файлы никуда не загружаются.' },
@@ -382,34 +382,136 @@ function htmlToText(html) {
   walk(doc.body);
   return out.join('\n\n');
 }
-/* OCR: распознавание текста с картинок и сканов. Движок грузится один раз на файл и закрывается в конце разбора */
-const OCR_LIMIT = 40;          // страниц сканов и картинок из одного файла
-const OCR_MIN_BYTES = 4096;    // меньше — значки и иконки, их не распознаём
+/* OCR: распознавание текста со скриншотов, картинок и сканов. Распознаём в несколько потоков; движки живут между файлами
+   и закрываются, когда простаивают. Распознанное запоминается по содержимому картинки — тот же скриншот второй раз не распознаётся */
+const OCR_LIMIT = 60;          // скриншотов, картинок и сканов из одного файла
+const OCR_MIN_BYTES = 4096;    // картинки DOCX меньше этого — значки и иконки, их не распознаём
+const OCR_MIN_PX = 20000;      // то же для картинок PDF: меньше ~140×140 точек — значки, линии, маркеры
 const OCR_MIN_CHARS = 40;      // страница с меньшим текстовым слоем считается сканом
+const OCR_BG_MIN = 300;        // документ с меньшим текстом (почти весь — сканы) ждёт распознавания, а не уходит в фон
+const OCR_THREADS = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+const OCR_IDLE_MS = 90000;     // простаивающие движки закрываются: каждый держит в памяти десятки МБ
 const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
-let ocrWorker = null;
+const ocrPool = { idle: [], n: 0, wait: [], timer: null };
 /* языковые данные (rus+eng) весят десятки МБ и грузятся при первом запуске: даём им время, но не бесконечно */
-async function ocrRecognize(src) {
-  await lib('tesseract');
-  if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
-  if (!ocrWorker) ocrWorker = await withTimeout(window.Tesseract.createWorker('rus+eng'), 180000, 'OCR: не загрузились языковые данные');
+async function ocrTake() {
+  clearTimeout(ocrPool.timer);
+  if (ocrPool.idle.length) return ocrPool.idle.pop();
+  if (ocrPool.n >= OCR_THREADS) return new Promise((res, rej) => ocrPool.wait.push({ res, rej }));
+  ocrPool.n++;
   try {
-    const r = await withTimeout(ocrWorker.recognize(src), 120000, 'OCR: страница распознаётся слишком долго');
+    await lib('tesseract');
+    if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
+    return await withTimeout(window.Tesseract.createWorker('rus+eng'), 180000, 'OCR: не загрузились языковые данные');
+  } catch (e) { ocrPool.n--; ocrNext(); throw e; }
+}
+// освободившийся движок — следующему в очереди; без очереди он простаивает до OCR_IDLE_MS
+function ocrGive(w) {
+  const next = ocrPool.wait.shift();
+  if (next) return next.res(w);
+  ocrPool.idle.push(w);
+  clearTimeout(ocrPool.timer);
+  ocrPool.timer = setTimeout(ocrDone, OCR_IDLE_MS);
+}
+// движок закрыт с ошибкой — ждущему создаётся новый
+function ocrNext() { const next = ocrPool.wait.shift(); if (next) ocrTake().then(next.res, next.rej); }
+async function ocrRecognize(src) {
+  const w = await ocrTake();
+  try {
+    const r = await withTimeout(w.recognize(src), 120000, 'OCR: картинка распознаётся слишком долго');
+    ocrGive(w);
     return (r.data.text || '').trim();
-  } catch (e) { await ocrDone(); throw e; }   // зависший воркер закрываем, следующая страница получит новый
+  } catch (e) { ocrPool.n--; w.terminate().catch(() => {}); ocrNext(); throw e; }   // зависший движок закрываем
 }
 async function ocrDone() {
-  if (ocrWorker) { const w = ocrWorker; ocrWorker = null; await w.terminate(); }
+  clearTimeout(ocrPool.timer);
+  const ws = ocrPool.idle.splice(0);
+  ocrPool.n -= ws.length;
+  await Promise.all(ws.map((w) => w.terminate().catch(() => {})));
 }
+/* ключ картинки по её байтам (cyrb53): одинаковые скриншоты в файле и между файлами дают один ключ */
+function bytesKey(u8) {
+  let h1 = 0xdeadbeef ^ u8.length, h2 = 0x41c6ce57 ^ u8.length;
+  for (let i = 0; i < u8.length; i++) { const c = u8[i]; h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 'o' + (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36) + u8.length.toString(36);
+}
+/* распознанный текст хранится в браузере: старые записи вытесняются первыми (Map хранит порядок вставки) */
+const OCR_CACHE_KEY = 'qapro.ocrCache', OCR_CACHE_MAX = 600000;   // знаков распознанного текста
+let ocrCache = null;
+const ocrCacheMap = () => (ocrCache ||= new Map(Object.entries(lsGet(OCR_CACHE_KEY, {}))));
+function ocrCacheGet(k) {
+  const m = ocrCacheMap(), v = m.get(k);
+  if (v === undefined) return null;
+  m.delete(k); m.set(k, v);
+  return v;
+}
+function ocrCachePut(k, t) {
+  const m = ocrCacheMap();
+  m.delete(k); m.set(k, t);
+  let size = 0;
+  for (const v of m.values()) size += v.length;
+  for (const key of m.keys()) { if (size <= OCR_CACHE_MAX) break; size -= m.get(key).length; m.delete(key); }
+  lsSet(OCR_CACHE_KEY, Object.fromEntries(m));
+}
+/* распознаёт картинки в несколько потоков; уже распознанные берутся из памяти браузера. В texts — null, если картинка не распознана */
+async function ocrRun(jobs, onProgress) {
+  const texts = new Array(jobs.length).fill('');
+  let done = 0, failed = 0;
+  await pool(jobs, OCR_THREADS, async (j, i) => {
+    const hit = ocrCacheGet(j.key);
+    if (hit !== null) texts[i] = hit;
+    else {
+      try { texts[i] = await ocrRecognize(await j.src()); ocrCachePut(j.key, texts[i]); }
+      catch { texts[i] = null; failed++; }
+    }
+    onProgress?.(`скриншоты: распознано ${++done} из ${jobs.length}`);
+  });
+  return { texts, failed };
+}
+/* картинка PDF → холст: pdf.js отдаёт точки в одном из трёх форматов (ImageKind) */
+function pdfImgCanvas(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const ctx = c.getContext('2d');
+  if (img.bitmap) { ctx.drawImage(img.bitmap, 0, 0); return c; }
+  const n = img.width * img.height, d = img.data, px = new Uint8ClampedArray(n * 4);
+  if (img.kind === 3) px.set(d.subarray(0, n * 4));
+  else if (img.kind === 2) for (let i = 0, j = 0; i < n; i++, j += 3) { px[i * 4] = d[j]; px[i * 4 + 1] = d[j + 1]; px[i * 4 + 2] = d[j + 2]; px[i * 4 + 3] = 255; }
+  else {   // 1 бит на точку, строки выровнены по байту
+    const row = (img.width + 7) >> 3;
+    for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+      const v = (d[y * row + (x >> 3)] >> (7 - (x & 7))) & 1 ? 255 : 0, i = (y * img.width + x) * 4;
+      px[i] = px[i + 1] = px[i + 2] = v; px[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(new ImageData(px, img.width, img.height), 0, 0);
+  return c;
+}
+const pdfObj = (page, id) => new Promise((res) => {
+  setTimeout(() => res(null), 5000);
+  try { (id.startsWith('g_') ? page.commonObjs : page.objs).get(id, res); } catch { res(null); }
+});
+async function pdfRender(page) {
+  const vp = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  return canvas;
+}
+/* PDF: текстовый слой страниц сразу; страницы-сканы и скриншоты на страницах с текстом — задания OCR, их выполняет finish.
+   Скриншот, который повторяется (логотип в колонтитуле), распознаётся и попадает в текст один раз */
 async function parsePdf(buf, onProgress) {
   await lib('pdf');
   await lib('pdfWorker');
   const pdfjs = window.pdfjsLib;
   if (!pdfjs) throw new Error('Библиотека PDF не загрузилась.');
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableFontFace: true }).promise;
-  const pages = [];
-  let scanned = 0, failed = 0;
+  const fileKey = bytesKey(new Uint8Array(buf));   // до getDocument: pdf.js забирает буфер в свой поток
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableFontFace: true, isOffscreenCanvasSupported: false }).promise;
+  const OPS = pdfjs.OPS, pages = [], jobs = [], seen = new Set();
   for (let p = 1; p <= doc.numPages; p++) {
+    onProgress?.(`страница ${p} из ${doc.numPages}`);
     const page = await doc.getPage(p);
     const tc = await page.getTextContent();
     let s = '', lastX = null, lastY = null;
@@ -422,31 +524,59 @@ async function parsePdf(buf, onProgress) {
       lastX = x + (it.width || 0); lastY = y;
       if (it.hasEOL) { s += '\n'; lastX = null; }
     }
-    let text = s.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
-    if (text.replace(/\s/g, '').length < OCR_MIN_CHARS && scanned < OCR_LIMIT) {
-      // скан без текстового слоя: страница рисуется в картинку и распознаётся
-      const vp = page.getViewport({ scale: 2 });
-      const canvas = document.createElement('canvas');
-      canvas.width = vp.width; canvas.height = vp.height;
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-      onProgress?.(`OCR: страница ${p} из ${doc.numPages}`);
-      const t = await ocrRecognize(canvas).catch(() => null);
-      if (t === null) failed++; else { text = t; scanned++; }
+    const pg = { text: s.replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim(), shots: [] };
+    pages.push(pg);
+    if (jobs.length >= OCR_LIMIT) continue;
+    // скан без текстового слоя: страница рисуется в картинку и распознаётся целиком
+    if (pg.text.replace(/\s/g, '').length < OCR_MIN_CHARS) { jobs.push({ pg, scan: true, key: `${fileKey}:${p}`, src: () => pdfRender(page) }); continue; }
+    const ops = await page.getOperatorList();
+    for (let k = 0; k < ops.fnArray.length && jobs.length < OCR_LIMIT; k++) {
+      const fn = ops.fnArray[k];
+      if (fn !== OPS.paintImageXObject && fn !== OPS.paintInlineImageXObject) continue;
+      const img = fn === OPS.paintInlineImageXObject ? ops.argsArray[k][0] : await pdfObj(page, ops.argsArray[k][0]);
+      if (!img || img.width * img.height < OCR_MIN_PX) continue;
+      const key = img.data ? bytesKey(img.data) : `${fileKey}:${ops.argsArray[k][0]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      jobs.push({ pg, key, src: async () => pdfImgCanvas(img) });
     }
-    pages.push(`--- Страница ${p} ---\n` + text);
   }
-  return { text: pages.join('\n\n'), pages: doc.numPages, scanned, failed };
+  const compose = () => pages.map((pg, i) => `--- Страница ${i + 1} ---\n${pg.text}${pg.shots.map((t) => `\n\n[Текст со скриншота]\n${t}`).join('')}`).join('\n\n');
+  const base = { text: compose(), pages: doc.numPages, scanned: 0, shots: 0, failed: 0 };
+  if (!jobs.length) { doc.destroy(); return base; }
+  base.finish = async (onP) => {
+    try {
+      const r = await ocrRun(jobs, onP);
+      let scanned = 0, shots = 0;
+      jobs.forEach((j, i) => {
+        const t = r.texts[i];
+        if (!t) return;
+        if (j.scan) { j.pg.text = t; scanned++; } else { j.pg.shots.push(t); shots++; }
+      });
+      return { text: compose(), pages: doc.numPages, scanned, shots, failed: r.failed };
+    } finally { doc.destroy(); }
+  };
+  return base;
 }
-/* распознаёт растровые картинки из DOCX; значки меньше OCR_MIN_BYTES и векторные форматы пропускаются */
-async function ocrImages(pics) {
-  const out = [];
+/* картинки DOCX: задания OCR для растровых картинок крупнее значков; повторы — один раз */
+function docxJobs(pics) {
+  const jobs = [], seen = new Set();
   for (const p of pics) {
-    if (out.length >= OCR_LIMIT) break;
+    if (jobs.length >= OCR_LIMIT) break;
     if (!RASTER_TYPES.includes(p.type) || p.b64.length * 0.75 < OCR_MIN_BYTES) continue;
-    const t = await ocrRecognize(`data:${p.type};base64,${p.b64}`);
-    if (t) out.push(t);
+    const key = bytesKey(new TextEncoder().encode(p.b64));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    jobs.push({ key, src: async () => `data:${p.type};base64,${p.b64}` });
   }
-  return out;
+  return jobs;
+}
+const bareChars = (t) => t.replace(/--- Страница \d+ ---/g, '').replace(/\s/g, '').length;
+/* текст документа готов сразу, скриншоты распознаёт ocr — в фоне. Если текста почти нет (одни сканы), ждать всё равно нечего: распознаём сразу */
+function withOcr(base, ocr, onProgress) {
+  if (!ocr) return base;
+  if (bareChars(base.text) < OCR_BG_MIN) return ocr(onProgress);
+  return { ...base, ocr };
 }
 async function parseSheet(buf) {
   await lib('xlsx');
@@ -555,18 +685,21 @@ async function parseFile(file, onProgress) {
         return { src: '' };
       }),
     });
-    let ocr = [];
-    try { ocr = await ocrImages(pics); } catch { ocr = null; } finally { await ocrDone(); }
-    const text = htmlToText(r.value) + (ocr || []).map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join('');
-    const warn = ocr === null ? 'Картинки в документе не распознаны: не загрузился движок OCR' : ocr.length ? `Текст с ${ocr.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
-    return { text, warn };
+    const base = htmlToText(r.value), jobs = docxJobs(pics);
+    const ocr = async (onP) => {
+      const x = await ocrRun(jobs, onP), ts = x.texts.filter(Boolean);
+      const warn = x.failed ? `Не распознано картинок: ${x.failed} — не загрузился движок OCR` : ts.length ? `Текст с ${ts.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
+      return { text: base + ts.map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join(''), warn };
+    };
+    return withOcr({ text: base }, jobs.length ? ocr : null, onProgress);
   }
   if (ext === 'pdf') {
-    let r;
-    try { r = await parsePdf(buf, onProgress); } finally { await ocrDone(); }
-    const dense = r.text.replace(/--- Страница \d+ ---/g, '').trim().length < OCR_MIN_CHARS * r.pages;
-    const warn = r.failed ? 'Часть страниц-сканов не распознана: не загрузился движок OCR' : r.scanned ? `Распознано страниц-сканов: ${r.scanned} — проверьте, что текст прочитан верно` : dense ? 'Мало текста — возможно, это скан без текстового слоя' : '';
-    return { text: r.text, warn };
+    const r = await parsePdf(buf, onProgress);
+    const warnOf = (x) => (x.failed ? `Не распознано сканов и скриншотов: ${x.failed} — не загрузился движок OCR`
+      : x.scanned || x.shots ? `Распознан текст ${[x.scanned ? `страниц-сканов: ${x.scanned}` : '', x.shots ? `скриншотов: ${x.shots}` : ''].filter(Boolean).join(', ')} — проверьте, что прочитан верно`
+        : bareChars(x.text) < OCR_MIN_CHARS * x.pages ? 'Мало текста — возможно, это скан без текстового слоя' : '');
+    const ocr = r.finish && (async (onP) => { const x = await r.finish(onP); return { text: x.text, warn: warnOf(x) }; });
+    return withOcr({ text: r.text, warn: ocr ? '' : warnOf(r) }, ocr, onProgress);
   }
   if (ext === 'xlsx' || ext === 'xls') return { text: await parseSheet(buf) };
   if (ext === 'doc') throw new Error('Формат .doc не поддерживается — сохраните файл как .docx');
@@ -585,26 +718,39 @@ function addFiles(files) {
     // в генерации и актуализации загруженный документ идёт в запуск (и, как всегда, сохраняется в продукт и базу знаний)
     if (forRun()) S.runDocs.add(d.id);
     parseFile(f, (msg) => { d.progress = msg; renderDocs(); }).then((r) => {
-      d.progress = ''; d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
-      d.status = d.chars ? 'ready' : 'error';
-      if (!d.chars) d.error = 'В файле не найден текст';
+      docText(d, r);
       if (r.openapi) { d.openapi = true; rawSpecs.set(d.id, r.raw); }
+      if (r.ocr && d.status === 'ready') {
+        // текст уже можно смотреть и выбирать для запуска; скриншоты распознаются в фоне и дописываются в документ.
+        // В продукт и базу знаний документ уходит после распознавания — с полным текстом
+        d.ocr = 'скриншоты: жду очереди…';
+        ocrJobs.set(d.id, r.ocr((msg) => { d.ocr = msg; renderDocs(); })
+          .then((x) => docText(d, x), () => { d.warn = 'Скриншоты не распознаны'; })
+          .finally(() => { d.ocr = ''; ocrJobs.delete(d.id); docSettle(d); }));
+      }
     }).catch((e) => { d.status = 'error'; d.error = e.message || String(e); })
-      .finally(() => {
-        if (d.status === 'ready' && S.docs.includes(d)) {
-          // тот же файл уже есть в продукте — второй копии не делаем, в запуск берём имеющийся
-          const twin = S.docs.find((x) => x !== d && x.pid === d.pid && x.status === 'ready' && x.chars === d.chars && x.text === d.text);
-          if (twin) {
-            S.docs = S.docs.filter((x) => x !== d);
-            const run = S.runDocs.delete(d.id);
-            if (run) S.runDocs.add(twin.id);
-            toast(`«${d.name}» уже есть в ${d.pid ? 'продукте' : 'списке'}${run ? ' — беру его в запуск' : ''}`);
-          } else persistDocText(d);
-        } else if (!S.docs.includes(d)) S.runDocs.delete(d.id);
-        saveRunDocs(); invalidateIndex(); renderDocs(); renderRunControls(); renderProduct();
-      });
+      .finally(() => { if (!ocrJobs.has(d.id)) docSettle(d); else { saveRunDocs(); invalidateIndex(); renderDocs(); renderRunControls(); } });
   }
   saveRunDocs(); renderDocs(); renderRunControls();
+}
+const ocrJobs = new Map();   // id документа → распознавание его скриншотов, идущее в фоне
+function docText(d, r) {
+  d.progress = ''; d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
+  d.status = d.chars ? 'ready' : 'error';
+  if (!d.chars) d.error = 'В файле не найден текст';
+}
+function docSettle(d) {
+  if (d.status === 'ready' && S.docs.includes(d)) {
+    // тот же файл уже есть в продукте — второй копии не делаем, в запуск берём имеющийся
+    const twin = S.docs.find((x) => x !== d && x.pid === d.pid && x.status === 'ready' && x.chars === d.chars && x.text === d.text);
+    if (twin) {
+      S.docs = S.docs.filter((x) => x !== d);
+      const run = S.runDocs.delete(d.id);
+      if (run) S.runDocs.add(twin.id);
+      toast(`«${d.name}» уже есть в ${d.pid ? 'продукте' : 'списке'}${run ? ' — беру его в запуск' : ''}`);
+    } else persistDocText(d);
+  } else if (!S.docs.includes(d)) S.runDocs.delete(d.id);
+  saveRunDocs(); invalidateIndex(); renderDocs(); renderRunControls(); renderProduct();
 }
 const sampleDocObj = () => ({ id: rid('d'), name: 'Пример — ТЗ восстановление пароля.md', ext: 'md', size: SAMPLE_DOC.length * 2, status: 'ready', text: SAMPLE_DOC, chars: SAMPLE_DOC.length, error: '', warn: '', preview: false, sample: true });
 function addSampleDoc() {

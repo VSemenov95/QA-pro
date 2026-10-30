@@ -215,12 +215,18 @@ async function kbLoadAll(pid) {
   return kbSections(pid).length;
 }
 const kbToolsHint = (run) => (kbSections(run?.productId).length ? ' Сведения из других документов продукта и расшифровок созвонов ищи в базе знаний: search_knowledge_base и read_knowledge_section.' : '');
-/* документы: небольшие — целиком, большие — только фрагменты по теме запроса */
-const SMALL_DOCS = 4000;
+/* документы: целиком в каждом запросе, чтобы модель видела общий контекст; только то, что не помещается в контекст модели, — фрагментами по теме */
+const docsTotal = (run) => docsFor(run).reduce((a, d) => a + d.chars, 0);
+const docsWhole = (run) => docsTotal(run) <= DOCS_FULL_MAX;
+// полный текст стоит в общей для пакетов части запроса (до CACHE_MARK): провайдер кэширует его, повторные запросы дешевле
+function docsFull(run) {
+  const docs = docsFor(run);
+  if (!docs.length || !docsWhole(run)) return '';
+  return `\n## Исходные документы\nПолный текст документов запуска — общий контекст: термины, роли, связи между разделами, точные значения.\n${docs.map((d) => `<document name="${d.name}">\n${d.text}\n</document>`).join('\n\n')}\n`;
+}
 function docsBlock(run, focus, mode = {}) {
-  const docs = docsFor(run), total = docs.reduce((a, d) => a + d.chars, 0);
-  if (!total) return '';
-  if (total <= SMALL_DOCS) return `\n## Исходные документы\n${docs.map((d) => `<document name="${d.name}">\n${d.text}\n</document>`).join('\n\n')}\n`;
+  const docs = docsFor(run), total = docsTotal(run);
+  if (!total || total <= DOCS_FULL_MAX) return '';   // документы уже целиком в запросе (docsFull)
   const cap = economy() ? 3000 : 4500;
   ensureIndex();
   const names = new Set(docs.map((d) => d.name));
@@ -406,11 +412,13 @@ function promptAnalyze(chunk, i, total, types, ctx, run) {
   const rules = rulesText();
   const qctx = qaCtxBlock(ctx);
   const pk = knowBlocks(run, 'analyze', chunkFocus(chunk));
-  return renderPrompt("promptAnalyze", { "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "PRIORITY_RULE": PRIORITY_RULE, "e6": rules ? `\n8. Правила команды: ${rules}` : '', "e7": qctx ? `\n${qctx}Используй контекст QA как дополнительный источник: если в нём есть проверяемые утверждения о поведении системы, выдели их как требования с doc "Контекст QA". Экраны, навигацию, окружения и тестовые данные требованиями не считай.\n` : '', "pk": pk });
+  return renderPrompt("promptAnalyze", { ...analyzeCtx(run, total), "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "PRIORITY_RULE": PRIORITY_RULE, "e6": rules ? `\n8. Правила команды: ${rules}` : '', "e7": qctx ? `\n${qctx}Используй контекст QA как дополнительный источник: если в нём есть проверяемые утверждения о поведении системы, выдели их как требования с doc "Контекст QA". Экраны, навигацию, окружения и тестовые данные требованиями не считай.\n` : '', "pk": pk });
 }
+/* несколько фрагментов: каждый запрос выделяет требования из своего, а весь текст документов получает для общего контекста */
+const analyzeCtx = (run, total) => (total > 1 && docsWhole(run) ? { DOCS: docsFull(run), CACHE_MARK, FRAG: ' Требования выделяй только из этого фрагмента: полный текст выше — для общего контекста, остальные фрагменты разбирают отдельные запросы.' } : { DOCS: '', CACHE_MARK: '', FRAG: '' });
 // проверка полноты анализа: что пропущено во фрагменте
-function promptAnalyzeMore(chunk, i, total, types, found) {
-  return renderPrompt("promptAnalyzeMore", { "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": found.map((r) => `- «${String(r?.title || '')}»${arrStr(r?.criteria).length ? ': ' + arrStr(r.criteria).join('; ') : ''}`).join('\n'), "e5": typesListText(types), "SCOPE_RULE": SCOPE_RULE });
+function promptAnalyzeMore(chunk, i, total, types, found, run) {
+  return renderPrompt("promptAnalyzeMore", { ...analyzeCtx(run, total), "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": found.map((r) => `- «${String(r?.title || '')}»${arrStr(r?.criteria).length ? ': ' + arrStr(r.criteria).join('; ') : ''}`).join('\n'), "e5": typesListText(types), "SCOPE_RULE": SCOPE_RULE });
 }
 // сверка покрытия: какие критерии требований не проверяет ни один кейс
 function promptCoverageAudit(run, reqs, types) {
@@ -480,7 +488,7 @@ function promptChecklist(run, reqs, types, depth, quota = 0) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
   const rules = rulesText();
   const ex = relevantExisting(run, 'checklist', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' '));
-  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": depthPrompt(d), "PRIORITY_RULE": PRIORITY_RULE, "MERGE_RULE": MERGE_RULE, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length, quota) });
+  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": depthPrompt(d), "PRIORITY_RULE": PRIORITY_RULE, "MERGE_RULE": MERGE_RULE, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "DOCS": docsFull(run), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length, quota) });
 }
 /* лимит проверок: в чек-лист сначала самые приоритетные позитивные, затем негативные; quota — сколько пунктов нужно в этом фрагменте */
 function checklistLimitRule(run, hasExisting, quota = 0) {
@@ -494,7 +502,7 @@ function promptPlan(run, reqs, types, depth) {
   const rules = rulesText();
   const ex = relevantExisting(run, 'cases', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' ')).filter((x) => types.includes(x.t));
   const upd = run.mode === 'update' ? `\nКоманда актуализирует существующие тест-кейсы. Ниже — только требования, которые не покрыты кейсами из загруженного файла: составь проверки для них.\n${existingBlock(relevantSrc(run, reqs), 'cases', 'Это актуализированные кейсы из файла. Не повторяй их проверки.')}` : '';
-  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": depthPrompt(d), "MERGE_RULE": MERGE_RULE, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
+  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": depthPrompt(d), "MERGE_RULE": MERGE_RULE, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "DOCS": docsFull(run), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
 }
 function reqLine(r) {
   if (!r) return '';
@@ -640,7 +648,7 @@ function promptGenerate(run, b, mode = {}) {
   const focus = b.items.map((it) => `${it.title} ${it.checks.join(' ')} ${it.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', b.type, 25, focus);
   const rules = rulesText();
-  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
+  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "DOCS": docsFull(run), "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
 ${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}${it.checks.some(clIdOf) ? '\nЭто пункты чек-листа. Кейс пиши по названию и ожидаемому результату пункта, приоритет кейса — как у пункта. В объекте ответа рядом с planItem укажи checklistId — номер пункта (CL-…), по которому написан кейс.' : ''}
 Требования:
@@ -1447,12 +1455,20 @@ function acceptCases(run, b, res) {
 
 /* ================= pipeline ================= */
 async function runAgent() {
-  if (S.running) return;
+  if (S.running || S.ocrWait) return;
   const docs = docsFor(null), types = selectedTypes(), out = S.settings.outputs;
   const note = (t) => { $('#run-note').textContent = t; $('#run-note').className = 'run-note err'; };
   if (!aiReady(S.settings.genAI)) return note(aiProblem(S.settings.genAI));
   if (S.caps.db && S.caps.uid && !S.prodReady) return note('Загружаю продукт — подождите несколько секунд.');
   if (runDocList().some((d) => d.status === 'parsing' || d.status === 'loading')) return note('Дождитесь окончания загрузки и разбора файлов.');
+  const ocrWait = runDocList().map((d) => ocrJobs.get(d.id)).filter(Boolean);
+  if (ocrWait.length) {   // запуск сам дождётся скриншотов: без них модель не увидит текст с экранов
+    S.ocrWait = true;
+    $('#run-note').textContent = 'Распознаю скриншоты в документах — запуск начнётся, как только закончу.'; $('#run-note').className = 'run-note';
+    await Promise.allSettled(ocrWait);
+    S.ocrWait = false; $('#run-note').textContent = '';
+    return runAgent();
+  }
   if (!docs.length) return note(S.productId ? 'Загрузите ТЗ для этого запуска — остальное о продукте агент возьмёт из базы знаний.' : 'Добавьте хотя бы один документ с текстом.');
   const upd = S.settings.mode === 'update';
   if (upd && S.upd.file?.status !== 'ready') return note(S.upd.file?.status === 'parsing' ? 'Дождитесь разбора файла с тест-кейсами.' : 'Загрузите файл с тест-кейсами для актуализации: .xlsx или .json.');
@@ -1593,7 +1609,7 @@ function resumeRun() {
   executeRun(run, true);
 }
 /* кэш анализа: тот же фрагмент документов с теми же видами тестов, правилами и контекстом повторно не отправляется модели */
-const anaKey = (run, ch, types) => 'a2_' + hash(JSON.stringify([ch.blocks.map((b) => [b.doc, b.text]), [...types].sort(), rulesText(), run.qaCtx || {}, hash(kbGenBlock(run, 'analyze', chunkFocus(ch)))]));
+const anaKey = (run, ch, types, n) => 'a2_' + hash(JSON.stringify([ch.blocks.map((b) => [b.doc, b.text]), hash(analyzeCtx(run, n).DOCS), [...types].sort(), rulesText(), run.qaCtx || {}, hash(kbGenBlock(run, 'analyze', chunkFocus(ch)))]));
 async function anaCacheGet(run, key) {
   if (!run.productId || !S.caps.db || S.settings.reuseAnalysis === false) return null;
   try { return (await S.caps.db.doc(`${prodPath(run.productId)}/cache/${key}`).get()).data() || null; } catch { return null; }
@@ -1607,11 +1623,11 @@ async function anaCachePut(run, key, res) {
 async function stepAnalyze(run, docs, types) {
   sstart(run, 'analyze');
   const chunks = buildChunks(docs);
-  if (chunks.length > 1) slog(run, 'analyze', `Документы разбиты на ${chunks.length} ${plural(chunks.length, 'фрагмент', 'фрагмента', 'фрагментов')} до ${CHUNK / 1000} тыс. знаков`);
+  if (chunks.length > 1) slog(run, 'analyze', `Документы разбиты на ${chunks.length} ${plural(chunks.length, 'фрагмент', 'фрагмента', 'фрагментов')} до ${CHUNK / 1000} тыс. знаков${docsWhole(run) ? ' — каждый запрос видит весь текст документов' : ` — документы больше ${DOCS_FULL_MAX / 1000} тыс. знаков, фрагменты разбираются без общего контекста`}`);
   const results = [];
   await pool(chunks, CONCURRENCY, async (ch, i) => {
     const label = chunks.length > 1 ? `Фрагмент ${i + 1}/${chunks.length}` : 'Анализ';
-    const key = anaKey(run, ch, types);
+    const key = anaKey(run, ch, types, chunks.length);
     const hit = await anaCacheGet(run, key);
     if (hit) {
       results[i] = hit;
@@ -1630,7 +1646,7 @@ async function stepAnalyze(run, docs, types) {
       let added = 0, crit = 0;
       if (n) {
         try {
-          const more = await ask(promptAnalyzeMore(ch, i, chunks.length, types, arrOf(res.requirements)), { step: 'analyze', onProgress: (k) => { line.text = `${label}: проверка полноты — ${fmtKChars(k)}`; scheduleRender(); } });
+          const more = await ask(promptAnalyzeMore(ch, i, chunks.length, types, arrOf(res.requirements), run), { step: 'analyze', onProgress: (k) => { line.text = `${label}: проверка полноты — ${fmtKChars(k)}`; scheduleRender(); } });
           const have = new Set(arrOf(res.requirements).map((r) => normKey(r?.title || '')));
           for (const r of arrOf(more?.requirements)) if (r && r.title && !have.has(normKey(r.title))) { res.requirements.push(r); have.add(normKey(r.title)); added++; }
           for (const x of arrOf(more?.criteria)) {
@@ -2087,10 +2103,10 @@ function fallbackItems(reqs, types) {
   }));
 }
 function genMode() {
-  const total = docsFor(S.run).reduce((a, d) => a + d.chars, 0);
-  const small = total > 0 && total <= SMALL_DOCS;
-  // инструменты поиска дорогие (каждое обращение пересылает весь запрос), поэтому только для больших документов и не в экономном режиме
-  return { small, tools: !economy() && total > FULLDOC_LIMIT && S.settings.agentTools && toolsAvailable(S.run?.settings.genAI || S.settings.genAI) };
+  const total = docsTotal(S.run);
+  const whole = total > 0 && total <= DOCS_FULL_MAX;
+  // инструменты поиска дорогие (каждое обращение пересылает весь запрос), поэтому только когда документы не поместились целиком и не в экономном режиме
+  return { whole, tools: !economy() && total > DOCS_FULL_MAX && S.settings.agentTools && toolsAvailable(S.run?.settings.genAI || S.settings.genAI) };
 }
 async function generateItems(run, items, stepId) {
   const batches = makeBatches(items, new Set(run.doneKeys || []), new Set(run.doneChecks || []));
@@ -2098,7 +2114,7 @@ async function generateItems(run, items, stepId) {
   const mode = genMode();
   if (!docsFor(run).length) slog(run, stepId, 'Документы недоступны — детали берутся из цитат и критериев требований', 'warn');
   slog(run, stepId, `${batches.length} ${plural(batches.length, 'запрос', 'запроса', 'запросов')} к модели, до ${CONCURRENCY} одновременно`);
-  slog(run, stepId, mode.small ? 'Документы небольшие — модель видит их целиком'
+  slog(run, stepId, mode.whole ? 'Модель видит документы целиком в каждом запросе'
     : mode.tools ? 'Модель получает фрагменты документов по теме и может искать остальное сама' : 'Модель получает фрагменты документов по теме каждой группы проверок');
   await pool(batches, CONCURRENCY, (b) => genBatch(run, b, stepId, mode), S.ctl.signal);
   if (S.ctl.signal.aborted) throw abortErr();
@@ -2818,7 +2834,7 @@ function promptReviewCases(run, type, cases, mode = {}) {
   const reqIds = [...new Set(cases.flatMap((c) => c.requirementIds))];
   const focus = cases.map((c) => `${pickTitleText(c.testCase)} ${c.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', type, 30, focus);
-  return renderPrompt("promptReviewCases", { "e1": TL[type], "e2": reviewRulesBlock(), "e3": qaCtxBlock(ctxOf(run), type, true), "REVIEW_CRITERIA": REVIEW_CRITERIA, "e5": TL[type], "e6": templateBlock(type), "e7": (run.questions || []).some((q) => q.answer?.trim()) ? `\n## Уточнения аналитика\n${run.questions.filter((q) => q.answer?.trim()).map((q) => `- ${q.text} — ${q.answer.trim()}`).join('\n')}\n` : '', "CACHE_MARK": CACHE_MARK, "e9": knowBlocks(run, 'review', focus), "e10": existingBlock(ex, 'cases', 'Если кейс на ревью повторяет один из них — замечание категории «Дубли» с id существующего кейса.'), "e11": reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e12": docsBlock(run, focus, mode), "e13": mode.tools ? `\n## Инструменты\nСверяй детали с документами инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '', "fence": fence, "e15": JSON.stringify(cases.map(casePayload)) });
+  return renderPrompt("promptReviewCases", { "e1": TL[type], "e2": reviewRulesBlock(), "e3": qaCtxBlock(ctxOf(run), type, true), "REVIEW_CRITERIA": REVIEW_CRITERIA, "DOCS": docsFull(run), "e5": TL[type], "e6": templateBlock(type), "e7": (run.questions || []).some((q) => q.answer?.trim()) ? `\n## Уточнения аналитика\n${run.questions.filter((q) => q.answer?.trim()).map((q) => `- ${q.text} — ${q.answer.trim()}`).join('\n')}\n` : '', "CACHE_MARK": CACHE_MARK, "e9": knowBlocks(run, 'review', focus), "e10": existingBlock(ex, 'cases', 'Если кейс на ревью повторяет один из них — замечание категории «Дубли» с id существующего кейса.'), "e11": reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e12": docsBlock(run, focus, mode), "e13": mode.tools ? `\n## Инструменты\nСверяй детали с документами инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '', "fence": fence, "e15": JSON.stringify(cases.map(casePayload)) });
 }
 function promptReviewChecklist(run, items) {
   const reqIds = [...new Set(items.flatMap((i) => i.requirementIds))];
@@ -2894,8 +2910,7 @@ function startReview(full = false, tab = 'review') {
     if (auto) slog(run, 'review', `Автоматические проверки: ${auto} ${plural(auto, 'замечание', 'замечания', 'замечаний')}`, 'warn');
     // ревью моделью
     const v = aiValue('review');
-    const total = docsFor(run).reduce((a, d) => a + d.chars, 0);
-    const useTools = !economy() && total > FULLDOC_LIMIT && toolsAvailable(v);
+    const useTools = !economy() && docsTotal(run) > DOCS_FULL_MAX && toolsAvailable(v);
     const jobs = [];
     for (const t of TYPES) { const cs = activeCases(run).filter((c) => c.type === t && !keepCase.has(c.dispId)); for (let i = 0; i < cs.length; i += 5) jobs.push({ kind: 'case', type: t, cases: cs.slice(i, i + 5) }); }
     const cl = checklistItems(run), clTodo = cl.filter((it) => !keepItem.has(it.id));
@@ -3161,7 +3176,6 @@ function reduceSelect(cases, keepIds, target) {
   if (keep.length !== target || !covers(keep)) return { error: 'Не удалось сохранить покрытие требований при таком количестве. Попробуйте больше кейсов.', min: minCov.length };
   return { keep };
 }
-const REDUCE_DOCS_CAP = 60000; // знаков документации в запрос сокращения
 function promptReduce(run, cases, target) {
   const reqIds = [...new Set(cases.flatMap((c) => c.requirementIds || []))];
   const reqs = reqIds.map((id) => run.reqById?.[id]).filter(Boolean).map((r) => `${r.id} «${r.title}»: ${r.description || ''}${r.criteria?.length ? ' Критерии: ' + r.criteria.join('; ') : ''}`).join('\n') || '—';
@@ -3169,8 +3183,8 @@ function promptReduce(run, cases, target) {
   // документация, по которой написаны кейсы: фрагменты, близкие к требованиям и заголовкам кейсов
   const docs = docsFor(run);
   const focus = reqs + ' ' + cases.map((c) => pickTitleText(c.testCase || {})).join(' ');
-  const per = docs.length ? Math.floor(REDUCE_DOCS_CAP / docs.length) : 0;
-  const docText = docs.map((d) => `### Документ «${d.name}»\n${kbFitText(d.text, focus, per)}`).join('\n\n') || 'Документы этого запуска недоступны — опирайся на требования и кейсы.';
+  const per = docs.length ? Math.floor(DOCS_FULL_MAX / docs.length) : 0;   // документы целиком; не поместились — самое близкое к теме
+  const docText = docs.map((d) => `### Документ «${d.name}»\n${docsWhole(run) ? d.text : kbFitText(d.text, focus, per)}`).join('\n\n') || 'Документы этого запуска недоступны — опирайся на требования и кейсы.';
   return renderPrompt('promptReduceCases', { e1: lines, e2: reqs, e3: String(target), e4: docText });
 }
 let reducing = false;
