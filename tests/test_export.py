@@ -76,7 +76,7 @@ def test_default_export_file(done):
 def test_default_export_suites_hold_case_numbers(done):
     done.tab('export')
     out = json.loads(download(done)['text'])
-    assert out['suites'] == {'smoke': ['API-001', 'UI-001', 'E2E-001'], 'regression': ['API-001', 'API-002', 'UI-001', 'E2E-001']}
+    assert out['suites'] == {'smoke': ['API-001', 'UI-001', 'E2E-001'], 'regression': ['API-001', 'UI-001', 'E2E-001']}   # средний API-002 без смоука в регресс не входит
 
 
 def test_default_export_traceability(done):

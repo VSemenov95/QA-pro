@@ -57,7 +57,8 @@ def test_main_steps_keep_the_main_model(app):
     toggle(app)
     app.generate()
     t = tiers(app, 'promptAnalyze', 'promptChecklist', 'promptGenerate')   # план — из чек-листа, без запроса
-    assert set(t.values()) == {'default'} and len(t) == 3
+    # экономия не понижает основные шаги; анализ и чек-лист — на максимальной модели этапа анализа
+    assert t == {'promptAnalyze': 'complex', 'promptChecklist': 'complex', 'promptGenerate': 'default'}
 
 
 def test_without_economy_service_steps_use_the_main_model(app):

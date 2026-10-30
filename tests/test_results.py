@@ -57,7 +57,7 @@ def test_goto_case_from_requirement_opens_it(results):
 # ---------- фильтры ----------
 def test_filter_chips_show_counts(results):
     chips = results.page.eval_on_selector_all('.toolbar:not(.scope-sw) .fchip', "els => els.map((e) => e.innerText.replace(/\\s+/g, ' '))")
-    assert chips == ['Все 4', 'API 2', 'UI 1', 'E2E 1', 'Смоук 3', 'Регресс 4']
+    assert chips == ['Все 4', 'API 2', 'UI 1', 'E2E 1', 'Смоук 3', 'Регресс 3']   # средний API-002 без смоука в регресс не входит
 
 
 def test_type_filter(results):
@@ -74,7 +74,7 @@ def test_smoke_filter_and_back(results):
 
 def test_regression_filter(results):
     results.page.click('[data-act=fsuite][data-s=regression]')
-    assert len(visible_ids(results)) == 4
+    assert len(visible_ids(results)) == 3
 
 
 def test_type_and_suite_filters_combine(results):
@@ -109,9 +109,9 @@ def test_opened_case_shows_template_fields_without_title_and_id_duplicates(resul
 def test_suite_toggle_on_case_changes_its_suites(results):
     open_case(results, 'API-002')
     results.page.click('#case-list [data-act=case-suite][data-s=smoke]')
-    assert case_state(results, 'API-002', 'c.suites') == ['smoke', 'regression']
+    assert case_state(results, 'API-002', 'c.suites') == ['smoke']   # ручной выбор наборов сохраняется как есть
     results.page.click('#case-list [data-act=case-suite][data-s=regression]')
-    assert case_state(results, 'API-002', 'c.suites') == ['smoke']
+    assert case_state(results, 'API-002', 'c.suites') == ['smoke', 'regression']
 
 
 def test_case_after_suite_toggle_is_found_by_the_filter(results):

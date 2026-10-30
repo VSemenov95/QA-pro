@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-RECOMMENDED = {'analyze': 'default', 'generate': 'default', 'review': 'quick', 'aux': 'quick'}
+RECOMMENDED = {'analyze': 'complex', 'generate': 'default', 'review': 'quick', 'aux': 'quick'}
 STEPS = ['analyze', 'plan', 'map', 'generate', 'actualize', 'review', 'knowledge', 'help', 'export', 'other']
 
 
@@ -67,7 +67,8 @@ def test_four_stages_default_to_main_model(claude_key_app):
     app = claude_key_app
     stages_ui(app)
     r = rows(app)
-    assert [x['value'] for x in r] == ['same'] * 4 and not any(x['disabled'] for x in r)
+    # анализ и план — максимальная модель по умолчанию: там решается, что важно
+    assert [x['value'] for x in r] == ['complex', 'same', 'same', 'same'] and not any(x['disabled'] for x in r)
     assert [x['title'] for x in r] == ['Анализ, план и сверка', 'Тест-кейсы', 'Ревью', 'Служебные шаги']
 
 
@@ -81,7 +82,7 @@ def test_each_stage_explains_its_recommendation(claude_key_app):
 def test_info_message_follows_selection(claude_key_app):
     app = claude_key_app
     stages_ui(app)
-    assert 'Рекомендуемая раскладка' in app.text('#stage-note')
+    assert 'отличается' in app.text('#stage-note')
     app.page.click('[data-stage-act=apply]')
     assert app.state('S.settings.stages') == RECOMMENDED
     assert 'Выбрана рекомендуемая раскладка' in app.text('#stage-note')
@@ -97,7 +98,7 @@ def test_choice_is_saved_and_restored(make_app):
 
 
 def test_old_settings_without_stages(claude_key_app):
-    assert claude_key_app.state('Object.values(S.settings.stages)') == ['same'] * 4
+    assert claude_key_app.state('Object.values(S.settings.stages)') == ['complex', 'same', 'same', 'same']
 
 
 def test_reset_returns_all_to_main(claude_key_app):
@@ -124,8 +125,8 @@ def test_recommended_layout_by_step(claude_key_app):
     api = Api(claude_key_app)
     set_stages(claude_key_app, **RECOMMENDED)
     ask_steps(claude_key_app)
-    sonnet, haiku = 'claude-sonnet-5-5', 'claude-haiku-5-5'
-    assert dict(zip(STEPS, models(api))) == {'analyze': sonnet, 'plan': sonnet, 'map': sonnet, 'generate': sonnet, 'actualize': sonnet,
+    opus, sonnet, haiku = 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'
+    assert dict(zip(STEPS, models(api))) == {'analyze': opus, 'plan': opus, 'map': opus, 'generate': sonnet, 'actualize': sonnet,
                                              'review': haiku, 'knowledge': haiku, 'help': haiku, 'export': haiku, 'other': haiku}
 
 
@@ -204,7 +205,7 @@ def test_account_main_tier_unless_step_has_its_own(account_app):
 
 
 def test_account_recommended_layout(account_app):
-    assert tiers(account_app, **RECOMMENDED) == ['default', 'default', 'quick', 'quick', 'quick', 'default']
+    assert tiers(account_app, **RECOMMENDED) == ['complex', 'default', 'quick', 'quick', 'quick', 'default']
 
 
 def test_account_stage_choice_beats_step_tier_and_economy_mode(account_app):

@@ -83,6 +83,24 @@ function etalonNormRules(type, res, have) {
   }
   return out;
 }
+/* метрика по эталону: полнота — доля проверок эталона, которые есть у агента; лишние — кейсы агента без пары и малоценные */
+function etalonMetrics(res, list) {
+  const m = res?.metrics || {};
+  const total = Math.max(0, Math.round(Number(m.etalonChecks) || 0));
+  const matched = Math.min(total, Math.max(0, Math.round(Number(m.matched) || 0)));
+  const ids = new Set(list.map((c) => c.dispId));
+  return { total, matched, missed: arrStr(m.missed).slice(0, 10).map((x) => x.slice(0, 200)), extra: arrStr(m.extra).filter((id) => ids.has(id)).slice(0, 30) };
+}
+function etalonTotals(R) {
+  const ms = Object.values(R?.byType || {}).filter((x) => x.metrics);
+  if (!ms.length) return null;
+  const total = ms.reduce((a, x) => a + x.metrics.total, 0), matched = ms.reduce((a, x) => a + x.metrics.matched, 0);
+  const n = ms.reduce((a, x) => a + x.n, 0), extra = ms.reduce((a, x) => a + x.metrics.extra.length, 0);
+  return { total, matched, n, extra, recall: total ? Math.round((100 * matched) / total) : null };
+}
+// последняя метрика по эталону в продукте — в этом браузере: следующее сравнение покажет, стало ли лучше
+const etalonKey = (r) => `qapro.etalonLast.${r?.productId || 'none'}`;
+const etalonLine = (m, n) => `${m.total ? `Полнота: ${m.matched} из ${m.total} ${plural(m.total, 'проверки', 'проверок', 'проверок')} эталона (${Math.round((100 * m.matched) / m.total)}%)` : 'Эталон не по теме этих кейсов'} · лишних кейсов: ${m.extra.length} из ${n}`;
 async function runEtalon() {
   const E = S.etalon, r = S.run;
   if (E.busy || !r) return;
@@ -94,7 +112,7 @@ async function runEtalon() {
   const text = files.map((f) => `### Файл «${f.name}»\n${f.text}`).join('\n\n');
   E.busy = true; E.error = ''; E.log = []; E.ctl = new AbortController();
   const types = etalonTypes(cases);
-  const result = { at: Date.now(), files: files.map((f) => f.name), count: cases.length, byType: {}, rules: [] };
+  const result = { at: Date.now(), files: files.map((f) => f.name), count: cases.length, byType: {}, rules: [], prev: etalonTotals(r.etalon) || lsGet(etalonKey(r), null) };
   renderEtalon();
   try {
     for (const t of types) {
@@ -103,12 +121,13 @@ async function runEtalon() {
       E.log.push(line); renderEtalon();
       const res = await ask(promptEtalon(t, list, text), { step: 'etalon', ai: S.settings.genAI, cache: false, signal: E.ctl.signal });
       const rules = etalonNormRules(t, res, result.rules.map((x) => x.text));
-      result.byType[t] = { n: list.length, summary: String(res?.summary || '').trim().slice(0, 600) };
+      result.byType[t] = { n: list.length, summary: String(res?.summary || '').trim().slice(0, 600), metrics: etalonMetrics(res, list) };
       result.rules.push(...rules);
       line.text = `${TL[t]}: ${rules.length ? `предложено правил — ${rules.length}` : 'новых правил нет'}`;
       renderEtalon();
     }
     r.etalon = result;
+    if (etalonTotals(result)?.recall != null) lsSet(etalonKey(r), etalonTotals(result));   // для сравнения со следующим запуском
     queueSave(r);
     E.view = 'result';
     toast(result.rules.length ? `Сравнение с эталоном: предложено правил — ${result.rules.length}` : 'Сравнение с эталоном: новых правил нет');
@@ -168,11 +187,18 @@ function etalonResultHTML() {
         ${x.why || x.generated.length || x.etalon ? `<div class="muted small">${esc(x.why)}${x.generated.length ? ` · кейсы: ${esc(x.generated.join(', '))}` : ''}${x.etalon ? ` · эталон: ${esc(x.etalon)}` : ''}</div>` : ''}
         <div class="et-acts">${x.status === 'new' ? `<button class="btn sm accent" type="button" data-eact="add" data-id="${x.id}">Добавить</button><button class="btn sm" type="button" data-eact="reject" data-id="${x.id}">Отклонить</button>`
           : x.status === 'added' ? `<span class="chip ok">добавлено в правила ${TL[t]}</span>` : '<span class="chip">отклонено</span>'}</div></li>`).join('');
+    const m = R.byType[t].metrics;
+    const metric = m ? `<p class="small"><b>${esc(etalonLine(m, R.byType[t].n))}</b>${m.extra.length ? ` <span class="muted">(${esc(m.extra.join(', '))})</span>` : ''}</p>${m.missed.length ? `<details class="small"><summary>Нет у агента: ${m.missed.length}</summary><ul>${m.missed.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}` : '';
     return `<section class="et-group"><h4>${TL[t]} · ${R.byType[t].n} ${plural(R.byType[t].n, 'кейс', 'кейса', 'кейсов')}</h4>
+      ${metric}
       ${R.byType[t].summary ? `<p class="hint">${esc(R.byType[t].summary)}</p>` : ''}
       ${items ? `<ul class="et-rules">${items}</ul>` : '<p class="hint">Новых правил нет.</p>'}</section>`;
   }).join('');
+  const tot = etalonTotals(R), prev = R.prev;
+  const delta = tot?.recall != null && prev?.recall != null ? ` (в прошлый раз ${prev.recall}%)` : '';
+  const head = tot && tot.recall != null ? `<p class="et-metric"><b>Полнота по эталону: ${tot.recall}%</b>${esc(delta)} · найдено ${tot.matched} из ${tot.total} ${plural(tot.total, 'проверки', 'проверок', 'проверок')} эталона · лишних кейсов: ${tot.extra} из ${tot.n}</p>` : '';
   return `<p class="hint">Сравнение ${fmtDate(R.at)} · ${R.count} ${plural(R.count, 'кейс', 'кейса', 'кейсов')} · эталон: ${esc(R.files.join(', '))}. ${etalonSaveNote()}</p>
+    ${head}
     ${groups}
     <div class="row"><button class="btn" type="button" data-eact="again">Новое сравнение</button></div>`;
 }

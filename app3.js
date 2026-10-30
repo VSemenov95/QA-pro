@@ -2381,7 +2381,7 @@ function onTabClick(e) {
       }
       const info = tplInfo(c.type);
       if (info.ok && info.idField) ui.form[info.idField] = c.dispId;
-      if (!ui.isNew) ui.prev = c.testCase;
+      if (!ui.isNew) { ui.prev = c.testCase; if (!c.manual) notePrio(r, pickTitleText(c.testCase), c.testCase?.priority, ui.form.priority); }
       c.testCase = orderLikeTemplate(ui.form, info); c.suites = withCritical(c.testCase.priority, c.suites || []);
       c.requirementIds = String(ui.formReqs || '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       if (!ui.isNew) touchCase(c, 'Исправлено вручную');
@@ -2400,7 +2400,7 @@ function onTabClick(e) {
     case 'save-edit': {
       const p = tryParse(ui.draft);
       if (!p.ok || !p.value || typeof p.value !== 'object' || Array.isArray(p.value)) { ui.error = p.ok ? 'Нужен JSON-объект.' : 'Ошибка JSON: ' + p.error; renderCaseList(); break; }
-      if (!ui.isNew) { ui.prev = c.testCase; touchCase(c, 'Исправлено вручную'); }
+      if (!ui.isNew) { ui.prev = c.testCase; touchCase(c, 'Исправлено вручную'); if (!c.manual) notePrio(r, pickTitleText(c.testCase), c.testCase?.priority, p.value.priority); }
       c.testCase = p.value; c.suites = withCritical(c.testCase.priority, c.suites || []); ui.mode = 'view'; ui.isNew = false; ui.note = 'Изменения сохранены.'; ui.error = '';
       renderCaseList(); queueSave(r); break;
     }
@@ -2459,6 +2459,7 @@ function onTabClick(e) {
       const it = findItem(el.dataset.id), v = $('#cl-input')?.value.trim();
       if (!it) break;
       if (!v) { toast('Введите формулировку пункта.', 'err'); break; }
+      if (!it.manual) notePrio(r, it.check, it.priority, $('#cl-prio').value);
       it.check = v; it.expected = ($('#cl-exp')?.value || '').trim(); it.kind = $('#cl-kind')?.value === 'negative' ? 'negative' : 'positive'; it.type = $('#cl-type').value; it.priority = $('#cl-prio').value; it.suites = withCritical(it.priority, it.suites || []);
       it.requirementIds = $('#cl-reqs').value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
       const gi = Number($('#cl-group').value), from = r.checklist.groups.find((g) => g.items.includes(it)), to = r.checklist.groups[gi];
@@ -2466,6 +2467,8 @@ function onTabClick(e) {
       S.clEdit = null; S.clNewId = null; renderTabs(); renderTab(); queueSave(r); break;
     }
     case 'cl-del': {
+      const gone = findItem(el.dataset.id);
+      if (gone && !gone.manual && gone.check) noteEdit(r, 'dropped', { type: TL[gone.type] || gone.type, title: gone.check.slice(0, 160), prio: normPrio(gone.priority) });
       removeChecklistItem(r, el.dataset.id);
       renderTabs(); renderTab(); queueSave(r); toast(`Пункт ${el.dataset.id} удалён`); break;
     }
@@ -2677,12 +2680,13 @@ function bind() {
   $('#stage-models').addEventListener('change', (e) => {
     const id = e.target.dataset?.stage;
     if (!id || !STAGES.some((x) => x.id === id) || !STAGE_TIER_VALUES.includes(e.target.value)) return;
-    S.settings.stages[id] = e.target.value; saveSettings(); renderParams();
+    S.settings.stages[id] = e.target.value; S.settings.stagesAuto = (S.settings.stagesAuto || []).filter((x) => x !== id); saveSettings(); renderParams();
   });
   $('#stage-models').addEventListener('click', (e) => {
     const act = e.target.closest('[data-stage-act]')?.dataset.stageAct;
     if (!act) return;
     for (const x of STAGES) S.settings.stages[x.id] = act === 'apply' ? x.rec : 'same';
+    S.settings.stagesAuto = [];   // выбор пользователя
     saveSettings(); renderParams();
     toast(act === 'apply' ? 'Применена рекомендуемая раскладка моделей по этапам' : 'Все этапы идут на основной модели');
   });
@@ -2988,6 +2992,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, capPrio, budgetPlan, budgetChecklist, budgetRule, CHECK_BUDGET, mainPathGaps, noteEdit, notePrio, learnFromEdits, stageDefault, etalonMetrics, etalonTotals, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
 initCaps();
 })();

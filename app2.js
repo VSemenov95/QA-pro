@@ -327,6 +327,53 @@ const REQ_REF_RULE = /*@md:rules/req-refs.md*/'';
 const TITLE_TAG_RULE = /*@md:rules/title-tags.md*/'';
 const KAFKA_RULE = /*@md:rules/kafka.md*/'';
 const PRIORITY_RULE = /*@md:rules/priority.md*/'';
+/* похожие проверки одного класса эквивалентности — одна проверка с перечнем данных */
+const MERGE_RULE = /*@md:rules/merge.md*/'';
+/* бюджет проверок на требование (в каждом виде тестов) по его приоритету: объём вкладывается в важное, а не поровну во всё.
+   Модель получает бюджет в промпте, код держит его при разборе плана и чек-листа (кроме строгого числа проверок) */
+const CHECK_BUDGET = {
+  smoke: { P4_CRITICAL: 2, P3_HIGH: 1, P2_MEDIUM: 1, P1_LOW: 1 },
+  standard: { P4_CRITICAL: 6, P3_HIGH: 4, P2_MEDIUM: 2, P1_LOW: 1 },
+  full: { P4_CRITICAL: 10, P3_HIGH: 6, P2_MEDIUM: 3, P1_LOW: 1 },
+};
+const budgetOf = (depth) => CHECK_BUDGET[depth] || CHECK_BUDGET.standard;
+const reqBudget = (run, id) => budgetOf(run.settings.depth)[normPrio(run.reqById?.[id]?.priority)];
+function budgetRule(depth) {
+  const b = budgetOf(depth);
+  return `Бюджет проверок на одно требование в каждом виде тестов — по приоритету требования: P4_CRITICAL — до ${b.P4_CRITICAL}, P3_HIGH — до ${b.P3_HIGH}, P2_MEDIUM — до ${b.P2_MEDIUM}, P1_LOW — ${b.P1_LOW}. Основной путь, деньги, данные и права доступа проверяй подробно, второстепенное — минимально.`;
+}
+const depthPrompt = (d) => `${d.prompt} ${budgetRule(d.id)}`;
+// лишние проверки группы плана отбрасываются с конца: модель ставит позитивные проверки основного сценария первыми
+function budgetPlan(run, items) {
+  let cut = 0;
+  for (const it of items) {
+    const n = Math.max(1, it.requirementIds.reduce((a, id) => a + reqBudget(run, id), 0));
+    if (it.checks.length > n) { cut += it.checks.length - n; it.checks = it.checks.slice(0, n); }
+  }
+  return cut;
+}
+// пункты чек-листа сверх бюджета требования убираются: сначала остаются позитивные и более приоритетные; пункт, который
+// единственный покрывает требование, остаётся всегда
+function budgetChecklist(run, groups) {
+  const used = new Map(), keep = new Set();
+  const all = groups.flatMap((g) => g.items).map((it, k) => ({ it, k })).sort((a, b) => clRank(a.it) - clRank(b.it) || a.k - b.k);
+  for (const { it } of all) {
+    const keys = it.requirementIds.map((id) => [`${it.type}|${id}`, reqBudget(run, id)]);
+    if (keys.length && !keys.some(([k, b]) => (used.get(k) || 0) < b)) continue;
+    keys.forEach(([k]) => used.set(k, (used.get(k) || 0) + 1));
+    keep.add(it);
+  }
+  const out = groups.map((g) => ({ ...g, items: g.items.filter((it) => keep.has(it)) })).filter((g) => g.items.length);
+  return { groups: out, cut: all.length - keep.size };
+}
+/* приоритет проверки не выше приоритета требований, которые она проверяет: приоритет задаётся на анализе один раз */
+function capPrio(run, prio, reqIds) {
+  const rs = arrStr(reqIds).map((id) => run.reqById?.[id]).filter(Boolean);
+  const p = normPrio(prio);
+  if (!rs.length) return p;
+  const top = Math.min(...rs.map((r) => PRIOS.indexOf(normPrio(r.priority))));
+  return PRIOS.indexOf(p) < top ? PRIOS[top] : p;
+}
 const PRECONDITIONS_RULE = /*@md:rules/preconditions.md*/'';
 const API_CALL_RULE = /*@md:rules/api-call.md*/'';
 const SERVICE_STEPS_RULE = /*@md:rules/service-steps.md*/'';
@@ -349,7 +396,7 @@ const noReqDeep = (v, key = '') => (typeof v === 'string' ? noReqRefs(v, DESC_KE
    ⟦имя⟧ в тексте заменяется значением из vars (в порядке выражений исходного шаблона). */
 const PROMPTS = /*@prompts*/null;
 // правила, которые попали в последний собранный промпт: вставки *_RULE без заголовков, по ним видно, что агент применял
-const RULE_NAMES = { SCOPE_RULE: 'объём тестов', SUITES_RULE: 'наборы смоук/регресс', LIMIT_RULE: 'лимит количества', REQ_REF_RULE: 'ссылки на требования', TITLE_TAG_RULE: 'метки названий', KAFKA_RULE: 'правила Kafka', PRIORITY_RULE: 'приоритеты', API_CALL_RULE: 'вызов API', SERVICE_STEPS_RULE: 'шаги с сервисами', PRECONDITIONS_RULE: 'предусловия' };
+const RULE_NAMES = { SCOPE_RULE: 'объём тестов', SUITES_RULE: 'наборы смоук/регресс', LIMIT_RULE: 'лимит количества', REQ_REF_RULE: 'ссылки на требования', TITLE_TAG_RULE: 'метки названий', KAFKA_RULE: 'правила Kafka', PRIORITY_RULE: 'приоритеты', MERGE_RULE: 'объединение похожих проверок', API_CALL_RULE: 'вызов API', SERVICE_STEPS_RULE: 'шаги с сервисами', PRECONDITIONS_RULE: 'предусловия' };
 let lastRules = [];
 function renderPrompt(name, vars) {
   lastRules = Object.keys(vars).filter((k) => /_RULE$/.test(k) && String(vars[k] || '').trim()).map((k) => RULE_NAMES[k] || k);
@@ -359,7 +406,7 @@ function promptAnalyze(chunk, i, total, types, ctx, run) {
   const rules = rulesText();
   const qctx = qaCtxBlock(ctx);
   const pk = knowBlocks(run, 'analyze', chunkFocus(chunk));
-  return renderPrompt("promptAnalyze", { "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e6": rules ? `\n8. Правила команды: ${rules}` : '', "e7": qctx ? `\n${qctx}Используй контекст QA как дополнительный источник: если в нём есть проверяемые утверждения о поведении системы, выдели их как требования с doc "Контекст QA". Экраны, навигацию, окружения и тестовые данные требованиями не считай.\n` : '', "pk": pk });
+  return renderPrompt("promptAnalyze", { "e1": i + 1, "total": total, "e3": chunk.blocks.map((b) => `<document name="${b.doc}" part="${b.part}/${b.parts}">\n${b.text}\n</document>`).join('\n\n'), "e4": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "PRIORITY_RULE": PRIORITY_RULE, "e6": rules ? `\n8. Правила команды: ${rules}` : '', "e7": qctx ? `\n${qctx}Используй контекст QA как дополнительный источник: если в нём есть проверяемые утверждения о поведении системы, выдели их как требования с doc "Контекст QA". Экраны, навигацию, окружения и тестовые данные требованиями не считай.\n` : '', "pk": pk });
 }
 // проверка полноты анализа: что пропущено во фрагменте
 function promptAnalyzeMore(chunk, i, total, types, found) {
@@ -369,7 +416,7 @@ function promptAnalyzeMore(chunk, i, total, types, found) {
 function promptCoverageAudit(run, reqs, types) {
   const caseLine = (c) => { const tc = c.testCase || {}, ek = Object.keys(tc).find((k) => /^(expectedResult|expected_result|ожидаемый_?результат|result)$/i.test(k)); return `  - ${c.dispId} [${c.type}] ${pickTitleText(tc)}${ek ? ` → ${String(typeof tc[ek] === 'string' ? tc[ek] : JSON.stringify(tc[ek])).slice(0, 160)}` : ''}`; };
   const rules = rulesText();   // сверка видит те же правила, что и генерация: иначе дописывает кейсы, которые правила запрещают
-  const e4 = `${rules ? `\n## Правила команды\n${rules}\n` : ''}${[TITLE_TAG_RULE, KAFKA_RULE, PRIORITY_RULE, PRECONDITIONS_RULE, API_CALL_RULE, SERVICE_STEPS_RULE, SUITES_RULE, REQ_REF_RULE].join('\n')}`;
+  const e4 = `${rules ? `\n## Правила команды\n${rules}\n` : ''}${[TITLE_TAG_RULE, KAFKA_RULE, PRIORITY_RULE, MERGE_RULE, PRECONDITIONS_RULE, API_CALL_RULE, SERVICE_STEPS_RULE, SUITES_RULE, REQ_REF_RULE].join('\n')}`;
   return renderPrompt("promptCoverageAudit", { "e1": typesListText(types), "SCOPE_RULE": SCOPE_RULE, "e4": e4, "e3": reqs.map((r) => `### ${r.id} «${r.title}» [${r.types.join(', ')}]
 ${r.description}${r.criteria.length ? `\nКритерии: ${r.criteria.map((c, k) => `${k + 1}) ${c}`).join('; ')}` : ''}
 Кейсы:
@@ -433,7 +480,7 @@ function promptChecklist(run, reqs, types, depth, quota = 0) {
   const d = DEPTHS.find((x) => x.id === depth) || DEPTHS[1];
   const rules = rulesText();
   const ex = relevantExisting(run, 'checklist', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' '));
-  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": d.prompt, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length, quota) });
+  return renderPrompt("promptChecklist", { "e1": typesListText(types), "d_prompt": depthPrompt(d), "PRIORITY_RULE": PRIORITY_RULE, "MERGE_RULE": MERGE_RULE, "e3": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run)), "e7": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e8": existingBlock(ex, 'checklist', 'Не повторяй эти пункты — добавляй только новые проверки. Требование, которое уже полностью проверяют существующие пункты, можно не включать.'), "e9": reqs.map(reqCompact).join('\n'), "SUITES_RULE": SUITES_RULE, "LIMIT_RULE": checklistLimitRule(run, ex.length, quota) });
 }
 /* лимит проверок: в чек-лист сначала самые приоритетные позитивные, затем негативные; quota — сколько пунктов нужно в этом фрагменте */
 function checklistLimitRule(run, hasExisting, quota = 0) {
@@ -447,7 +494,7 @@ function promptPlan(run, reqs, types, depth) {
   const rules = rulesText();
   const ex = relevantExisting(run, 'cases', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' ')).filter((x) => types.includes(x.t));
   const upd = run.mode === 'update' ? `\nКоманда актуализирует существующие тест-кейсы. Ниже — только требования, которые не покрыты кейсами из загруженного файла: составь проверки для них.\n${existingBlock(relevantSrc(run, reqs), 'cases', 'Это актуализированные кейсы из файла. Не повторяй их проверки.')}` : '';
-  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": d.prompt, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
+  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": depthPrompt(d), "MERGE_RULE": MERGE_RULE, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
 }
 function reqLine(r) {
   if (!r) return '';
@@ -944,9 +991,12 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
   const sig = signal || S.ctl?.signal;
   const full = prompt + JSON_TAIL;
   notePrompt(step, full);
+  // модель этапа, выбранная пользователем, главнее экономного режима; выставленная по умолчанию — нет: шаг, который
+  // экономный режим переводит на быструю модель, идёт на быстрой
+  const stTier = economy() && tier === 'quick' && (S.settings.stagesAuto || []).includes(stageOf(step, stage)) ? tier : stageTier(stageOf(step, stage));
   if (t.kind === 'claude') {
     const flat = full.replace(CACHE_MARK, '\n');
-    const opts = { signal: sig, modelTier: stageTier(stageOf(step, stage)) || tier || t.tier };
+    const opts = { signal: sig, modelTier: stTier || tier || t.tier };
     if (onProgress) opts.onText = ({ text }) => onProgress(text.length);
     let rounds = 0;
     if (tools) opts.tools = tools.map((x) => ({ ...x, execute: (input, o) => { rounds++; return x.execute(input, o); } }));
@@ -956,7 +1006,7 @@ async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tie
     return res;
   }
   let usage = null;
-  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; }, model: stageModel(t.conn, stageTier(stageOf(step, stage))), schema });
+  const res = await extJSON(t.conn, full, { tools: tools && t.conn.tools ? tools : null, onProgress, signal: sig, onUsage: (u) => { usage = u; }, model: stageModel(t.conn, stTier), schema });
   if (usage) meterAdd(step, usage.in, usage.out, usage.cached || 0);
   else meterAdd(step, estTok(full), estTok(JSON.stringify(res)));
   return res;
@@ -1386,7 +1436,7 @@ function acceptCases(run, b, res) {
       clUsed.add(clId);
       if (typeof tc.priority === 'string') tc.priority = normPrio(cl.priority); // приоритет — как у пункта чек-листа
       if (!arrStr(c.requirementIds).some((id) => run.reqById[id]) && cl.requirementIds.length) reqIds = cl.requirementIds.slice();
-    }
+    } else if (typeof tc.priority === 'string') tc.priority = capPrio(run, tc.priority, reqIds);   // приоритет не выше требования
     const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: suitesByPrio(tc.priority, normSuites(c.suites).length ? normSuites(c.suites) : cl?.suites || []), testCase: tc, dispId, ...(cl ? { checklistId: clId } : {}) };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
@@ -1414,6 +1464,7 @@ async function runAgent() {
   }
   stopFollow(); cancelResumeCountdown();
   if (S.ctxDirty && S.productId) saveProductCtx();
+  if (S.run?.edits) learnFromEdits(S.run);   // правки прошлого запуска (например, только чек-листа) — в память агента
   const run = S.run = newRun();
   run.uploadedChecklist = S.uploadedChecklist ? structuredClone(S.uploadedChecklist.groups) : null;   // загруженный чек-лист — основа кейсов
   S.caseUI.clear(); S.reqOpen.clear(); S.filter = { type: 'all', suite: 'all', q: '' }; S.clFilter = { type: 'all', suite: 'all' }; S.clEdit = null; S.exp = null;
@@ -1631,10 +1682,12 @@ async function stepAnalyze(run, docs, types) {
 const clKind = (k) => (/negat|негатив|boundary|гранич|error|ошиб/i.test(String(k || '')) ? 'negative' : 'positive');
 function normChecklistItem(run, it, types) {
   const type = String(it?.type || '').toLowerCase();
+  const requirementIds = arrStr(it?.requirementIds).filter((id) => run.reqById[id]);
+  const priority = capPrio(run, it?.priority, requirementIds);   // не выше приоритета требований
   return {
     id: '', check: String(it?.check || it?.title || it?.text || '').trim(), expected: String(it?.expected || it?.expectedResult || '').trim(), kind: clKind(it?.kind),
     type: types.includes(type) ? type : types[0],
-    priority: normPrio(it?.priority), suites: suitesByPrio(it?.priority, normSuites(it?.suites)), requirementIds: arrStr(it?.requirementIds).filter((id) => run.reqById[id]),
+    priority, suites: suitesByPrio(priority, normSuites(it?.suites)), requirementIds,
   };
 }
 /* порядок отбора при лимите: позитивные по убыванию приоритета, затем негативные */
@@ -1751,6 +1804,11 @@ async function stepChecklist(run) {
       const items = arrOf(g?.items).map((it) => normChecklistItem(run, it, types)).filter((it) => it.check && !outOfScope(it.check));
       if (items.length) groups.push({ title: String(g?.title || 'Проверки'), items });
     }
+  }
+  if (!strictTarget(run)) {
+    const b = budgetChecklist(run, groups);
+    groups = b.groups;
+    if (b.cut) slog(run, 'checklist', `Сверх бюджета по приоритету требований убрано пунктов: ${b.cut}`, 'ok');
   }
   if (strictTarget(run)) {
     const n = run.settings.target, cap = capChecklist(groups, n);
@@ -1897,6 +1955,10 @@ async function stepPlan(run, types) {
     items.push(...fallbackItems(miss, run.settings.types));
   }
   const target = strictTarget(run) ? run.settings.target : null;
+  if (!target && run.mode !== 'update') {
+    const cut = budgetPlan(run, items);
+    if (cut) slog(run, 'plan', `Сверх бюджета по приоритету требований убрано проверок: ${cut}`, 'ok');
+  }
   if (target) {
     const kept = capChecks(items, target), total = items.reduce((a, it) => a + it.checks.length, 0);
     if (kept.length !== items.length || kept.reduce((a, it) => a + it.checks.length, 0) !== total) slog(run, 'plan', `План ограничен числом проверок: ${target} (было ${total})`, 'ok');
@@ -2701,6 +2763,26 @@ const LESSON_SCOPE_RU = { generation: 'генерация', review: 'ревью'
 function promptLesson(kind, context, remark) {
   return renderPrompt("promptLesson", { "kind": kind, "context": context, "remark": remark, "e4": S.lessons.map((l) => '- ' + l.text).join('\n') || 'нет' });
 }
+/* правки черновика — сигнал, что агент ошибся с важностью: удалённые проверки и изменённые приоритеты копятся в запуске
+   и при добавлении в проект обобщаются в правило памяти одним запросом, а не на каждую правку. Свои ручные кейсы не в счёт */
+function noteEdit(run, kind, x) {
+  if (!run || run.fromHistory === 'readonly') return;
+  const e = run.edits || (run.edits = { dropped: [], prio: [] });
+  if (e[kind].length < 60) e[kind].push(x);
+}
+function notePrio(run, title, from, to) {
+  if (from && normPrio(from) !== normPrio(to)) noteEdit(run, 'prio', { title: String(title || '').slice(0, 160), from: normPrio(from), to: normPrio(to) });
+}
+async function learnFromEdits(run) {
+  const e = run.edits;
+  if (!e || (!e.dropped.length && !e.prio.length)) return;
+  run.edits = { dropped: [], prio: [] }; queueSave(run);
+  const lines = [
+    ...e.dropped.map((x) => `Удалено как ненужное: [${x.type}] ${x.title} (${PRIO_RU[x.prio].toLowerCase()} приоритет)`),
+    ...e.prio.map((x) => `Приоритет изменён: ${x.title} — ${PRIO_RU[x.from].toLowerCase()} → ${PRIO_RU[x.to].toLowerCase()}`),
+  ];
+  await learnFromRemark('правки черновика перед добавлением в проект', lines.join('\n'), 'Пользователь удалил эти проверки и поменял приоритеты — агент неверно оценил их важность. Сформулируй, какие проверки не составлять или какой приоритет им ставить.');
+}
 async function learnFromRemark(kind, context, remark, defScope = 'generation') {
   const text = String(remark || '').trim();
   if (text.length < 5 || !aiReady(S.settings.genAI)) return;
@@ -2729,7 +2811,9 @@ const REVIEW_CRITERIA = `## Стандартные критерии
 6. Атомарность, отсутствие дублей.
 7. Корректность приоритета и отметок «Смоук» / «Регресс».
 8. Объём: нет исследовательских тестов и отдельных тестов только на БД (проверка БД шагом внутри кейса допустима); нет ручной подготовки данных в БД (INSERT/UPDATE/DELETE, «создать запись в таблице») — данные создаёт сама система через UI или API. Нарушение — "major".
-9. В тексте кейса нет отсылок к требованиям (id R-…, «по требованию …»). Нарушение — "minor".`;
+9. В тексте кейса нет отсылок к требованиям (id R-…, «по требованию …»). Нарушение — "minor".
+10. Ценность: кейс проверяет то, что важно пользователю или бизнесу, и приоритет соответствует последствиям сбоя. Малозначимый кейс — проверка наличия элемента без поведения, косметика с высоким приоритетом, отдельный кейс на каждое значение одного класса эквивалентности, повтор в UI проверки, которую уже делает API-кейс, — "major", категория «Ценность»; в suggestion — объединить с другим кейсом, понизить приоритет или убрать.
+11. Важный сценарий: если по требованию с приоритетом P4_CRITICAL или P3_HIGH в пакете есть только негативные кейсы и нет кейса на основной позитивный сценарий — "critical", категория «Пропущен важный сценарий», targetId — id требования.`;
 function promptReviewCases(run, type, cases, mode = {}) {
   const reqIds = [...new Set(cases.flatMap((c) => c.requirementIds))];
   const focus = cases.map((c) => `${pickTitleText(c.testCase)} ${c.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
@@ -2739,6 +2823,15 @@ function promptReviewCases(run, type, cases, mode = {}) {
 function promptReviewChecklist(run, items) {
   const reqIds = [...new Set(items.flatMap((i) => i.requirementIds))];
   return renderPrompt("promptReviewChecklist", { "e1": reviewRulesBlock(), "e2": qaCtxBlock(ctxOf(run), null, true), "e3": knowBlocks(run, 'review', items.map((i) => i.check).join(' ')), "e4": reqIds.length ? reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') : run.requirements.filter((r) => r.inScope).map(reqCompact).join('\n'), "e5": items.map((i) => `${i.id} [${i.type}] [${i.priority}] [${i.suites.join(',') || 'без набора'}] ${i.requirementIds.join(',')}: ${i.check}`).join('\n') });
+}
+/* важные требования (P4, P3), у которых все кейсы написаны по негативным пунктам чек-листа: основной сценарий не проверен.
+   Без чек-листа вид проверки неизвестен — такие требования здесь не оцениваются, их смотрит ревьюер (критерий 11) */
+function mainPathGaps(run) {
+  const items = new Map(checklistItems(run).map((i) => [i.id, i]));
+  return run.requirements.filter((r) => r.inScope && ['P4_CRITICAL', 'P3_HIGH'].includes(normPrio(r.priority))).filter((r) => {
+    const kinds = activeCases(run).filter((c) => c.requirementIds.includes(r.id)).map((c) => items.get(c.checklistId)?.kind);
+    return kinds.length && kinds.every((k) => k === 'negative');
+  });
 }
 function addFinding(run, f) {
   const key = normKey(f.targetId + ' ' + f.message);
@@ -2777,6 +2870,7 @@ function startReview(full = false, tab = 'review') {
     if (keepCase.size + keepItem.size) slog(run, 'review', `Не менялись с прошлого ревью: ${keepCase.size ? `кейсов ${keepCase.size}` : ''}${keepCase.size && keepItem.size ? ', ' : ''}${keepItem.size ? `пунктов чек-листа ${keepItem.size}` : ''} — их замечания сохранены, повторно не проверяю`, 'ok');
     // проверки без модели
     if (run.cases.length && !run.reduced) for (const r of uncovered(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'major', category: 'Покрытие', message: `Требование ${r.id} «${r.title}» не покрыто тест-кейсами.`, suggestion: 'Дописать тест-кейсы для этого требования.', source: 'auto' });
+    if (run.cases.length && !run.reduced) for (const r of mainPathGaps(run)) addFinding(run, { kind: 'req', targetId: r.id, severity: 'critical', category: 'Пропущен важный сценарий', message: `У требования ${r.id} «${r.title}» (${prioRu(r.priority).toLowerCase()} приоритет) только негативные проверки — нет кейса на основной сценарий.`, suggestion: 'Добавить кейс на основной позитивный сценарий требования.', source: 'auto' });
     // правила команды: безопасные исправления — на месте, остальное — замечаниями с кнопкой «Исправить»
     let fixed = 0; const byRule = {};
     for (const c of activeCases(run)) {
@@ -2937,6 +3031,7 @@ function fixDraftAll() {
 function dropDraftCase(uid) {
   const run = S.run, c = run?.cases.find((x) => x.uid === uid);
   if (!c || draftLocked(run)) return;
+  if (!c.manual) noteEdit(run, 'dropped', { type: TL[c.type], title: pickTitleText(c.testCase).slice(0, 160), prio: normPrio(c.testCase?.priority) });
   run.cases = run.cases.filter((x) => x !== c);
   if (run.findings) run.findings = run.findings.filter((f) => !(f.kind === 'case' && f.targetId === c.dispId));
   S.caseUI.delete(uid); queueSave(run); renderTabs(); renderTab(); renderRunControls();
@@ -3147,6 +3242,7 @@ async function addDraftToProduct() {
   renderTabs(); renderTab(); renderProduct(); renderRunControls();
   const n = run.cases.length;
   toast(run.productId ? `${n} ${plural(n, 'кейс добавлен', 'кейса добавлены', 'кейсов добавлены')} в продукт «${productById(run.productId)?.name || 'Продукт'}»` : 'Кейсы отмечены как принятые');
+  learnFromEdits(run);   // правки черновика — в память агента, фоном
 }
 function dismissFinding(f, reason) {
   f.status = 'dismissed'; f.reason = String(reason || '').trim();

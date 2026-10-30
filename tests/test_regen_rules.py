@@ -4,7 +4,8 @@ import os
 
 import pytest
 
-RULES = sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'rules', '*.md')))
+# merge.md — правило плана и чек-листа (объединять похожие проверки); перегенерация пишет кейсы по готовому плану
+RULES = sorted(p for p in glob.glob(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'rules', '*.md')) if os.path.basename(p) != 'merge.md')
 
 
 @pytest.fixture

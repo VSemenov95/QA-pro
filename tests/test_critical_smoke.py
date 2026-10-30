@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from tests.support import seed
+from tests.support import model, seed
 
 
 def test_helper_adds_both_suites_for_critical_only(app):
@@ -36,7 +36,12 @@ def test_generated_critical_cases_get_smoke_even_if_model_says_regression(app):
         return {'cases': [{'planItem': pid, 'requirementIds': [], 'suites': ['regression'],
                            'testCase': {'title': f'[BE] Критичный кейс {pid}', 'id': '', 'priority': 'P4_CRITICAL', 'preconditions': ['—'],
                                         'steps': [{'step': 1, 'action': 'a', 'expected': 'b'}]}} for pid in ids]}
-    app.model.on('promptGenerate', critical_cases)
+    def critical_reqs(call):   # кейс не бывает приоритетнее своего требования: требования — критичные
+        r = model._analyze(call)
+        for x in r['requirements']:
+            x['priority'] = 'P4_CRITICAL'
+        return r
+    app.model.on('promptGenerate', critical_cases).on('promptAnalyze', critical_reqs)
     app.add_sample()
     from tests.test_generation import set_outputs
     set_outputs(app, checklist=False)   # по чек-листу приоритет кейса берётся из пункта

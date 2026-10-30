@@ -26,7 +26,7 @@ def test_rule_is_in_generation_prompt(app):
     app.add_sample()
     app.generate()
     p = app.model.prompts_of('promptGenerate')[0]
-    assert 'Приоритет указывай только одним из четырёх значений' in p and 'P4_CRITICAL' in p
+    assert 'Приоритет — только одно из четырёх значений' in p and 'P4_CRITICAL' in p
 
 
 def test_generated_cases_have_only_allowed_priorities(app):

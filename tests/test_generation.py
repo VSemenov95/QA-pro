@@ -595,6 +595,8 @@ def plan_of(*items):
 def batch_sizes(app, plan):
     """Запросы на написание кейсов по проверкам плана: [(групп плана в запросе, проверок в запросе)]. Дополнительные группы покрытия не считаются."""
     set_outputs(app, checklist=False)   # план по требованиям, не из чек-листа
+    # проверяется разбиение на запросы, а не бюджет проверок по приоритету: бюджет снимаем
+    app.call("Object.values(a.CHECK_BUDGET).forEach((b) => Object.keys(b).forEach((k) => { b[k] = 99; }))")
     app.model.on('promptPlan', plan).on('promptGenerate', lambda call: cases_for(call.prompt))
     app.generate()
     out = []

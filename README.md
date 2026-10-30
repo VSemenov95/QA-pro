@@ -65,7 +65,7 @@
 | `agent-test-cases.html` | Разметка страницы |
 | `build.py` | Сборка: `tc-agent.html` (страница) и `qa-pro.html` (один файл для браузера) |
 | `prompts/` | Тексты промптов (`promptAnalyze.md`, `promptGenerate.md` и остальные). Подстановки записаны как `⟦имя⟧` |
-| `rules/` | Правила генерации: приоритеты (`priority.md`), наборы (`suites.md`), метки названий (`title-tags.md`), вызов API (`api-call.md`), Kafka (`kafka.md`), предусловия (`preconditions.md`), шаги с сервисами (`service-steps.md`), ссылки на требования (`req-refs.md`), объём тестов (`scope.md`) |
+| `rules/` | Правила генерации: приоритеты (`priority.md`), объединение похожих проверок (`merge.md`), наборы (`suites.md`), метки названий (`title-tags.md`), вызов API (`api-call.md`), Kafka (`kafka.md`), предусловия (`preconditions.md`), шаги с сервисами (`service-steps.md`), ссылки на требования (`req-refs.md`), объём тестов (`scope.md`) |
 | `templates/` | Шаблоны кейсов по умолчанию: `api.md`, `ui.md`, `e2e.md` |
 | `knowledge/` | Описание базы знаний QA pro |
 | `uploader/` | Расширение Chrome «QA pro — загрузчик в Сферу ФТ» |
