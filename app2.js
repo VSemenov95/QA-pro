@@ -349,9 +349,13 @@ function budgetRule(depth) {
   return `Бюджет проверок на одно требование в каждом виде тестов — по приоритету требования: P4_CRITICAL — до ${b.P4_CRITICAL}, P3_HIGH — до ${b.P3_HIGH}, P2_MEDIUM — до ${b.P2_MEDIUM}, P1_LOW — ${b.P1_LOW}. Основной путь, деньги, данные и права доступа проверяй подробно, второстепенное — минимально.`;
 }
 const depthPrompt = (d) => `${d.prompt} ${budgetRule(d.id)}`;
+// проверки типа данных в API — в конец группы: при бюджете и лимите они отпадают первыми
+const isTypeCheck = (type, text) => type === 'api' && TYPE_CHECK_RX.test(String(text || ''));
+const typeChecksLast = (it) => (it.type === 'api' ? { ...it, checks: [...it.checks.filter((c) => !isTypeCheck('api', c)), ...it.checks.filter((c) => isTypeCheck('api', c))] } : it);
 // лишние проверки группы плана отбрасываются с конца: модель ставит позитивные проверки основного сценария первыми
 function budgetPlan(run, items) {
   let cut = 0;
+  items.forEach((it, i) => { items[i] = typeChecksLast(it); });
   for (const it of items) {
     const n = Math.max(1, it.requirementIds.reduce((a, id) => a + reqBudget(run, id), 0));
     if (it.checks.length > n) { cut += it.checks.length - n; it.checks = it.checks.slice(0, n); }
@@ -373,6 +377,9 @@ function budgetChecklist(run, groups) {
   return { groups: out, cut: all.length - keep.size };
 }
 /* приоритет проверки не выше приоритета требований, которые она проверяет: приоритет задаётся на анализе один раз */
+/* проверка типа данных в API — средний приоритет: правило команды, код держит его и когда модель ставит другой */
+const TYPE_CHECK_RX = /тип\S*\s+данн|(неверн|некорректн|недопустим|друг|чуж)\S*\s+тип|тип\S*\s+(пол[яей]|значени|параметр)|вместо\s+(числ|строк|массив|объект|bool|булев|integer|string|number)|(wrong|invalid)\s+(data\s+)?type|type\s*mismatch/i;
+const apiTypePrio = (type, text, prio) => (isTypeCheck(type, text) ? 'P2_MEDIUM' : prio);
 function capPrio(run, prio, reqIds) {
   const rs = arrStr(reqIds).map((id) => run.reqById?.[id]).filter(Boolean);
   const p = normPrio(prio);
@@ -502,7 +509,7 @@ function promptPlan(run, reqs, types, depth) {
   const rules = rulesText();
   const ex = relevantExisting(run, 'cases', null, 200, reqs.map((r) => `${r.title} ${r.description} ${r.criteria.join(' ')}`).join(' ')).filter((x) => types.includes(x.t));
   const upd = run.mode === 'update' ? `\nКоманда актуализирует существующие тест-кейсы. Ниже — только требования, которые не покрыты кейсами из загруженного файла: составь проверки для них.\n${existingBlock(relevantSrc(run, reqs), 'cases', 'Это актуализированные кейсы из файла. Не повторяй их проверки.')}` : '';
-  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": depthPrompt(d), "MERGE_RULE": MERGE_RULE, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "DOCS": docsFull(run), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
+  return renderPrompt("promptPlan", { "upd": upd, "e2": typesListText(types), "d_prompt": depthPrompt(d), "MERGE_RULE": MERGE_RULE, "PRIORITY_RULE": PRIORITY_RULE, "e4": rules ? `\nПравила команды: ${rules}` : '', "SCOPE_RULE": SCOPE_RULE, "e6": clarBlock(run), "e7": qaCtxBlock(ctxOf(run)), "e8": knowBlocks(run, 'single', reqs.map(reqText).join(' ')), "DOCS": docsFull(run), "e9": existingBlock(ex, 'cases', 'Не включай в план проверки, которые уже есть в этом списке: новые кейсы должны дополнять существующие, а не повторять их. Если требование уже полностью покрыто существующими кейсами, не создавай для него группу — укажи его в alreadyCovered с id этих кейсов.'), "e10": reqs.map(reqCompact).join('\n'), "e11": ex.length ? ' или в alreadyCovered' : '', "e12": ex.length ? ',"alreadyCovered":[{"requirementId":"R-002","caseIds":["UI-004"]}]' : '' });
 }
 function reqLine(r) {
   if (!r) return '';
@@ -1513,7 +1520,7 @@ function acceptCases(run, b, res) {
       clUsed.add(clId);
       if (typeof tc.priority === 'string') tc.priority = normPrio(cl.priority); // приоритет — как у пункта чек-листа
       if (!arrStr(c.requirementIds).some((id) => run.reqById[id]) && cl.requirementIds.length) reqIds = cl.requirementIds.slice();
-    } else if (typeof tc.priority === 'string') tc.priority = capPrio(run, tc.priority, reqIds);   // приоритет не выше требования
+    } else if (typeof tc.priority === 'string') tc.priority = capPrio(run, apiTypePrio(b.type, pickTitleText(tc), tc.priority), reqIds);   // приоритет не выше требования
     const nc = { uid: rid('c'), type: b.type, planItem, requirementIds: reqIds, suites: suitesByPrio(tc.priority, normSuites(c.suites).length ? normSuites(c.suites) : cl?.suites || []), testCase: tc, dispId, ...(cl ? { checklistId: clId } : {}) };
     if (run.mode === 'update') Object.assign(nc, { status: 'new', note: 'Новая проверка: требование не было покрыто кейсами из файла', changes: [] });
     run.cases.push(nc);
@@ -1768,16 +1775,18 @@ const clKind = (k) => (/negat|негатив|boundary|гранич|error|оши�
 function normChecklistItem(run, it, types) {
   const type = String(it?.type || '').toLowerCase();
   const requirementIds = arrStr(it?.requirementIds).filter((id) => run.reqById[id]);
-  const priority = capPrio(run, it?.priority, requirementIds);   // не выше приоритета требований
+  const check = String(it?.check || it?.title || it?.text || '').trim(), t = types.includes(type) ? type : types[0];
+  const priority = capPrio(run, apiTypePrio(t, check, it?.priority), requirementIds);   // не выше приоритета требований
   return {
-    id: '', check: String(it?.check || it?.title || it?.text || '').trim(), expected: String(it?.expected || it?.expectedResult || '').trim(), kind: clKind(it?.kind),
-    type: types.includes(type) ? type : types[0],
+    id: '', check, expected: String(it?.expected || it?.expectedResult || '').trim(), kind: clKind(it?.kind),
+    type: t,
     priority, suites: suitesByPrio(priority, normSuites(it?.suites)), requirementIds,
   };
 }
 /* порядок отбора при лимите: позитивные по убыванию приоритета, затем негативные */
 const PRIO_RANK = { P4_CRITICAL: 0, P3_HIGH: 1, P2_MEDIUM: 2, P1_LOW: 3 };
-const clRank = (i) => (i.kind === 'negative' ? 10 : 0) + (PRIO_RANK[normPrio(i.priority)] ?? 2);
+// проверка типа данных в API — после всех, даже негативных и низкого приоритета: средний приоритет не поднимает её в отборе
+const clRank = (i) => (isTypeCheck(i.type, i.check) ? 100 : 0) + (i.kind === 'negative' ? 10 : 0) + (PRIO_RANK[normPrio(i.priority)] ?? 2);
 function splitQuota(n, sizes) {
   const q = sizes.map((s) => Math.floor((n * s) / (sizes.reduce((a, x) => a + x, 0) || 1)));
   if (!q.length) return q;
@@ -1915,6 +1924,7 @@ async function stepChecklist(run) {
 // строгое число проверок действует для генерации и сверки; актуализация его не использует
 const strictTarget = (run) => !!run.settings.target && run.mode !== 'update';
 function capChecks(items, n) {
+  items = items.map(typeChecksLast);
   const out = items.map((it) => ({ ...it, checks: [] }));
   let left = n;
   items.forEach((it, i) => { if (left > 0 && it.checks.length) { out[i].checks.push(it.checks[0]); left--; } });
