@@ -6,7 +6,8 @@
    шаблона: для команды, в источник контекста или — без прав — только у этого пользователя. */
 const ETALON_CAP = 200000;         // знаков эталона в одном запросе: эталон идёт целиком, длиннее — кейсы эталона по теме сравниваемых
 const ETALON_CASES_CAP = 150000;   // знаков кейсов агента в одном запросе: больше — сравнение частями
-const ETALON_MAX_RULES = 8;
+const ETALON_MAX_RULES = 8;   // правил каждого рода: оформление и состав проверок
+const ETALON_KINDS = { format: 'Оформление', content: 'Состав проверок' };
 S.etalon = { uids: [], files: [], busy: false, error: '', log: [], ctl: null, view: 'upload' };
 
 const etalonScope = (run = S.run) => {
@@ -109,13 +110,13 @@ function promptEtalon(type, cases, etalonText, part = null) {
 }
 function etalonNormRules(type, res, have) {
   const exist = new Set([...tplRuleLines(type), ...have].map(normKey));
-  const out = [];
-  for (const x of arrOf(res?.rules).slice(0, ETALON_MAX_RULES * 2)) {
+  const out = [], per = { format: 0, content: 0 };
+  for (const x of arrOf(res?.rules).slice(0, ETALON_MAX_RULES * 4)) {
     const text = String(x?.text || x?.rule || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-    if (!text || exist.has(normKey(text))) continue;
-    exist.add(normKey(text));
-    out.push({ id: rid('er'), type, text, why: String(x?.why || '').trim().slice(0, 400), generated: arrStr(x?.generated).slice(0, 8), etalon: String(x?.etalon || '').trim().slice(0, 160), status: 'new' });
-    if (out.length >= ETALON_MAX_RULES) break;
+    const kind = String(x?.kind || '').toLowerCase() === 'content' ? 'content' : 'format';
+    if (!text || exist.has(normKey(text)) || per[kind] >= ETALON_MAX_RULES) continue;
+    exist.add(normKey(text)); per[kind]++;
+    out.push({ id: rid('er'), type, kind, text, why: String(x?.why || '').trim().slice(0, 400), generated: arrStr(x?.generated).slice(0, 8), etalon: String(x?.etalon || '').trim().slice(0, 160), status: 'new' });
   }
   return out;
 }
@@ -241,17 +242,19 @@ function etalonResultHTML() {
   if (!R) return '<p class="hint">Сравнения ещё не было.</p>';
   const groups = TYPES.filter((t) => R.byType[t]).map((t) => {
     const rules = R.rules.filter((x) => x.type === t);
-    const items = rules.map((x) => `<li class="et-rule ${x.status}" id="et-${x.id}">
+    const item = (x) => `<li class="et-rule ${x.status}" id="et-${x.id}">
         <div class="et-rule-t">${esc(x.text)}</div>
         ${x.why || x.generated.length || x.etalon ? `<div class="muted small">${esc(x.why)}${x.generated.length ? ` · кейсы: ${esc(x.generated.join(', '))}` : ''}${x.etalon ? ` · эталон: ${esc(x.etalon)}` : ''}</div>` : ''}
         <div class="et-acts">${x.status === 'new' ? `<button class="btn sm accent" type="button" data-eact="add" data-id="${x.id}">Добавить</button><button class="btn sm" type="button" data-eact="reject" data-id="${x.id}">Отклонить</button>`
-          : x.status === 'added' ? `<span class="chip ok">добавлено в правила ${TL[t]}</span>` : '<span class="chip">отклонено</span>'}</div></li>`).join('');
+          : x.status === 'added' ? `<span class="chip ok">добавлено в правила ${TL[t]}</span>` : '<span class="chip">отклонено</span>'}</div></li>`;
+    // правила прежних сравнений без рода — оформление
+    const items = Object.entries(ETALON_KINDS).map(([k, title]) => { const xs = rules.filter((x) => (x.kind || 'format') === k); return xs.length ? `<h5 class="et-kind">${title} · ${xs.length}</h5><ul class="et-rules">${xs.map(item).join('')}</ul>` : ''; }).join('');
     const m = R.byType[t].metrics;
     const metric = m ? `<p class="small"><b>${esc(etalonLine(m, R.byType[t].n))}</b>${m.approx ? ` <span class="muted">· сравнение частями (${R.byType[t].parts}), полнота приблизительная</span>` : ''}${m.extra.length ? ` <span class="muted">(${esc(m.extra.join(', '))})</span>` : ''}</p>${m.missed.length ? `<details class="small"><summary>Нет у агента: ${m.missed.length}</summary><ul>${m.missed.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}` : '';
     return `<section class="et-group"><h4>${TL[t]} · ${R.byType[t].n} ${plural(R.byType[t].n, 'кейс', 'кейса', 'кейсов')}</h4>
       ${metric}
       ${R.byType[t].summary ? `<p class="hint">${esc(R.byType[t].summary)}</p>` : ''}
-      ${items ? `<ul class="et-rules">${items}</ul>` : '<p class="hint">Новых правил нет.</p>'}</section>`;
+      ${items || '<p class="hint">Новых правил нет.</p>'}</section>`;
   }).join('');
   const tot = etalonTotals(R), prev = R.prev;
   const delta = tot?.recall != null && prev?.recall != null ? ` (в прошлый раз ${prev.recall}%)` : '';

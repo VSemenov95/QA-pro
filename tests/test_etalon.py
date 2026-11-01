@@ -163,6 +163,23 @@ def test_rules_are_grouped_by_type_without_existing_ones(compared):
     assert compared.count('#etalon-body [data-eact=add]') == 6 and compared.count('#etalon-body [data-eact=reject]') == 6
 
 
+def test_formatting_rules_are_asked_and_shown_apart(compared):
+    p = compared.model.prompts_of('promptEtalon')[0]
+    assert '"format" — оформление' in p and 'название: шаблон и порядок частей' in p and 'даже если они про другие функции' in p
+    assert compared.state('S.run.etalon.rules.map((x) => x.kind)') == ['format', 'content'] * 3
+    body = compared.text('#etalon-body')
+    assert 'Оформление · 1' in body and 'Состав проверок · 1' in body
+
+
+def test_rules_are_limited_per_kind(app):
+    r = app.call("""(() => {
+      const rules = [];
+      for (let i = 0; i < 12; i++) rules.push({ kind: 'format', text: 'Оформление ' + i }, { kind: 'content', text: 'Состав ' + i });
+      return a.etalonNormRules('ui', { rules }, []).map((x) => x.kind);
+    })()""")
+    assert r.count('format') == 8 and r.count('content') == 8
+
+
 def test_long_etalon_is_cut_to_relevant_fragments(app):
     noise = '\n\n'.join(f'Раздел {i}: про платежи и карты, не про пароль.' * 20 for i in range(200))
     text = noise + '\n\nВосстановление пароля: письмо со ссылкой приходит за минуту.\n\n' + noise
