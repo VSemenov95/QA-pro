@@ -4,8 +4,8 @@
    правила генерации. Каждое правило пользователь добавляет или отклоняет; добавленное дописывается в правила
    оформления шаблона этого вида (шестерёнка → Шаблоны → «Особенности оформления») и сохраняется так же, как правка
    шаблона: для команды, в источник контекста или — без прав — только у этого пользователя. */
-const ETALON_CAP = 30000;   // знаков эталона в одном запросе: длинный эталон — фрагменты по теме кейсов
-const ETALON_CASES_CAP = 28000;
+const ETALON_CAP = 200000;         // знаков эталона в одном запросе: эталон идёт целиком, длиннее — кейсы эталона по теме сравниваемых
+const ETALON_CASES_CAP = 150000;   // знаков кейсов агента в одном запросе: больше — сравнение частями
 const ETALON_MAX_RULES = 8;
 S.etalon = { uids: [], files: [], busy: false, error: '', log: [], ctl: null, view: 'upload' };
 
@@ -34,21 +34,57 @@ function etalonAddFiles(list) {
     const ext = (f.name.split('.').pop() || '').toLowerCase();
     const x = { id: rid('e'), name: f.name, ext, status: 'parsing', text: '', chars: 0, error: '' };
     S.etalon.files.push(x);
-    parseFile(f).then(async (res) => { if (res.ocr) res = await res.ocr(); x.text = String(res.text || '').trim(); x.chars = x.text.length; x.status = x.chars ? 'ready' : 'error'; if (!x.chars) x.error = 'В файле не найден текст'; })
+    etalonParse(f, ext).then((res) => { x.text = String(res.text || '').trim(); x.chars = x.text.length; x.cases = res.cases || 0; x.status = x.chars ? 'ready' : 'error'; if (!x.chars) x.error = 'В файле не найден текст'; })
       .catch((e) => { x.status = 'error'; x.error = e.message || String(e); })
       .finally(renderEtalon);
   }
   renderEtalon();
 }
-// длинный эталон: фрагменты, ближе всего к теме сравниваемых кейсов, в исходном порядке
+/* эталон .xlsx и .json — это тест-кейсы: разбираем их тем же разбором, что файл кейсов при актуализации, и пишем каждый
+   кейс отдельным блоком. Как документ таблица стала бы сплошным текстом без границ кейсов */
+function etalonCaseText(c) {
+  const val = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
+  const lines = [`### ${c.srcId ? c.srcId + '. ' : ''}${c.title}`];
+  for (const [k, v] of Object.entries(c.raw || {})) {
+    if (v == null || v === '' || v === c.title || v === c.srcId) continue;
+    if (k === 'Следующие строки кейса' && Array.isArray(v)) for (const row of v) lines.push('- ' + Object.entries(row).map(([a, b]) => `${a}: ${val(b)}`).join('; '));
+    else lines.push(`${k}: ${val(v)}`);
+  }
+  return lines.join('\n');
+}
+async function etalonParse(f, ext) {
+  if (['xlsx', 'xls', 'json'].includes(ext)) {
+    try {
+      const buf = await f.arrayBuffer();
+      const r = ext === 'json' ? parseTestsJSON(decodeText(buf)) : await parseTestsSheet(buf);
+      if (r.cases.length) return { text: r.cases.map(etalonCaseText).join('\n\n'), cases: r.cases.length };
+    } catch { /* не тест-кейсы — читаем как документ */ }
+  }
+  let res = await parseFile(f);
+  if (res.ocr) res = await res.ocr();   // эталон сравнивается целиком: скриншоты дожидаемся
+  return res;
+}
+/* длинный эталон: блоки (кейсы, абзацы), ближе всего к теме сравниваемых кейсов, в исходном порядке. Блок без пустых строк
+   (таблица) делится по строкам, а строка заголовков таблицы повторяется в каждой его части */
 function etalonFit(text, focus, cap = ETALON_CAP) {
   const t = String(text || '');
   if (t.length <= cap) return { text: t, cut: false };
+  const units = [];
+  for (const para of t.split(/\n\s*\n/)) {
+    if (para.length <= 1500) { units.push(para); continue; }
+    const lines = para.split('\n'), head = lines.find((l) => l.startsWith('|')) || '';
+    let cur = '';
+    for (const l of lines) {
+      if (cur && cur.length + l.length > 1500) { units.push(cur); cur = head && l !== head ? head : ''; }
+      cur += (cur ? '\n' : '') + l.slice(0, 1500);
+    }
+    if (cur) units.push(cur);
+  }
   const parts = [];
   let cur = '';
-  for (const para of t.split(/\n\s*\n/)) {
-    if (cur && cur.length + para.length > 1500) { parts.push(cur); cur = ''; }
-    cur += (cur ? '\n\n' : '') + para;
+  for (const u of units) {
+    if (cur && cur.length + u.length > 1500) { parts.push(cur); cur = ''; }
+    cur += (cur ? '\n\n' : '') + u;
   }
   if (cur) parts.push(cur);
   const q = new Set(helpTokens(focus));
@@ -58,7 +94,7 @@ function etalonFit(text, focus, cap = ETALON_CAP) {
   for (const x of scored.slice().sort((a, b) => b.s - a.s || a.k - b.k)) { if (size + x.p.length + 2 > cap) continue; keep.add(x.k); size += x.p.length + 2; }
   return { text: scored.filter((x) => keep.has(x.k)).map((x) => x.p).join('\n\n…\n\n'), cut: true };
 }
-function promptEtalon(type, cases, etalonText) {
+function promptEtalon(type, cases, etalonText, part = null) {
   const own = tplRuleLines(type), team = rulesText(), ls = S.lessons.filter((l) => l.scope !== 'review').map((l) => l.text);
   const rules = [own.length ? `Особенности оформления ${TL[type]}:\n${own.map((x) => '- ' + x).join('\n')}` : '', team ? `Правила для агента (все виды):\n${team}` : '', ls.length ? `Правила из замечаний команды:\n${ls.map((x) => '- ' + x).join('\n')}` : ''].filter(Boolean).join('\n\n') || 'Не заданы.';
   const payload = [];
@@ -67,7 +103,7 @@ function promptEtalon(type, cases, etalonText) {
   const focus = cases.map((c) => pickTitleText(c.testCase)).join(' ');
   const fit = etalonFit(etalonText, focus);
   return renderPrompt('promptEtalon', {
-    type: TL[type], rules, shown: payload.length < cases.length ? ` (первые ${payload.length} из ${cases.length})` : '',
+    type: TL[type], rules, shown: part ? ` (часть ${part.k} из ${part.n}: ${cases[0].dispId}–${cases[cases.length - 1].dispId})` : payload.length < cases.length ? ` (первые ${payload.length} из ${cases.length})` : '',
     cases: '[' + payload.join(',\n') + ']', etalonNote: fit.cut ? ' — фрагменты по теме этих кейсов (эталон длиннее лимита запроса)' : '', etalon: fit.text,
   });
 }
@@ -90,6 +126,24 @@ function etalonMetrics(res, list) {
   const matched = Math.min(total, Math.max(0, Math.round(Number(m.matched) || 0)));
   const ids = new Set(list.map((c) => c.dispId));
   return { total, matched, missed: arrStr(m.missed).slice(0, 10).map((x) => x.slice(0, 200)), extra: arrStr(m.extra).filter((id) => ids.has(id)).slice(0, 30) };
+}
+/* кейсы агента — частями по ETALON_CASES_CAP: модель видит все кейсы, а не первые, что поместились */
+function etalonParts(list) {
+  const parts = [];
+  let cur = [], size = 0;
+  for (const c of list) {
+    const s = JSON.stringify({ id: c.dispId, testCase: c.testCase }).length;
+    if (cur.length && size + s > ETALON_CASES_CAP) { parts.push(cur); cur = []; size = 0; }
+    cur.push(c); size += s;
+  }
+  if (cur.length) parts.push(cur);
+  return parts;
+}
+// метрики частей: проверки эталона во всех частях одни и те же — берём наибольшую оценку, совпавшие складываем (не больше всех)
+function etalonMerge(ms) {
+  if (ms.length === 1) return ms[0];
+  const total = Math.max(0, ...ms.map((m) => m.total));
+  return { total, matched: Math.min(total, ms.reduce((a, m) => a + m.matched, 0)), missed: [...new Set(ms.flatMap((m) => m.missed))].slice(0, 10), extra: ms.flatMap((m) => m.extra).slice(0, 30), approx: true };
 }
 function etalonTotals(R) {
   const ms = Object.values(R?.byType || {}).filter((x) => x.metrics);
@@ -116,14 +170,19 @@ async function runEtalon() {
   renderEtalon();
   try {
     for (const t of types) {
-      const list = cases.filter((c) => c.type === t);
-      const line = { text: `${TL[t]}: сравниваю ${list.length} ${plural(list.length, 'кейс', 'кейса', 'кейсов')} с эталоном…` };
+      const list = cases.filter((c) => c.type === t), parts = etalonParts(list);
+      const line = { text: `${TL[t]}: сравниваю ${list.length} ${plural(list.length, 'кейс', 'кейса', 'кейсов')} с эталоном${parts.length > 1 ? ` — частями: ${parts.length}` : ''}…` };
       E.log.push(line); renderEtalon();
-      const res = await ask(promptEtalon(t, list, text), { step: 'etalon', ai: S.settings.genAI, cache: false, signal: E.ctl.signal });
-      const rules = etalonNormRules(t, res, result.rules.map((x) => x.text));
-      result.byType[t] = { n: list.length, summary: String(res?.summary || '').trim().slice(0, 600), metrics: etalonMetrics(res, list) };
-      result.rules.push(...rules);
-      line.text = `${TL[t]}: ${rules.length ? `предложено правил — ${rules.length}` : 'новых правил нет'}`;
+      const got = [];
+      for (const [k, part] of parts.entries()) {
+        if (parts.length > 1) { line.text = `${TL[t]}: сравниваю часть ${k + 1} из ${parts.length}…`; renderEtalon(); }
+        const res = await ask(promptEtalon(t, part, text, parts.length > 1 ? { k: k + 1, n: parts.length } : null), { step: 'etalon', ai: S.settings.genAI, cache: false, signal: E.ctl.signal });
+        result.rules.push(...etalonNormRules(t, res, result.rules.map((x) => x.text)));
+        got.push({ summary: String(res?.summary || '').trim(), metrics: etalonMetrics(res, part) });
+      }
+      const n = result.rules.filter((x) => x.type === t).length;
+      result.byType[t] = { n: list.length, parts: parts.length, summary: got.map((x) => x.summary).filter(Boolean).join(' ').slice(0, 600), metrics: etalonMerge(got.map((x) => x.metrics)) };
+      line.text = `${TL[t]}: ${n ? `предложено правил — ${n}` : 'новых правил нет'}`;
       renderEtalon();
     }
     r.etalon = result;
@@ -163,7 +222,7 @@ function etalonUploadHTML() {
   const types = etalonTypes(cases).map((t) => `${TL[t]} ${cases.filter((c) => c.type === t).length}`).join(' · ');
   const all = S.run && cases.length === S.run.cases.length;
   const st = { parsing: 'разбор…', ready: '', error: 'ошибка' };
-  const files = E.files.length ? `<ul class="et-files">${E.files.map((f) => `<li class="${f.status}"><span class="et-fname">${esc(f.name)}</span><span class="muted small">${f.status === 'ready' ? fmtKChars(f.chars) : st[f.status]}${f.error ? ' — ' + esc(f.error) : ''}</span><button class="icon-btn" type="button" data-eact="drop" data-id="${f.id}" aria-label="Убрать файл ${esc(f.name)}" ${E.busy ? 'disabled' : ''}>${ICON.x}</button></li>`).join('')}</ul>` : '';
+  const files = E.files.length ? `<ul class="et-files">${E.files.map((f) => `<li class="${f.status}"><span class="et-fname">${esc(f.name)}</span><span class="muted small">${f.status === 'ready' ? (f.cases ? `${f.cases} ${plural(f.cases, 'кейс', 'кейса', 'кейсов')} · ` : '') + fmtKChars(f.chars) : st[f.status]}${f.error ? ' — ' + esc(f.error) : ''}</span><button class="icon-btn" type="button" data-eact="drop" data-id="${f.id}" aria-label="Убрать файл ${esc(f.name)}" ${E.busy ? 'disabled' : ''}>${ICON.x}</button></li>`).join('')}</ul>` : '';
   const ready = etalonReady().length > 0 && !E.files.some((f) => f.status === 'parsing');
   return `<p class="hint">Сравниваю ${all ? 'все' : 'выбранные'} ${cases.length} ${plural(cases.length, 'кейс', 'кейса', 'кейсов')} черновика (${esc(types)}) с эталонными тест-кейсами команды. По каждому виду тестов агент предложит правила генерации — добавьте нужные или отклоните.</p>
     <label class="drop et-drop" id="etalon-drop" for="etalon-file" tabindex="0" role="button" aria-label="Загрузить эталонные тест-кейсы">
@@ -188,7 +247,7 @@ function etalonResultHTML() {
         <div class="et-acts">${x.status === 'new' ? `<button class="btn sm accent" type="button" data-eact="add" data-id="${x.id}">Добавить</button><button class="btn sm" type="button" data-eact="reject" data-id="${x.id}">Отклонить</button>`
           : x.status === 'added' ? `<span class="chip ok">добавлено в правила ${TL[t]}</span>` : '<span class="chip">отклонено</span>'}</div></li>`).join('');
     const m = R.byType[t].metrics;
-    const metric = m ? `<p class="small"><b>${esc(etalonLine(m, R.byType[t].n))}</b>${m.extra.length ? ` <span class="muted">(${esc(m.extra.join(', '))})</span>` : ''}</p>${m.missed.length ? `<details class="small"><summary>Нет у агента: ${m.missed.length}</summary><ul>${m.missed.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}` : '';
+    const metric = m ? `<p class="small"><b>${esc(etalonLine(m, R.byType[t].n))}</b>${m.approx ? ` <span class="muted">· сравнение частями (${R.byType[t].parts}), полнота приблизительная</span>` : ''}${m.extra.length ? ` <span class="muted">(${esc(m.extra.join(', '))})</span>` : ''}</p>${m.missed.length ? `<details class="small"><summary>Нет у агента: ${m.missed.length}</summary><ul>${m.missed.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}` : '';
     return `<section class="et-group"><h4>${TL[t]} · ${R.byType[t].n} ${plural(R.byType[t].n, 'кейс', 'кейса', 'кейсов')}</h4>
       ${metric}
       ${R.byType[t].summary ? `<p class="hint">${esc(R.byType[t].summary)}</p>` : ''}

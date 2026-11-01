@@ -170,6 +170,37 @@ def test_long_etalon_is_cut_to_relevant_fragments(app):
     assert r['cut'] and len(r['text']) <= 5000 and 'письмо со ссылкой приходит за минуту' in r['text']
 
 
+def test_big_xlsx_etalon_reaches_the_model_as_cases(drafted, tmp_path):
+    """Эталон .xlsx длиннее прежнего лимита (раньше уходил пустым): кейсы разобраны по строкам таблицы и видны модели."""
+    open_dialog(drafted)
+    load(drafted, files.cases_xlsx(tmp_path, n=400))
+    assert drafted.state('S.etalon.files[0].cases') == 400 and drafted.state('S.etalon.files[0].chars') > 30000
+    assert '400 кейсов' in drafted.text('#etalon-body')
+    compare(drafted)
+    p = drafted.model.prompts_of('promptEtalon')[0]
+    assert '### TC-1. Восстановление пароля: проверка 1' in p and '### TC-400. Восстановление пароля: проверка 400' in p
+    assert 'Нажать «Забыли пароль?»' in p   # следующие строки кейса — шаги
+
+
+def test_table_without_blank_lines_is_cut_by_rows(app):
+    rows = ['| ID | Название | Шаги |'] + [f'| TC-{i} | Платежи картой {i} | Оплатить заказ |' for i in range(3000)]
+    rows.insert(1500, '| TC-X | Восстановление пароля | Письмо со ссылкой приходит за минуту |')
+    r = app.call('a.etalonFit(arg, "восстановление пароля письмо ссылка", 5000)', '\n'.join(rows))
+    assert r['cut'] and 0 < len(r['text']) <= 5000 and 'Письмо со ссылкой приходит за минуту' in r['text']
+    assert '| ID | Название | Шаги |' in r['text']   # строка заголовков таблицы — в отобранной части
+
+
+def test_many_agent_cases_are_compared_in_parts(app):
+    r = app.call("""(() => {
+      const big = 'ш'.repeat(60000);
+      const list = [1, 2, 3, 4].map((i) => ({ dispId: 'UI-00' + i, testCase: { title: 'Кейс ' + i, steps: big } }));
+      return a.etalonParts(list).map((p) => p.map((c) => c.dispId));
+    })()""")
+    assert r == [['UI-001', 'UI-002'], ['UI-003', 'UI-004']]
+    m = app.call("a.etalonMerge([{ total: 10, matched: 4, missed: ['a'], extra: ['UI-001'] }, { total: 12, matched: 5, missed: ['a', 'b'], extra: [] }])")
+    assert m['total'] == 12 and m['matched'] == 9 and m['missed'] == ['a', 'b'] and m['approx']
+
+
 def test_model_error_is_shown_and_can_be_retried(drafted, tmp_path):
     from tests.support.model import ModelError
     drafted.model.on('promptEtalon', ModelError('overloaded', 'Модель перегружена'))
