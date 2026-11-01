@@ -165,19 +165,20 @@ def test_rules_are_grouped_by_type_without_existing_ones(compared):
 
 def test_formatting_rules_are_asked_and_shown_apart(compared):
     p = compared.model.prompts_of('promptEtalon')[0]
-    assert '"format" — оформление' in p and 'название: шаблон и порядок частей' in p and 'даже если они про другие функции' in p
-    assert compared.state('S.run.etalon.rules.map((x) => x.kind)') == ['format', 'content'] * 3
+    assert 'до 8 правил оформления' in p and 'название: шаблон и порядок частей' in p and 'даже если они про другие функции' in p
+    assert 'Не называй в правиле экраны, кнопки, поля' in p and 'не правила: они идут в metrics.missed' in p
+    assert compared.state('S.run.etalon.rules.map((x) => x.kind)') == ['format'] * 6
     body = compared.text('#etalon-body')
-    assert 'Оформление · 1' in body and 'Состав проверок · 1' in body
+    assert 'Оформление · 2' in body and 'Состав проверок' not in body
 
 
-def test_rules_are_limited_per_kind(app):
+def test_only_formatting_rules_are_offered(app):
     r = app.call("""(() => {
       const rules = [];
       for (let i = 0; i < 12; i++) rules.push({ kind: 'format', text: 'Оформление ' + i }, { kind: 'content', text: 'Состав ' + i });
       return a.etalonNormRules('ui', { rules }, []).map((x) => x.kind);
     })()""")
-    assert r.count('format') == 8 and r.count('content') == 8
+    assert r == ['format'] * 8   # правила о составе проверок отбрасываются, оформления — не больше 8
 
 
 def test_long_etalon_is_cut_to_relevant_fragments(app):

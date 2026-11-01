@@ -347,6 +347,7 @@
 | `migrateProviders` | `app2.js:698` | внешние ИИ: OpenAI-совместимые API и Anthropic API | прежний вариант «Иннокода» (innoGPT) заменён на ИИ-центр inno.tech: старое подключение убираем, выбор переносим |
 | `curProv` | `app2.js:706` | внешние ИИ: OpenAI-совместимые API и Anthropic API |  |
 | `parseLoose` | `app2.js:711` | внешние ИИ: OpenAI-совместимые API и Anthropic API |  |
+| `repairJSON` | `app2.js` | ответ не JSON: `ask` чинит переносы в строках и оборванный хвост (недописанный объект списка отбрасывается); обрыв (`max_tokens`: `stop_reason` Anthropic, `finish_reason` OpenAI, незакрытые скобки) — этапы `CUT_OK` берут дописанное, генерация и база знаний делят работу; не JSON совсем — один повтор с напоминанием о формате |  |
 | `httpJSON` | `app2.js:723` | внешние ИИ: OpenAI-совместимые API и Anthropic API |  |
 | `connHeaders` | `app2.js:737` | внешние ИИ: OpenAI-совместимые API и Anthropic API |  |
 | `openaiCall` | `app2.js:749` | внешние ИИ: OpenAI-совместимые API и Anthropic API |  |

@@ -911,6 +911,7 @@ function errText(e) {
     rate_limited: 'Слишком много запросов или исчерпан лимит использования. Подождите и запустите снова.',
     prompt_too_large: 'Слишком большой объём текста для одного запроса. Уменьшите документы или разделите их.',
     invalid_json: 'Модель ответила не в формате JSON.',
+    max_tokens: 'Ответ модели не уместился в лимит длины и оборвался — запрос слишком большой.',
     refused: 'Модель отказалась обрабатывать этот фрагмент.',
     empty_completion: 'Модель вернула пустой ответ.',
     upstream_error: 'Сбой связи с сервисом.',
@@ -991,7 +992,66 @@ const stageTier = (stage) => { const v = S.settings.stages?.[stage]; return v ==
 const stageOf = (step, stage) => stage || STAGE_OF_STEP[step] || 'aux';
 // у подключения по ключу Claude уровень задаёт модель; у ChatGPT и Иннокода одна модель — уровень ничего не меняет
 const stageModel = (conn, tier) => { const pv = provOfConn(conn.id); return (tier && pv && PROVIDERS[pv].tiers?.[tier]) || ''; };
-async function ask(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other', stage, schema } = {}) {
+/* Ответ, который не читается как JSON, сначала чинится (repairJSON): переносы строк внутри строк, оборванный хвост.
+   Оборванный ответ (лимит длины): этапы из CUT_OK берут то, что успело прийти, — потерянное добирают проверка полноты
+   анализа, сверка покрытия и ревью; генерация и база знаний получают max_tokens и делят работу на части сами.
+   Ответ не JSON совсем — один повтор с напоминанием о формате; база знаний повторяет сама, с более коротким ответом */
+const CUT_OK = new Set(['analyze', 'checklist', 'plan', 'coverage', 'review', 'etalon', 'map', 'answers']);
+const JSON_RETRY = '\n\nПредыдущий ответ на этот запрос не удалось разобрать как JSON. Ответь только одним JSON-объектом указанного вида: без текста до и после него, все кавычки и переносы строк внутри строк экранированы (\\" и \\n).';
+async function ask(prompt, opts = {}) {
+  try { return await askOnce(prompt, opts); }
+  catch (e) {
+    if (e?.code !== 'invalid_json' && e?.code !== 'max_tokens') throw e;
+    const r = repairJSON(e.text || '');
+    if (r && !r.cut && e.code !== 'max_tokens') return r.value;   // поправлены только переносы строк — без потерь
+    if (r?.cut || e.code === 'max_tokens') {
+      if (!r || !CUT_OK.has(opts.step)) throw { ...e, code: 'max_tokens', message: '' };
+      const run = S.run;
+      if (run?.steps?.[opts.step]) slog(run, opts.step, `Ответ модели оборвался на лимите длины — взято то, что успело прийти (${fmtKChars((e.text || '').length)})`, 'warn');
+      return r.value;
+    }
+    if (opts.retried || opts.step === 'kb') throw e;
+    return ask(prompt + JSON_RETRY, { ...opts, retried: true, cache: false });
+  }
+}
+/* Починка ответа модели. Внутри строк — экранирует переносы строк и управляющие символы. Обрыв: незакрытая строка или
+   скобки — из списка, где оборвался объект (кейс, требование, правило), отбрасывает этот недописанный объект целиком
+   и закрывает скобки; cut: true. null — починить нельзя */
+function repairJSON(text) {
+  const s = String(text || ''), a = s.search(/[[{]/);
+  if (a < 0) return null;
+  let out = '', inStr = false, esc = false;
+  const stack = [];   // открытые скобки: закрывающая, начало содержимого, последняя запятая на этом уровне
+  for (let i = a; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) { esc = false; out += ch; continue; }
+      if (ch === '\\') { esc = true; out += ch; continue; }
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      const code = ch.charCodeAt(0);
+      out += ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch === '\t' ? '\\t' : code < 0x20 ? '' : ch;
+      continue;
+    }
+    if (ch === '"') { inStr = true; out += ch; continue; }
+    if (ch === '{' || ch === '[') stack.push({ close: ch === '{' ? '}' : ']', start: out.length + 1, comma: -1 });
+    else if (ch === '}' || ch === ']') {
+      if (stack.pop()?.close !== ch) return null;
+      if (!stack.length) { out += ch; break; }   // значение закончилось: хвост после него — не JSON
+    } else if (ch === ',' && stack.length) stack[stack.length - 1].comma = out.length;
+    out += ch;
+  }
+  const parse = (x) => { try { return { ok: true, v: JSON.parse(x) }; } catch { return { ok: false }; } };
+  if (!inStr && !stack.length) { const r = parse(out); return r.ok ? { value: r.v, cut: false } : null; }
+  // список, в котором оборвался объект; нет такого — самый вложенный открытый список
+  let k = -1;
+  for (let i = stack.length - 2; i >= 0 && k < 0; i--) if (stack[i].close === ']' && stack[i + 1].close === '}') k = i;
+  for (let i = stack.length - 1; i >= 0 && k < 0; i--) if (stack[i].close === ']') k = i;
+  if (k < 0) return null;
+  const at = stack[k].comma >= 0 ? stack[k].comma : stack[k].start;
+  const r = parse(out.slice(0, at) + stack.slice(0, k + 1).map((x) => x.close).reverse().join(''));
+  return r.ok ? { value: r.v, cut: true } : null;
+}
+async function askOnce(prompt, { tools, onProgress, cache, signal, role = 'gen', tier, ai, step = 'other', stage, schema } = {}) {
   const v = ai || (role === 'gen' ? (S.run?.settings.genAI || S.settings.genAI) : aiValue('review'));
   const t = parseAI(v);
   const problem = aiProblem(v);
@@ -1098,7 +1158,7 @@ async function openaiCall(conn, messages, { tools, signal, onText, model }) {
   const res = await httpJSON(conn.baseUrl.replace(/\/+$/, '') + '/chat/completions', { headers: connHeaders(conn), body, signal, what: 'ИИ' });
   if (stream && /event-stream/.test(res.headers.get('content-type') || '')) {
     const reader = res.body.getReader(), dec = new TextDecoder();
-    let buf = '', text = '';
+    let buf = '', text = '', finish = '';
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -1109,19 +1169,22 @@ async function openaiCall(conn, messages, { tools, signal, onText, model }) {
         if (!line.startsWith('data:')) continue;
         const d = line.slice(5).trim();
         if (d === '[DONE]') continue;
-        try { const j = JSON.parse(d); const delta = j.choices?.[0]?.delta?.content; if (delta) { text += delta; onText(text.length); } } catch { /* неполная строка */ }
+        try { const j = JSON.parse(d); const delta = j.choices?.[0]?.delta?.content; if (delta) { text += delta; onText(text.length); } if (j.choices?.[0]?.finish_reason) finish = j.choices[0].finish_reason; } catch { /* неполная строка */ }
       }
     }
-    return { content: text };
+    const m = { content: text };
+    Object.defineProperty(m, '__finish', { value: finish, enumerable: false });
+    return m;
   }
   const j = await res.json();
   const m = { ...(j.choices?.[0]?.message || { content: '' }) };
   if (j.usage) Object.defineProperty(m, '__usage', { value: j.usage, enumerable: false });
+  Object.defineProperty(m, '__finish', { value: j.choices?.[0]?.finish_reason || '', enumerable: false });
   return m;
 }
 const SCHEMA_TOOL = 'submit_result';
 async function anthropicCall(conn, messages, { tools, signal, model, schema }) {
-  const body = { model: model || conn.model, max_tokens: Number(conn.maxTokens) || 16000, system: SYS_JSON, messages };
+  const body = { model: model || conn.model, max_tokens: Number(conn.maxTokens) || 32000, system: SYS_JSON, messages };
   // Claude 5.x и новее не принимают нестандартную температуру (ответ 400); прежние поколения и чужие шлюзы — принимают
   if (!/^claude-[a-z]+-(?:[5-9]|\d\d)(?:\D|$)/.test(body.model)) body.temperature = 0.2;
   if (tools) body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema || { type: 'object', properties: {} } }));
@@ -1159,6 +1222,7 @@ async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage, model
       }
       const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
       onProgress?.(text.length);
+      if (j.stop_reason === 'max_tokens') throw { code: 'max_tokens', text };
       return parseLoose(text);
     }
     throw { code: 'empty_completion' };
@@ -1179,12 +1243,17 @@ async function extJSON(conn, prompt, { tools, onProgress, signal, onUsage, model
         continue;
       }
       onProgress?.((msg.content || '').length);
-      return parseLoose(msg.content);
+      return openaiJSON(msg);
     }
     throw { code: 'empty_completion' };
   }
   const msg = await openaiCall(conn, messages, { signal, onText: onProgress, model });
   take(msg);
+  return openaiJSON(msg);
+}
+// finish_reason «length» — ответ оборвался на лимите длины
+function openaiJSON(msg) {
+  if (msg.__finish === 'length') throw { code: 'max_tokens', text: msg.content || '' };
   return parseLoose(msg.content);
 }
 async function testConn(conn) {

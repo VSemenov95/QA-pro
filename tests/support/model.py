@@ -15,9 +15,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 class ModelError(Exception):
     """Модель «ответила ошибкой»: в приложении это исключение с кодом (rate_limited, invalid_json, ...)."""
-    def __init__(self, code='invalid_json', message=''):
+    def __init__(self, code='invalid_json', message='', text=None):
         super().__init__(code)
-        self.code, self.message = code, message
+        self.code, self.message, self.text = code, message, text   # text — сырой ответ модели (как e.text в claude.ai)
 
 
 @dataclass
@@ -190,7 +190,7 @@ def _etalon(c):
     t = 'API' if 'вида API' in c.prompt else 'UI' if 'вида UI' in c.prompt else 'E2E'
     rules = [
         {'kind': 'format', 'text': f'В ожидаемом результате {t}-кейса указывай точный текст сообщения из эталона', 'why': 'в эталоне тексты дословные', 'generated': [f'{t}-001'], 'etalon': f'Эталон {t} 1'},
-        {'kind': 'content', 'text': f'Каждый {t}-кейс начинай с предусловия о роли пользователя', 'why': 'в эталоне роль в предусловиях', 'generated': [], 'etalon': ''},
+        {'kind': 'format', 'text': f'Каждый {t}-кейс начинай с предусловия о роли пользователя', 'why': 'в эталоне роль в предусловиях', 'generated': [], 'etalon': ''},
     ]
     if t == 'API':   # уже есть в шаблоне API — агент не должен его показать
         rules.append({'text': 'Один тест-кейс проверяет один эндпоинт и одну ситуацию (позитивную или негативную).', 'why': 'дубль действующего правила'})
@@ -263,4 +263,4 @@ class MockModel:
                 return res
             return {'json': res}
         except ModelError as e:
-            return {'__error': {'code': e.code, 'message': e.message}}
+            return {'__error': {'code': e.code, 'message': e.message, **({'text': e.text} if e.text is not None else {})}}

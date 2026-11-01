@@ -6,7 +6,7 @@
    шаблона: для команды, в источник контекста или — без прав — только у этого пользователя. */
 const ETALON_CAP = 200000;         // знаков эталона в одном запросе: эталон идёт целиком, длиннее — кейсы эталона по теме сравниваемых
 const ETALON_CASES_CAP = 150000;   // знаков кейсов агента в одном запросе: больше — сравнение частями
-const ETALON_MAX_RULES = 8;   // правил каждого рода: оформление и состав проверок
+const ETALON_MAX_RULES = 8;   // правил оформления на вид тестов; состав проверок — в метриках, не в правилах
 const ETALON_KINDS = { format: 'Оформление', content: 'Состав проверок' };
 S.etalon = { uids: [], files: [], busy: false, error: '', log: [], ctl: null, view: 'upload' };
 
@@ -114,6 +114,7 @@ function etalonNormRules(type, res, have) {
   for (const x of arrOf(res?.rules).slice(0, ETALON_MAX_RULES * 4)) {
     const text = String(x?.text || x?.rule || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const kind = String(x?.kind || '').toLowerCase() === 'content' ? 'content' : 'format';
+    if (kind === 'content') continue;   // правила только об оформлении: состав проверок зависит от функции, а не от команды
     if (!text || exist.has(normKey(text)) || per[kind] >= ETALON_MAX_RULES) continue;
     exist.add(normKey(text)); per[kind]++;
     out.push({ id: rid('er'), type, kind, text, why: String(x?.why || '').trim().slice(0, 400), generated: arrStr(x?.generated).slice(0, 8), etalon: String(x?.etalon || '').trim().slice(0, 160), status: 'new' });
