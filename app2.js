@@ -135,6 +135,72 @@ function kbToks(d, b) {
   if (!v) { v = { head: new Set(helpTokens(`${b.title} ${b.summary || d.summary || ''}`)), body: new Set(helpTokens(kbSectionText(d))) }; kbTokMemo.set(d, v); }
   return v;
 }
+/* Части базы знаний: API — раздел на каждый эндпоинт, UI и E2E — по функциональности, общие сведения — отдельно.
+   Часть ставит разбор документов; у разделов без отметки (собранных раньше или написанных человеком) — по названию */
+const KB_AREAS = { api: 'API', ui: 'UI', e2e: 'E2E', common: 'Общие сведения' };
+const KB_AREA_HEADS = { api: 'API — по эндпоинтам', ui: 'UI — по функциональности', e2e: 'E2E — сквозные сценарии', common: 'Общие сведения' };
+const KB_EP_RX = /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+((?:\{[^}\s]*\})?\/[^\s,;»"']*)/i;
+function kbAreaOf(b) {
+  const a = String(b?.area || '').toLowerCase();
+  if (KB_AREAS[a]) return a;
+  const t = String(b?.title || '');
+  if (KB_EP_RX.test(t)) return 'api';
+  // слово «API» — признак части API, если раздел не про интерфейс («Список сервисов: UI, права и API-контракты» — UI)
+  const ui = /(^|[^a-zа-яё])ui([^a-zа-яё]|$)|интерфейс|экран/i.test(t);
+  if (!ui && /(^|[^a-zа-яё])(api|rest|эндпоинт\S*|endpoint\S*)([^a-zа-яё]|$)/i.test(t)) return 'api';
+  if (/сквозн|(^|[^a-z])e2e([^a-z]|$)|end.?to.?end|бизнес.?процесс/i.test(t)) return 'e2e';
+  if (/^общие сведения|глоссари/i.test(t)) return 'common';
+  return 'ui';
+}
+// эндпоинт в названии раздела или в тексте кейса: метод и путь без {baseURL}, параметры пути — {}
+const epKey = (m, p) => `${m.toUpperCase()} ${p.replace(/^\{[^}]*\}/, '').replace(/\{[^}]*\}|:[\w-]+/g, '{}').replace(/\/+$/, '').toLowerCase()}`;
+const kbEndpoint = (title) => { const m = KB_EP_RX.exec(String(title || '')); return m ? epKey(m[1], m[2]) : ''; };
+// параметр пути ({}) подходит к любому значению: GET /orders/42 — это раздел GET /orders/{id}
+const epMatch = (a, b) => { const [ma, pa] = a.split(' '), [mb, pb] = b.split(' '); const sa = String(pa).split('/'), sb = String(pb).split('/'); return ma === mb && sa.length === sb.length && sa.every((s, i) => s === sb[i] || s === '{}' || sb[i] === '{}'); };
+const endpointsIn = (text) => new Set([...String(text || '').matchAll(new RegExp(KB_EP_RX.source, 'gi'))].map((m) => epKey(m[1], m[2])));
+// какие части базы знаний читать для кейсов вида: E2E проходит через экраны и API, поэтому видит всё
+const KB_AREAS_FOR = { api: ['api', 'common'], ui: ['ui', 'common'], e2e: ['e2e', 'ui', 'api', 'common'] };
+/* Карта знаний продукта — оглавление базы знаний по частям. В папке контекста она лежит в README.md (ctxReadmeSync),
+   при генерации и актуализации агент получает её часть для своего вида тестов (kbMapFor) */
+const KBMAP_MARK = (slug) => [`<!-- qa-pro:kbmap ${slug} -->`, `<!-- /qa-pro:kbmap ${slug} -->`];
+function kbMapLine(b, rel) {
+  const ep = kbAreaOf(b) === 'api' ? KB_EP_RX.exec(String(b.title || '')) : null;
+  const rest = ep ? String(b.title).replace(ep[0], '').replace(/^[\s—–:.-]+/, '').trim() : '';
+  const name = ep ? `\`${ep[1].toUpperCase()} ${ep[2]}\`${rest ? ' — ' + rest : b.summary ? ' — ' + String(b.summary).slice(0, 120) : ''}` : `${b.title}${b.summary ? ' — ' + String(b.summary).slice(0, 160) : ''}`;
+  return `- ${name.replace(/\s+/g, ' ')}${rel ? ` → [${rel.split('/').pop()}](${rel})` : ''}`;
+}
+function kbMapMd(name, slug, blocks, relOf = () => '') {
+  const [open, close] = KBMAP_MARK(slug);
+  const parts = Object.keys(KB_AREAS).map((a) => {
+    const bs = blocks.filter((b) => kbAreaOf(b) === a).sort((x, y) => (a === 'api' ? kbEndpoint(x.title).replace(/^\S+ /, '').localeCompare(kbEndpoint(y.title).replace(/^\S+ /, '')) || kbEndpoint(x.title).localeCompare(kbEndpoint(y.title)) : 0) || String(x.title).localeCompare(String(y.title), 'ru'));
+    return bs.length ? `#### ${KB_AREA_HEADS[a]} (${bs.length})\n${bs.map((b) => kbMapLine(b, relOf(b.id))).join('\n')}` : '';
+  }).filter(Boolean);
+  return `${open}\n### Продукт «${name}» — \`products/${slug}/\`\nПаспорт — \`passport.md\`, доп. контекст QA — \`context.md\`, память агента — \`memory.md\`. Разделы базы знаний — \`kb/\`: \`kb/api/\` по эндпоинтам, \`kb/ui/\` и \`kb/e2e/\` по функциональности, \`kb/common/\` — общие сведения.\n\n${parts.join('\n\n') || 'Разделов пока нет.'}\n${close}`;
+}
+// часть карты для кейсов вида: из README.md папки контекста (её мог дополнить человек), иначе — из оглавления базы знаний
+const KBMAP_CAP = 16000;
+function kbMapFor(run, type) {
+  const pid = run?.productId;
+  if (!pid || run?.noKb || S.kb.pid !== pid) return '';
+  const areas = KB_AREAS_FOR[type] || Object.keys(KB_AREAS);
+  const heads = new Map(Object.entries(KB_AREA_HEADS).map(([a, h]) => [h.split(' — ')[0], a]));
+  let text = '', fromReadme = false;
+  const md = typeof ctxActive === 'function' && ctxActive(pid) ? ctxText(CP.readme) : null;
+  const [open, close] = KBMAP_MARK(ctxSlug());
+  const i = md ? md.indexOf(open) : -1, j = i >= 0 ? md.indexOf(close, i) : -1;
+  if (j > i) {
+    const groups = md.slice(i + open.length, j).replace(/\r\n/g, '\n').split(/\n(?=#### )/).filter((g) => g.startsWith('#### '));
+    text = groups.filter((g) => areas.includes(heads.get(g.slice(5).split(/ — | \(/)[0].trim()))).join('\n\n');
+    fromReadme = !!text;
+  }
+  if (!text) {
+    const blocks = S.kb.index.blocks.filter((b) => areas.includes(kbAreaOf(b)));
+    if (!blocks.length) return '';
+    text = kbMapMd('', '', blocks).split('\n').filter((l) => l.startsWith('#### ') || l.startsWith('- ')).join('\n');
+  }
+  if (text.length > KBMAP_CAP) text = text.slice(0, text.lastIndexOf('\n', KBMAP_CAP)) + '\n- …';
+  return `\n## Карта знаний продукта${fromReadme ? ' (README.md)' : ''}\nОглавление базы знаний для кейсов вида ${TL[type] || type}: где описан каждый эндпоинт API и каждая функция. Разделы по теме этих кейсов приведены полностью ниже, в «Базе знаний продукта»; сведения для предусловий и связанных шагов (эндпоинты, экраны, сущности) ищи в разделах, на которые указывает карта${kbSections(pid).length ? ', — инструментом read_knowledge_section по названию, если он есть' : ''}.\n${text}\n`;
+}
 // разделы, загруженные целиком (сводка или выдержки), — для генерации и инструментов агента
 function kbSections(pid) {
   const own = !pid || S.kb.pid !== pid ? [] : S.kb.index.blocks.map((b) => ({ b, d: S.kb.cache[b.id] })).filter((x) => x.d && (x.d.synth || arrOf(x.d.parts).length));
@@ -181,15 +247,22 @@ function kbFitText(text, focus, cap) {
   }
   return out.join('\n');
 }
-function kbGenBlock(run, mode = 'batch', focus = '') {
+function kbGenBlock(run, mode = 'batch', focus = '', type = '') {
   if (run?.noKb) return ''; // перегенерация по правилам: разделы базы знаний не используются
   const pid = run ? run.productId : S.productId;
-  const secs = kbSections(pid);
-  if (!secs.length || !String(focus || '').trim()) return '';
+  // кейсам вида — разделы своих частей базы знаний (как в карте знаний): API — эндпоинты, UI — функции, E2E — всё.
+  // Если в своих частях по теме ничего нет (база собрана по функциональности, без разделов эндпоинтов), — из всех частей
+  const all = kbSections(pid);
+  if (!all.length || !String(focus || '').trim()) return '';
+  const own = type ? all.filter((x) => (KB_AREAS_FOR[type] || []).includes(kbAreaOf({ ...x.b, area: x.b.area || x.d.area }))) : all;
   const cap = Math.round((KB_GEN_CAP[mode] || KB_GEN_CAP.batch) * (economy() ? 0.6 : 1));
-  const ranked = kbRank(focus, secs);
-  if (!ranked.length) return '';
-  const pick = ranked.filter((x) => x.s >= ranked[0].s * 0.3).slice(0, 8);
+  let secs = own, ranked = kbRank(focus, own);
+  const areaOf = (x) => kbAreaOf({ ...x.b, area: x.b.area || x.d.area });
+  if (own !== all && !ranked.some((x) => areaOf(x) !== 'common')) { secs = all; ranked = kbRank(focus, all); }   // общие сведения — не в счёт
+  // раздел эндпоинта, который назван в кейсах, — первым, даже если по словам он не самый близкий
+  const eps = [...endpointsIn(focus)], exact = eps.length ? secs.filter((x) => { const k = kbEndpoint(x.b.title); return k && eps.some((e) => epMatch(e, k)); }) : [];
+  if (!ranked.length && !exact.length) return '';
+  const pick = [...exact, ...ranked.filter((x) => x.s >= ranked[0].s * 0.3 && !exact.some((y) => y.b.id === x.b.id))].slice(0, 8);
   const titleOf = new Map(S.kb.index.blocks.map((b) => [b.id, b.title]));
   const out = []; let left = cap;
   for (const x of pick) {
@@ -203,7 +276,7 @@ function kbGenBlock(run, mode = 'batch', focus = '') {
   }
   return out.length ? `\n## База знаний продукта — разделы по теме\n${KB_GEN_LEAD[mode] || KB_GEN_LEAD.batch}\n${out.join('\n\n')}\n` : '';
 }
-const knowBlocks = (run, mode, focus) => productBlock(run, mode, focus) + kbGenBlock(run, mode, focus);
+const knowBlocks = (run, mode, focus, type = '') => productBlock(run, mode, focus) + kbGenBlock(run, mode, focus, type);
 const chunkFocus = (ch) => ch.blocks.map((b) => b.text).join(' ').slice(0, 20000);
 // перед генерацией: свежее оглавление и все разделы — запросы собираются синхронно
 async function kbLoadAll(pid) {
@@ -655,11 +728,11 @@ function promptGenerate(run, b, mode = {}) {
   const focus = b.items.map((it) => `${it.title} ${it.checks.join(' ')} ${it.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', b.type, 25, focus);
   const rules = rulesText();
-  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "DOCS": docsFull(run), "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
+  return renderPrompt("promptGenerate", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[b.type], "e2": TL[b.type], "e3": templateBlock(b.type), "e4": rules ? `\n## Правила команды\n${rules}\n` : '', "e5": clarBlock(run), "e6": qaCtxBlock(ctxOf(run), b.type), "e7": SCOPE_RULE.replace(/\n/g, '\n  '), "REQ_REF_RULE": REQ_REF_RULE, "e9": info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификаторы проставит система.` : '', "SUITES_RULE": SUITES_RULE, "KBMAP": kbMapFor(run, b.type), "DOCS": docsFull(run), "CACHE_MARK": CACHE_MARK, "e12": b.items.map((it) => `### ${it.id}. ${it.title}
 Проверки — каждая становится отдельным тест-кейсом:
 ${it.checks.map((c, k) => `${k + 1}. ${c}`).join('\n')}${it.checks.some(clIdOf) ? '\nЭто пункты чек-листа. Кейс пиши по названию и ожидаемому результату пункта, приоритет кейса — как у пункта. В объекте ответа рядом с planItem укажи checklistId — номер пункта (CL-…), по которому написан кейс.' : ''}
 Требования:
-${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n\n'), "e13": knowBlocks(run, 'batch', focus), "e14": existingBlock(ex, 'cases', 'Не повторяй эти кейсы. Называй экраны, кнопки, роли и сущности так же, как в них и в знаниях о продукте.'), "e15": mode.fullDocs !== false ? docsBlock(run, focus, mode) : '', "e16": mode.tools ? `\n## Инструменты
+${it.requirementIds.map((id) => reqLine(run.reqById[id])).join('\n')}`).join('\n\n'), "e13": knowBlocks(run, 'batch', focus, b.type), "e14": existingBlock(ex, 'cases', 'Не повторяй эти кейсы. Называй экраны, кнопки, роли и сущности так же, как в них и в знаниях о продукте.'), "e15": mode.fullDocs !== false ? docsBlock(run, focus, mode) : '', "e16": mode.tools ? `\n## Инструменты
 Если для конкретики не хватает деталей (форматы полей, лимиты, коды и тексты ошибок, названия элементов), найди их в исходных документах инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '' });
 }
 function promptRefine(run, c, comment) {
@@ -693,7 +766,7 @@ function promptActualize(run, type, batch) {
   const info = tplInfo(type);
   const rules = rulesText();
   const focus = batch.map((x) => `${x.title} ${x.instruction || ''} ${x.reqIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
-  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus), "e12": batch.map((sc) => `${srcBlock(sc)}
+  return renderPrompt("promptActualize", { "TITLE_TAG_RULE": TITLE_TAG_RULE, "KAFKA_RULE": KAFKA_RULE, "PRIORITY_RULE": PRIORITY_RULE, "PRECONDITIONS_RULE": PRECONDITIONS_RULE, "API_CALL_RULE": API_CALL_RULE, "SERVICE_STEPS_RULE": SERVICE_STEPS_RULE, "e1": TL[type], "e2": TL[type], "e3": templateBlock(type), "e4": clarBlock(run), "e5": qaCtxBlock(ctxOf(run), type), "e6": rules ? `\n## Правила команды\n${rules}\n` : '', "REQ_REF_RULE": REQ_REF_RULE, "e8": info.ok && info.idField ? `\n- Поле "${info.idField}" оставь пустой строкой — идентификатор проставит система.` : '', "SUITES_RULE": SUITES_RULE, "KBMAP": kbMapFor(run, type), "CACHE_MARK": CACHE_MARK, "e11": knowBlocks(run, 'batch', focus, type), "e12": batch.map((sc) => `${srcBlock(sc)}
 Статус: ${sc.status === 'changed' ? '"changed" — исправить' : sc.status === 'obsolete' ? '"obsolete" — устарел' : '"same" — без изменений по сути'}${sc.status === 'changed' && sc.instruction ? `\nЧто исправить: ${sc.instruction}` : ''}
 Требования:
 ${sc.reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'не сопоставлены'}`).join('\n\n') });
@@ -2913,7 +2986,7 @@ function promptReviewCases(run, type, cases, mode = {}) {
   const reqIds = [...new Set(cases.flatMap((c) => c.requirementIds))];
   const focus = cases.map((c) => `${pickTitleText(c.testCase)} ${c.requirementIds.map((id) => reqText(run.reqById[id])).join(' ')}`).join(' ');
   const ex = relevantExisting(run, 'cases', type, 30, focus);
-  return renderPrompt("promptReviewCases", { "e1": TL[type], "e2": reviewRulesBlock(), "e3": qaCtxBlock(ctxOf(run), type, true), "REVIEW_CRITERIA": REVIEW_CRITERIA, "DOCS": docsFull(run), "e5": TL[type], "e6": templateBlock(type), "e7": (run.questions || []).some((q) => q.answer?.trim()) ? `\n## Уточнения аналитика\n${run.questions.filter((q) => q.answer?.trim()).map((q) => `- ${q.text} — ${q.answer.trim()}`).join('\n')}\n` : '', "CACHE_MARK": CACHE_MARK, "e9": knowBlocks(run, 'review', focus), "e10": existingBlock(ex, 'cases', 'Если кейс на ревью повторяет один из них — замечание категории «Дубли» с id существующего кейса.'), "e11": reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e12": docsBlock(run, focus, mode), "e13": mode.tools ? `\n## Инструменты\nСверяй детали с документами инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '', "fence": fence, "e15": JSON.stringify(cases.map(casePayload)) });
+  return renderPrompt("promptReviewCases", { "e1": TL[type], "e2": reviewRulesBlock(), "e3": qaCtxBlock(ctxOf(run), type, true), "REVIEW_CRITERIA": REVIEW_CRITERIA, "DOCS": docsFull(run), "e5": TL[type], "e6": templateBlock(type), "e7": (run.questions || []).some((q) => q.answer?.trim()) ? `\n## Уточнения аналитика\n${run.questions.filter((q) => q.answer?.trim()).map((q) => `- ${q.text} — ${q.answer.trim()}`).join('\n')}\n` : '', "CACHE_MARK": CACHE_MARK, "e9": knowBlocks(run, 'review', focus, type), "e10": existingBlock(ex, 'cases', 'Если кейс на ревью повторяет один из них — замечание категории «Дубли» с id существующего кейса.'), "e11": reqIds.map((id) => reqLine(run.reqById[id])).filter(Boolean).join('\n') || 'нет', "e12": docsBlock(run, focus, mode), "e13": mode.tools ? `\n## Инструменты\nСверяй детали с документами инструментами search_documents и read_document.${kbToolsHint(run)} Не больше 4 обращений.\n` : '', "fence": fence, "e15": JSON.stringify(cases.map(casePayload)) });
 }
 function promptReviewChecklist(run, items) {
   const reqIds = [...new Set(items.flatMap((i) => i.requirementIds))];
@@ -5218,7 +5291,7 @@ async function kbBlock(id, pid = S.productId) {
   return d;
 }
 // строка оглавления для раздела
-const kbIdxEntry = (id, d) => ({ id, title: d.title, summary: String(d.summary || '').slice(0, 300), docIds: [...new Set(arrOf(d.parts).map((p) => p.docId))], parts: arrOf(d.parts).length, size: arrOf(d.parts).reduce((a, p) => a + (p.md || '').length, 0) || String(d.synth || '').length, updatedAt: d.updatedAt || 0, ph: d.ph, sh: d.synthHash || '', conf: arrOf(d.conflicts).length, ...(arrOf(d.conflicts).length ? { cf: arrOf(d.conflicts).slice(0, 6).map((c) => String(c).slice(0, 300)) } : {}), ...(d.human ? { human: true } : {}) });
+const kbIdxEntry = (id, d) => ({ id, title: d.title, ...(KB_AREAS[d.area] ? { area: d.area } : {}), summary: String(d.summary || '').slice(0, 300), docIds: [...new Set(arrOf(d.parts).map((p) => p.docId))], parts: arrOf(d.parts).length, size: arrOf(d.parts).reduce((a, p) => a + (p.md || '').length, 0) || String(d.synth || '').length, updatedAt: d.updatedAt || 0, ph: d.ph, sh: d.synthHash || '', conf: arrOf(d.conflicts).length, ...(arrOf(d.conflicts).length ? { cf: arrOf(d.conflicts).slice(0, 6).map((c) => String(c).slice(0, 300)) } : {}), ...(d.human ? { human: true } : {}) });
 let kbChain = Promise.resolve();
 /* изменения раздела и оглавления — по очереди, с перечитыванием свежей версии */
 function kbSave(pid, id, mut) {
@@ -5621,7 +5694,7 @@ async function kbLease(pid) {
    (совпадение слов в названии и описании), с описаниями, затем остальные — одними названиями, пока помещаются в cap:
    так модель видит нужные разделы при любом их числе, а не первые 200 по алфавиту. */
 function kbOutline(blocks, focus, { top = 150, cap = 30000, sum = 300 } = {}) {
-  const line = (b, full) => `- ${b.id} · ${String(b.title).slice(0, 100)}${full && sum && b.summary ? ' — ' + String(b.summary).slice(0, sum) : ''}`;
+  const line = (b, full) => `- ${b.id} · [${KB_AREAS[kbAreaOf(b)]}] ${String(b.title).slice(0, 100)}${full && sum && b.summary ? ' — ' + String(b.summary).slice(0, sum) : ''}`;
   if (blocks.length <= top) return blocks.map((b) => line(b, true)).join('\n');
   const q = new Set(helpTokens(String(focus || '').slice(0, 20000)));
   const sc = blocks.map((b, k) => {
@@ -5695,7 +5768,8 @@ async function kbRun(docs) {
           const saved = await kbSave(pid, id, (cur) => {
             const parts = [...arrOf(cur?.parts).filter((p) => !(p.docId === doc.id && p.chunk === i)), part].slice(-KB_PARTS_MAX);
             // сводка, расхождения и связи остаются: до новой сводки по ним отвечают, и следующая сводка переносит их сведения
-            return { ...(cur || {}), kind: 'kbblock', id, title: cur?.title || String(b.title).trim().slice(0, 120), summary: cur?.summary || String(b.summary || '').trim().slice(0, 300), parts, by: S.caps.uid || '' };
+            const area = KB_AREAS[cur?.area] ? cur.area : KB_AREAS[String(b.area || '').toLowerCase()] ? String(b.area).toLowerCase() : kbAreaOf({ title: b.title });
+            return { ...(cur || {}), kind: 'kbblock', id, area, title: cur?.title || String(b.title).trim().slice(0, 120), summary: cur?.summary || String(b.summary || '').trim().slice(0, 300), parts, by: S.caps.uid || '' };
           });
           touched.add(id); changed.add(id); J.dp.secs.add(id); made++;
           if (saved && kbFreshBytes(saved) > KB_FRESH_MAX) grown.add(id);

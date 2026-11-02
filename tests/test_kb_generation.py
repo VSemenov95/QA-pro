@@ -71,16 +71,35 @@ def test_run_log_mentions_knowledge_base(scenario):
 
 
 # ---------- в какие запросы попадает ----------
-@pytest.mark.parametrize('kind', ['promptAnalyze', 'promptChecklist', 'promptPlan', 'promptGenerate'])
+API_SECTION = 'Раздел «API сброса пароля»'
+
+
+def own_section(p):
+    """Раздел своей части базы знаний: кейсам API — раздел эндпоинтов, UI — функции, E2E — любой."""
+    part = kb_part(p)
+    if 'вида API' in p:
+        return API_SECTION in part and SECTION not in part
+    if 'вида UI' in p:
+        return SECTION in part and API_SECTION not in part
+    return SECTION in part or API_SECTION in part
+
+
+@pytest.mark.parametrize('kind', ['promptAnalyze', 'promptChecklist', 'promptPlan'])
 def test_generation_requests_carry_matching_sections(scenario, kind):
     prompts = scenario.gen[kind]
     assert prompts and all(BLOCK in p for p in prompts)
     assert all(SECTION in kb_part(p) for p in prompts)
 
 
+def test_cases_get_sections_of_their_part(scenario):
+    prompts = scenario.gen['promptGenerate']
+    assert prompts and all(BLOCK in p for p in prompts)
+    assert all(own_section(p) for p in prompts), [p[:60] for p in prompts if not own_section(p)]
+
+
 def test_review_requests_carry_matching_sections(scenario):
     prompts = scenario.rev['promptReviewCases']
-    assert prompts and all(SECTION in kb_part(p) for p in prompts)
+    assert prompts and all(own_section(p) for p in prompts)
 
 
 def test_review_gets_its_own_instruction(scenario):

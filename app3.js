@@ -1490,7 +1490,10 @@ function renderKbPane0(force) {
   if (S.kb.open) return renderKbArticle(el, force);
   const q = (S.kb.q || '').trim().toLowerCase();
   const all = S.kb.index.blocks.slice().sort(kbCmp);
-  const list = all.filter((b) => !q || `${b.title} ${b.summary}`.toLowerCase().includes(q));
+  // части базы знаний: API — по эндпоинтам, UI и E2E — по функциональности
+  const cnt = {}; for (const b of all) cnt[kbAreaOf(b)] = (cnt[kbAreaOf(b)] || 0) + 1;
+  const area = KB_AREAS[S.kb.area] && cnt[S.kb.area] ? S.kb.area : '';
+  const list = all.filter((b) => (!area || kbAreaOf(b) === area) && (!q || `${b.title} ${b.summary}`.toLowerCase().includes(q)));
   if (!S.kb.index.blocks.length) {
     el.innerHTML = emptyHTML('Разделов пока нет', pend.length ? 'Нажмите «Разобрать» — агент разделит документы продукта на функциональные разделы.' : 'Загрузите документы продукта слева — агент разберёт их по функциональным разделам.');
     return;
@@ -1498,6 +1501,7 @@ function renderKbPane0(force) {
   // разделы — строками, по алфавиту; список сворачивается (поиск его разворачивает)
   const folded = S.kbFold;
   const head = `<div class="kb-list-h"><h4 class="fold-h"><button class="fold-btn" type="button" data-act="kb-fold" aria-expanded="${!folded}" aria-controls="kb-rows" title="${folded ? 'Развернуть' : 'Свернуть'} список разделов"><span class="fold-t">Разделы</span><span class="cnt">${q ? `${list.length} из ${all.length}` : all.length}</span><span class="muted small">по алфавиту</span>${FOLD_CHEV}</button></h4></div>`;
+  const areas = `<div class="kb-areas" role="group" aria-label="Части базы знаний"><button class="fchip" type="button" data-act="kb-area" data-a="" aria-pressed="${!area}">Все <span class="cnt">${all.length}</span></button>${Object.keys(KB_AREAS).filter((a) => cnt[a]).map((a) => `<button class="fchip" type="button" data-act="kb-area" data-a="${a}" aria-pressed="${area === a}">${KB_AREAS[a]} <span class="cnt">${cnt[a]}</span></button>`).join('')}</div>`;
   if (folded) {
     const names = all.map((b) => b.title), shown = names.slice(0, 4).join(', ') + (names.length > 4 ? ` и ещё ${names.length - 4}` : '');
     el.innerHTML = head + `<div class="docs-sum kb-list-sum"><button class="fold-sum" type="button" data-act="kb-fold" title="Развернуть список разделов"><span class="fold-sum-n">${esc(shown)}</span></button></div>`;
@@ -1506,14 +1510,14 @@ function renderKbPane0(force) {
   const row = (b) => {
     const ids = arrOf(b.docIds), src = ids.map((id) => S.docs.find((d) => d.id === id)).filter(Boolean).map(docTitle);
     return `<li><button type="button" class="kb-row" data-act="kb-open" data-id="${esc(b.id)}" title="${esc(src.length ? 'Из документов: ' + src.join(', ') : b.title)}">
-      <span class="kb-row-t">${hlText(b.title, q)}</span><span class="kb-row-s">${hlText(b.summary || '', q)}</span>
+      <span class="kb-row-t"${area ? '' : ` data-area="${kbAreaOf(b) === 'common' ? 'общее' : KB_AREAS[kbAreaOf(b)]}" data-a="${kbAreaOf(b)}"`}>${hlText(b.title, q)}</span><span class="kb-row-s">${hlText(b.summary || '', q)}</span>
       <span class="kb-row-m">${ids.length} ${plural(ids.length, 'документ', 'документа', 'документов')} · ${fmtKChars(b.size || 0)}${b.conf ? ` · <span class="warn">расхождений ${b.conf}</span>` : !b.sh ? ' · без сводки' : ''}</span>${ROW_CHEV}</button></li>`;
   };
   // по страницам: строк в списке не больше KB_PAGE, остальные — по кнопкам пагинации
   const pages = Math.max(1, Math.ceil(list.length / KB_PAGE)), page = Math.min(Math.max(1, S.kb.page || 1), pages);
   S.kb.page = page;
   const from = (page - 1) * KB_PAGE, shown = list.slice(from, from + KB_PAGE);
-  el.innerHTML = head + (list.length ? `<ul class="kb-rows" id="kb-rows">${shown.map(row).join('')}</ul>${pagerHTML(page, pages, from, shown.length, list.length, 'kb-page')}` : emptyHTML('Ничего не найдено', 'Измените запрос.'));
+  el.innerHTML = head + areas + (list.length ? `<ul class="kb-rows" id="kb-rows">${shown.map(row).join('')}</ul>${pagerHTML(page, pages, from, shown.length, list.length, 'kb-page')}` : emptyHTML('Ничего не найдено', 'Измените запрос.'));
 }
 const KB_PAGE = 25;
 // номера страниц: первая, последняя, текущая и соседние; пропуски — «…»
@@ -2281,6 +2285,7 @@ function onTabClick(e) {
     case 'help-send': sendHelp(); break;
     case 'help-view': S.helpView = el.dataset.v; lsSet('qapro.kbView', S.helpView); renderHelp(true); if (S.helpView === 'qa') $('#help-input')?.focus(); break;
     case 'kb-fold': S.kbFold = !S.kbFold; lsSet('qapro.kbFold', S.kbFold); renderKbPane(true); $('.kb-list-h .fold-btn')?.focus(); break;
+    case 'kb-area': S.kb.area = el.dataset.a || ''; S.kb.page = 1; renderKbPane(true); $(`#kb-body [data-act=kb-area][data-a="${S.kb.area}"]`)?.focus(); break;
     case 'kb-page': S.kb.page = Number(el.dataset.p) || 1; renderKbPane(true); $('#kb-rows')?.scrollIntoView({ block: 'nearest' }); $(`#kb-body .pg-btn[data-p="${S.kb.page}"]`)?.focus(); break;
     case 'kb-open': S.kb.open = el.dataset.id; S.kb.edit = null; S.helpView = 'blocks'; lsSet('qapro.kbView', 'blocks'); renderHelp(true); $('#help-view')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
     case 'kb-back': S.kb.open = null; S.kb.edit = null; renderHelp(true); break;
@@ -2992,6 +2997,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, ocrJobs, ocrDone, bytesKey, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, capPrio, budgetPlan, budgetChecklist, budgetRule, CHECK_BUDGET, mainPathGaps, noteEdit, notePrio, learnFromEdits, stageDefault, etalonMetrics, etalonTotals, etalonParts, etalonMerge, etalonCaseText, etalonNormRules, repairJSON, apiTypePrio, isTypeCheck, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, kbAreaOf, kbEndpoint, kbMapMd, kbMapFor, kbGenBlock, ctxReadmeSync, ocrJobs, ocrDone, bytesKey, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, capPrio, budgetPlan, budgetChecklist, budgetRule, CHECK_BUDGET, mainPathGaps, noteEdit, notePrio, learnFromEdits, stageDefault, etalonMetrics, etalonTotals, etalonParts, etalonMerge, etalonCaseText, etalonNormRules, repairJSON, apiTypePrio, isTypeCheck, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
 initCaps();
 })();

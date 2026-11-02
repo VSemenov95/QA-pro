@@ -238,8 +238,11 @@ def test_collect_summaries_works_for_sections_with_excerpts(kbapp):
     kbapp.wait_idle()
     kbapp.page.wait_for_function('() => !window.__qa.S.kb.job.busy && !window.__qa.S.ctx.pending.size', timeout=15000)
     assert kbapp.model.calls_of('promptKbSynth') and stale_titles(kbapp) == []
-    d = kbapp.call('a.ctxKbParse("products/moi/kb/kbq1.md", arg).d', repo(kbapp, 'products/moi/kb/kbq1.md'))
-    assert d.get('synth') and d['parts']
+    rel = kbapp.call('S.ctx.kbMap.get("kbq1")')   # раздел переехал в папку своей части базы знаний
+    assert rel == 'products/moi/kb/ui/razdel-s-vyderzhkami.md' or rel.startswith('products/moi/kb/ui/'), rel
+    d = kbapp.call(f'a.ctxKbParse({rel!r}, arg).d', repo(kbapp, rel))
+    assert d.get('synth') and d['parts'] and d['area'] == 'ui'
+    assert not repo(kbapp, 'products/moi/kb/kbq1.md')   # старый файл убран
 
 
 def test_nothing_to_summarize_is_said_out_loud(kbapp):

@@ -396,7 +396,7 @@ def test_outline_puts_sections_near_the_topic_first(many):
 
 def test_outline_of_a_short_list_shows_everything(app):
     o = app.call("a.kbOutline(Array.from({ length: 5 }, (_, i) => ({ id: 'kb' + i, title: 'Раздел ' + i, summary: 'О разделе ' + i })), 'что угодно', { top: 150 })")
-    assert o.split('\n') == [f'- kb{i} · Раздел {i} — О разделе {i}' for i in range(5)]
+    assert o.split('\n') == [f'- kb{i} · [UI] Раздел {i} — О разделе {i}' for i in range(5)]   # [UI] — часть базы знаний
 
 
 # ---------- знания о продукте: без ограничения длины ----------

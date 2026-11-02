@@ -143,7 +143,7 @@ class KbMock:
         name = frag.split('»', 1)[0]
         text = '\n'.join(m.group(1) for m in re.finditer(r'<document name="[^"]*" part="[^"]*">\n([\s\S]*?)\n</document>', frag))
         outline = (p.split('## Разделы, которые уже есть в базе знаний\n', 1) + [''])[1].split('\n## Правила')[0]
-        known = {_norm(m.group(2)): m.group(1) for m in re.finditer(r'(?m)^- (kb\w+) · (.+?)(?: — .*)?$', outline)}
+        known = {_norm(m.group(2)): m.group(1) for m in re.finditer(r'(?m)^- (kb\w+) · (?:\[[^\]]*\] )?(.+?)(?: — .*)?$', outline)}
         if 'POST /api/v1/password-reset' in text:
             blocks = [
                 ('Восстановление пароля', 'Сброс пароля по ссылке из письма.', ['2', '4'],
@@ -211,7 +211,7 @@ class KbMock:
         return {'summary': f'Все сведения о разделе «{title}» из документов продукта', 'synth': '\n'.join(parts), 'conflicts': conflicts, 'links': self._links(p, title)}
 
     def _links(self, prompt, title):
-        others = {_norm(m.group(2)): m.group(1) for m in re.finditer(r'(?m)^- (kb\w+) · (.+?)$', prompt.split('## Другие разделы базы знаний\n', 1)[-1])}
+        others = {_norm(m.group(2)): m.group(1) for m in re.finditer(r'(?m)^- (kb\w+) · (?:\[[^\]]*\] )?(.+?)$', prompt.split('## Другие разделы базы знаний\n', 1)[-1])}
         want = list(self.links.get(title, [])) + [a for a, bs in self.links.items() if title in bs]
         return [others[_norm(w)] for w in want if _norm(w) in others]
 
@@ -247,7 +247,7 @@ class KbMock:
         self.expand_calls += 1
         p = call.prompt
         q = (p.split('## Вопрос\n', 1) + [''])[1].split('\n')[0]
-        secs = [(m.group(1), m.group(2).strip()) for m in re.finditer(r'(?m)^- (kb\w+) · ([^\n—]+)', p.split('## Разделы базы знаний', 1)[-1])]
+        secs = [(m.group(1), m.group(2).strip()) for m in re.finditer(r'(?m)^- (kb\w+) · (?:\[[^\]]*\] )?([^\n—]+)', p.split('## Разделы базы знаний', 1)[-1])]
         pick = [i for i, t in secs if 'Восстановление' in t] if re.search(r'помни|доступ|забыл', q, re.I) else []
         return {'sections': pick, 'terms': self.expand_terms if pick else []}
 

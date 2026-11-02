@@ -132,6 +132,12 @@ button,input,select,textarea{font:inherit;color:inherit}
 .fold-sum-s .ok,.doc-meta .kb-st.ok{color:var(--pass-text)}
 .docs-panel.over{outline:2px dashed var(--stamp);outline-offset:-2px;background:var(--stamp-soft)}
 .kb-list-h{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.kb-areas{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+/* часть раздела (API, UI, E2E, общее) — меткой перед названием; текст названия не меняется */
+.kb-row-t[data-area]::before{content:attr(data-area);display:inline-block;margin-right:6px;vertical-align:1px;font:600 10px/1 var(--f-mono);letter-spacing:.05em;padding:3px 5px;border-radius:4px;background:var(--sunken);color:var(--ink-2)}
+.kb-row-t[data-a=api]::before{background:var(--t-api-soft);color:var(--t-api)}
+.kb-row-t[data-a=ui]::before{background:var(--t-ui-soft);color:var(--t-ui)}
+.kb-row-t[data-a=e2e]::before{background:var(--t-e2e-soft);color:var(--t-e2e)}
 .kb-list-h .fold-btn{font:600 14px/1.3 var(--f-body)}
 .kb-list-h .fold-btn .cnt{font:500 12px/1 var(--f-mono);color:var(--ink-3)}
 .kb-list-sum{margin:-2px 0 0}

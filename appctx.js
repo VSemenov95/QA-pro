@@ -13,7 +13,9 @@
      products/<папка продукта>/passport.md     — знания о продукте (паспорт)
      products/<папка продукта>/context.md      — доп. контекст QA: «## Для всех», «## API», «## UI», «## E2E»
      products/<папка продукта>/memory.md      — память агента: «- [генерация|ревью|оба] правило»
-     products/<папка продукта>/kb/**.md        — разделы базы знаний продукта
+     products/<папка продукта>/kb/**.md        — разделы базы знаний продукта: kb/api/ — по эндпоинтам, kb/ui/ и kb/e2e/ —
+                                                 по функциональности, kb/common/ — общие сведения
+     README.md                                 — что где лежит и карта знаний продуктов (блок продукта QA pro обновляет сам)
 
    Каналы: папка и git — мост qa-pro-bridge (в приложении Claude — инструменты context_*, в браузере — через загрузчик),
    GitHub — загрузчик с токеном (без моста), «папка только для чтения» — выбор папки на странице. */
@@ -35,7 +37,7 @@ S.ctx = { pid: null, src: ctxBlank(), draft: null, on: false, busy: '', error: '
 /* ---------- пути ---------- */
 const ctxSlug = (C = S.ctx) => C.src.slug || slugName(productById(C.pid)?.name || 'product');
 const CP = {
-  rules: 'rules/generation.md', review: 'rules/review.md', export: 'templates/export.md', claude: 'CLAUDE.md',
+  rules: 'rules/generation.md', review: 'rules/review.md', export: 'templates/export.md', claude: 'CLAUDE.md', readme: 'README.md',
   tpl: (t) => `templates/${t}.md`,
   passport: (C) => `products/${ctxSlug(C)}/passport.md`,
   context: (C) => `products/${ctxSlug(C)}/context.md`,
@@ -47,7 +49,7 @@ const ctxSub = (C = S.ctx) => String(C.src.sub || '').replace(/\\/g, '/').replac
 const ctxFull = (p, C = S.ctx) => (ctxSub(C) ? ctxSub(C) + '/' + p : p);
 const ctxRel = (full, C = S.ctx) => { const s = ctxSub(C); return !s ? full : full.startsWith(s + '/') ? full.slice(s.length + 1) : null; };
 const ctxText = (p) => { const f = S.ctx.files.get(p); return f && f.text != null ? f.text : null; };
-const ctxWanted = (rel, C = S.ctx) => [CP.rules, CP.review, CP.export, CP.claude, ...TYPES.map(CP.tpl), CP.passport(C), CP.context(C), CP.lessons(C), `products/${ctxSlug(C)}/qa-pro-docs.json`].includes(rel) || rel.startsWith(CP.kbDir(C)) || rel.startsWith('knowledge/');
+const ctxWanted = (rel, C = S.ctx) => [CP.rules, CP.review, CP.export, CP.claude, CP.readme, ...TYPES.map(CP.tpl), CP.passport(C), CP.context(C), CP.lessons(C), `products/${ctxSlug(C)}/qa-pro-docs.json`].includes(rel) || rel.startsWith(CP.kbDir(C)) || rel.startsWith('knowledge/');
 
 /* ---------- состояние ---------- */
 const ctxActive = (pid = S.productId) => S.ctx.on && S.ctx.pid === pid && S.ctx.src.kind !== 'qa';
@@ -104,17 +106,19 @@ function ctxClaudeMd(slug) {
 QA pro читает его через мост qa-pro-bridge, загрузчик в браузере или API GitHub и записывает изменения обратно.
 
 ## Порядок работы
-1. Перед составлением тест-кейсов прочитай \`rules/generation.md\`, шаблон нужного вида из \`templates/\` и память агента \`products/<продукт>/memory.md\`.
-2. Термины, роли, экраны и связи бери из \`products/<продукт>/passport.md\` и разделов \`products/<продукт>/kb/\` и \`knowledge/\`.
-3. Кейсы оформляй строго по образцу JSON из шаблона, без полей, которых в нём нет.
-4. Перед выдачей проверь кейсы по \`rules/review.md\`.
+1. Начни с карты знаний в \`README.md\`: по ней видно, где описан нужный эндпоинт API (\`kb/api/\`) или функция UI и сквозной сценарий E2E (\`kb/ui/\`, \`kb/e2e/\`).
+2. Перед составлением тест-кейсов прочитай \`rules/generation.md\`, шаблон нужного вида из \`templates/\` и память агента \`products/<продукт>/memory.md\`.
+3. Термины, роли, экраны и связи бери из \`products/<продукт>/passport.md\` и разделов базы знаний из карты: для API — разделы эндпоинтов, для UI — функций, для E2E — сценариев и всех экранов и эндпоинтов, через которые они проходят; общее — \`kb/common/\` и \`knowledge/\`.
+4. Кейсы оформляй строго по образцу JSON из шаблона, без полей, которых в нём нет.
+5. Перед выдачей проверь кейсы по \`rules/review.md\`.
 
 ## Файлы
 - \`rules/generation.md\`, \`rules/review.md\` — правила для агента и правила ревью.
 - \`templates/api.md\`, \`templates/ui.md\`, \`templates/e2e.md\` — шаблоны: префикс ID, правила оформления, образец JSON.
 - \`templates/export.md\` — формат экспорта.
 - \`knowledge/\` — общая база знаний.
-- \`products/${slug}/\` — продукт: \`passport.md\`, \`context.md\`, \`memory.md\`, \`kb/\`.
+- \`README.md\` — что где лежит и карта знаний продуктов.
+- \`products/${slug}/\` — продукт: \`passport.md\`, \`context.md\`, \`memory.md\`, \`kb/\` (\`kb/api/\` — по эндпоинтам, \`kb/ui/\` и \`kb/e2e/\` — по функциональности, \`kb/common/\` — общие сведения).
 
 Изменения правил и шаблонов — через ветку и запрос на слияние: QA pro отправляет их в ветку \`qa-pro/<дата>\`.
 `;
@@ -144,13 +148,15 @@ function ctxKbParse(rel, text) {
   const sm = rest.match(/^((?:>[^\n]*(?:\n|$))+)/);
   if (sm) { summary = sm[1].split('\n').map((l) => l.replace(/^>\s?/, '')).join(' ').trim(); rest = rest.slice(sm[0].length); }
   const body = rest.trim();
+  const dir = rel.startsWith(CP.kbDir()) ? rel.slice(CP.kbDir().length).split('/') : [];
+  const area = dir.length > 1 && KB_AREAS[dir[0]] ? dir[0] : '';   // папка части: kb/api/, kb/ui/, kb/e2e/, kb/common/
   if (meta && typeof meta === 'object') {
     const { bodyIsSynth, ...m2 } = meta;
-    const d = { ...m2, title, summary: summary || '', parts: arrOf(m2.parts), conflicts: arrOf(m2.conflicts), links: arrOf(m2.links) };
+    const d = { ...m2, ...(area && !KB_AREAS[m2.area] ? { area } : {}), title, summary: summary || '', parts: arrOf(m2.parts), conflicts: arrOf(m2.conflicts), links: arrOf(m2.links) };
     if (bodyIsSynth) d.synth = body; else delete d.synth;
     return { id: String(m2.id || ctxKbFileId(rel)), d };
   }
-  return { id: ctxKbFileId(rel), d: { id: ctxKbFileId(rel), title, summary, synth: body, parts: [], conflicts: [], links: [], human: true, updatedAt: 0 } };
+  return { id: ctxKbFileId(rel), d: { id: ctxKbFileId(rel), ...(area ? { area } : {}), title, summary, synth: body, parts: [], conflicts: [], links: [], human: true, updatedAt: 0 } };
 }
 function ctxKbSerialize(d0) {
   const d = { ...d0 };
@@ -198,9 +204,12 @@ function ctxKbWrite(id, next) {
   const C = S.ctx;
   if (!C.kbMap) ctxKbIndex();
   let rel = C.kbMap.get(id);
+  const dir = CP.kbDir(C) + kbAreaOf(next) + '/';
+  // раздел лежит в папке своей части; файл человека (без служебного блока) не переносим — его id — путь к файлу
+  if (rel && rel.startsWith(CP.kbDir(C)) && !rel.startsWith(dir) && !next.human) { ctxDel(rel); rel = null; }
   if (!rel) {
     const used = new Set([...C.files.keys()].filter((p) => ctxText(p) != null));
-    const base = CP.kbDir(C) + (slugName(next.title).slice(0, 60) || 'razdel');
+    const base = dir + (slugName(next.title).slice(0, 60) || 'razdel');
     rel = base + '.md';
     for (let i = 2; used.has(rel); i++) rel = `${base}-${i}.md`;
     C.kbMap.set(id, rel);
@@ -217,7 +226,27 @@ function ctxKbDelete(id) {
 function ctxKbDocsWrite(blocks, docs) {
   const text = JSON.stringify(docs || {}, null, 1) + '\n';
   if (ctxText(ctxKbDocsPath()) !== text) ctxPut(ctxKbDocsPath(), text);
+  if (blocks) ctxReadmeSync(blocks);
   return { blocks, docs, updatedAt: Date.now() };
+}
+/* Карта знаний продукта в README.md папки: блок между метками qa-pro:kbmap пересобирается после изменения базы знаний
+   (разбор документов, сводки, переименование) — не при подключении папки, чтобы не создавать правок без действий человека.
+   Текст README вне блоков продуктов — человека, его QA pro не трогает */
+const KBMAP_HEAD = '## Карта знаний';
+const KBMAP_LEAD = 'Где что лежит в базе знаний продукта: API — раздел на каждый эндпоинт, UI и E2E — по функциональности. Блок продукта QA pro обновляет сам после разбора документов; при генерации и актуализации агент берёт из него часть своего вида тестов. Текст вне блоков продуктов можно править.';
+function ctxReadmeSync(blocks) {
+  const C = S.ctx;
+  if (!ctxActive(C.pid) || !ctxWritable() || !Array.isArray(blocks)) return;
+  if (!C.kbMap) ctxKbIndex();
+  const slug = ctxSlug(C), [open, close] = KBMAP_MARK(slug);
+  const block = kbMapMd(productById(C.pid)?.name || slug, slug, blocks, (id) => C.kbMap.get(id) || '');
+  const cur = (ctxText(CP.readme) || '').replace(/\r\n/g, '\n');
+  const i = cur.indexOf(open), j = i >= 0 ? cur.indexOf(close, i) : -1;
+  let next;
+  if (j > i) next = cur.slice(0, i) + block + cur.slice(j + close.length);
+  else if (cur.includes(KBMAP_HEAD + '\n')) { const k = cur.indexOf(KBMAP_HEAD + '\n'), e = cur.indexOf('\n## ', k + 1); next = e < 0 ? `${cur.trimEnd()}\n\n${block}\n` : `${cur.slice(0, e).trimEnd()}\n\n${block}\n${cur.slice(e)}`; }
+  else next = `${cur.trimEnd() || '# Папка контекста QA pro'}\n\n${KBMAP_HEAD}\n${KBMAP_LEAD}\n\n${block}\n`;
+  if (next !== cur) ctxPut(CP.readme, next);
 }
 // после чтения источника или отключения — база знаний на экране и в запросах пересобирается
 function ctxKbReload(pid) {
@@ -810,14 +839,23 @@ async function ctxExportPlan() {
   if (S.caps.db) {
     try {
       const idx = await kbIdxReadDb(pid);
-      const used = new Set();
+      const used = new Set(), rels = new Map(), done = [];
       for (const b of idx.blocks) {
         const d = await kbReadDb(pid, b.id).catch(() => null);
         if (!d || (!arrOf(d.parts).length && !String(d.synth || '').trim())) continue;
-        let name = slugName(b.title).slice(0, 60) || 'razdel';
-        for (let i = 2; used.has(name); i++) name = (slugName(b.title).slice(0, 60) || 'razdel') + '-' + i;
+        // раздел — в папку своей части базы знаний: kb/api/, kb/ui/, kb/e2e/, kb/common/
+        const area = kbAreaOf({ ...b, area: b.area || d.area }), base = area + '/' + (slugName(b.title).slice(0, 60) || 'razdel');
+        let name = base;
+        for (let i = 2; used.has(name); i++) name = base + '-' + i;
         used.add(name);
-        out.set(CP.kbDir(C) + name + '.md', ctxKbSerialize({ ...d, id: b.id, title: d.title || b.title }));
+        rels.set(b.id, CP.kbDir(C) + name + '.md'); done.push({ ...b, area });
+        out.set(CP.kbDir(C) + name + '.md', ctxKbSerialize({ ...d, area, id: b.id, title: d.title || b.title }));
+      }
+      // карта знаний продукта — в README.md (блок продукта; остальной текст README сохраняется)
+      if (done.length) {
+        const slug = ctxSlug(C), [open, close] = KBMAP_MARK(slug), block = kbMapMd(productById(pid)?.name || slug, slug, done, (id) => rels.get(id) || '');
+        const cur = (ctxText(CP.readme) || '').replace(/\r\n/g, '\n'), i = cur.indexOf(open), j = i >= 0 ? cur.indexOf(close, i) : -1;
+        out.set(CP.readme, j > i ? cur.slice(0, i) + block + cur.slice(j + close.length) : `${cur.trimEnd() || '# Папка контекста QA pro'}\n\n${KBMAP_HEAD}\n${KBMAP_LEAD}\n\n${block}\n`);
       }
       if (Object.keys(idx.docs || {}).length) out.set(ctxKbDocsPath(C), JSON.stringify(idx.docs, null, 1) + '\n');
     } catch { /* базы знаний в хранилище нет */ }
