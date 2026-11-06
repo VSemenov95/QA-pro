@@ -93,3 +93,46 @@ def test_bytes_key_tells_images_apart(app):
     a = app.call("a.bytesKey(new Uint8Array([1, 2, 3]))")
     assert a == app.call("a.bytesKey(new Uint8Array([1, 2, 3]))")
     assert a != app.call("a.bytesKey(new Uint8Array([1, 2, 4]))")
+
+
+# ---------- движок распознавания не загрузился или завис: запуск генерации не должен вставать ----------
+# Сроки распознавания в тестах — короткие (window.__ocrMs), иначе ждать пришлось бы минутами, как и пользователю
+HANG = "window.__ocrMs = 600; window.__ocr = { calls: 0, now: 0, max: 0, workers: 0, delay: 30, inits: 0, %s: true }"
+MANY = [(240, 160, (10 * i, 40, 90)) for i in range(1, 13)]   # 12 разных скриншотов
+LONG = 'Section 1. Many screens of the settings dialog follow below. ' * 6
+
+
+def test_engine_that_never_loads_is_tried_once_not_per_screenshot(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    app.page.wait_for_function("() => window.__qa.ocrJobs.size === 0", timeout=8000)   # раньше — 12 попыток по 3 минуты
+    o = app.state('window.__ocr')
+    assert o['inits'] <= 3   # первая волна потоков; дальше движок считается недоступным
+    d = doc(app, 'ТЗ-со-скриншотами.pdf')
+    assert d['status'] == 'ready' and 'Section 1.' in d['text'] and 'не загрузился движок OCR' in d['warn']
+
+
+def test_scan_only_pdf_does_not_block_run_button_when_engine_hangs(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[('', [(600, 800, (250, 250, 250))]), ('', [(600, 800, (240, 240, 240))])]))
+    app.page.wait_for_function("() => !document.querySelector('#btn-run').disabled", timeout=8000)
+    assert doc(app, 'ТЗ-со-скриншотами.pdf')['status'] in ('ready', 'error')
+
+
+def test_document_recognition_has_a_time_limit(app, tmp_path):
+    app.page.evaluate(HANG % 'hangRecognize')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    app.page.wait_for_function("() => window.__qa.ocrJobs.size === 0", timeout=10000)
+    assert 'Section 1.' in doc(app, 'ТЗ-со-скриншотами.pdf')['text']
+
+
+def test_second_click_starts_run_without_waiting_for_screenshots(app, tmp_path):
+    app.page.evaluate('window.__ocr = { calls: 0, now: 0, max: 0, workers: 0, delay: 20000 }')
+    app.upload(files.pdf_with_screens(tmp_path))
+    app.generate(wait=False)
+    assert 'Распознаю скриншоты' in app.text('#run-note') and 'ещё раз' in app.text('#run-note')
+    assert not app.page.is_disabled('#btn-run')
+    app.page.click('#btn-run')   # не ждать распознавания
+    app.page.wait_for_function("() => window.__qa.S.run && window.__qa.S.run.status !== 'running' && !window.__qa.S.running", timeout=60000)
+    p = app.model.prompts_of('promptAnalyze')[0]
+    assert 'Section 1. Login form' in p and RED not in p

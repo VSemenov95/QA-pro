@@ -391,19 +391,31 @@ const OCR_MIN_CHARS = 40;      // страница с меньшим текст�
 const OCR_BG_MIN = 300;        // документ с меньшим текстом (почти весь — сканы) ждёт распознавания, а не уходит в фон
 const OCR_THREADS = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
 const OCR_IDLE_MS = 90000;     // простаивающие движки закрываются: каждый держит в памяти десятки МБ
+/* Сроки. Движок, который не загрузился, недоступен OCR_DOWN_MS: следующие картинки его не ждут (иначе каждая ждала бы
+   загрузку заново — на документе с десятками скриншотов это час, и запуск генерации стоял бы всё это время).
+   Распознавание одного документа — не дольше OCR_DOC_MS: что не успели, остаётся без текста, документ — с предупреждением */
+const OCR_INIT_MS = 180000, OCR_PAGE_MS = 120000, OCR_DOC_MS = 360000, OCR_DOWN_MS = 600000;
+const ocrMs = (ms) => (window.__qaTest && window.__ocrMs) || ms;   // в автотестах сроки короткие
 const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
-const ocrPool = { idle: [], n: 0, wait: [], timer: null };
+const ocrPool = { idle: [], n: 0, wait: [], timer: null, down: 0, downErr: null };
 /* языковые данные (rus+eng) весят десятки МБ и грузятся при первом запуске: даём им время, но не бесконечно */
 async function ocrTake() {
   clearTimeout(ocrPool.timer);
+  if (ocrPool.down > Date.now()) throw ocrPool.downErr;
   if (ocrPool.idle.length) return ocrPool.idle.pop();
   if (ocrPool.n >= OCR_THREADS) return new Promise((res, rej) => ocrPool.wait.push({ res, rej }));
   ocrPool.n++;
   try {
     await lib('tesseract');
     if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
-    return await withTimeout(window.Tesseract.createWorker('rus+eng'), 180000, 'OCR: не загрузились языковые данные');
-  } catch (e) { ocrPool.n--; ocrNext(); throw e; }
+    return await withTimeout(window.Tesseract.createWorker('rus+eng'), ocrMs(OCR_INIT_MS), 'OCR: не загрузились языковые данные');
+  } catch (e) {
+    ocrPool.n--;
+    // движок недоступен: ждущие и следующие картинки сразу получают ошибку, а не пробуют загрузить его заново
+    ocrPool.down = Date.now() + OCR_DOWN_MS; ocrPool.downErr = e;
+    for (const w of ocrPool.wait.splice(0)) w.rej(e);
+    throw e;
+  }
 }
 // освободившийся движок — следующему в очереди; без очереди он простаивает до OCR_IDLE_MS
 function ocrGive(w) {
@@ -418,7 +430,7 @@ function ocrNext() { const next = ocrPool.wait.shift(); if (next) ocrTake().then
 async function ocrRecognize(src) {
   const w = await ocrTake();
   try {
-    const r = await withTimeout(w.recognize(src), 120000, 'OCR: картинка распознаётся слишком долго');
+    const r = await withTimeout(w.recognize(src), ocrMs(OCR_PAGE_MS), 'OCR: картинка распознаётся слишком долго');
     ocrGive(w);
     return (r.data.text || '').trim();
   } catch (e) { ocrPool.n--; w.terminate().catch(() => {}); ocrNext(); throw e; }   // зависший движок закрываем
@@ -457,18 +469,25 @@ function ocrCachePut(k, t) {
 }
 /* распознаёт картинки в несколько потоков; уже распознанные берутся из памяти браузера. В texts — null, если картинка не распознана */
 async function ocrRun(jobs, onProgress) {
-  const texts = new Array(jobs.length).fill('');
-  let done = 0, failed = 0;
-  await pool(jobs, OCR_THREADS, async (j, i) => {
-    const hit = ocrCacheGet(j.key);
-    if (hit !== null) texts[i] = hit;
-    else {
-      try { texts[i] = await ocrRecognize(await j.src()); ocrCachePut(j.key, texts[i]); }
-      catch { texts[i] = null; failed++; }
-    }
-    onProgress?.(`скриншоты: распознано ${++done} из ${jobs.length}`);
-  });
-  return { texts, failed };
+  const texts = new Array(jobs.length).fill(null);
+  let done = 0, ok = 0;
+  const stop = Date.now() + ocrMs(OCR_DOC_MS), left = () => stop - Date.now();
+  // общий срок документа: картинки, до которых не дошла очередь, пропускаются, а зависшая — не держит документ дольше срока
+  await Promise.race([
+    pool(jobs, OCR_THREADS, async (j, i) => {
+      if (left() <= 0) return;
+      const hit = ocrCacheGet(j.key);
+      if (hit !== null) texts[i] = hit;
+      else {
+        try { const t = await withTimeout((async () => ocrRecognize(await j.src()))(), Math.max(1, left()), 'OCR: срок документа вышел'); texts[i] = t; ocrCachePut(j.key, t); }
+        catch { texts[i] = null; }
+      }
+      if (texts[i] !== null) ok++;
+      onProgress?.(`скриншоты: распознано ${++done} из ${jobs.length}`);
+    }),
+    new Promise((r) => setTimeout(r, Math.max(1, left()) + 50)),
+  ]);
+  return { texts: texts.slice(), failed: jobs.length - ok };
 }
 /* картинка PDF → холст: pdf.js отдаёт точки в одном из трёх форматов (ImageKind) */
 function pdfImgCanvas(img) {
@@ -497,7 +516,7 @@ async function pdfRender(page) {
   const vp = page.getViewport({ scale: 2 });
   const canvas = document.createElement('canvas');
   canvas.width = vp.width; canvas.height = vp.height;
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  await withTimeout(page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise, ocrMs(OCR_PAGE_MS), 'PDF: страница рисуется слишком долго');
   return canvas;
 }
 /* PDF: текстовый слой страниц сразу; страницы-сканы и скриншоты на страницах с текстом — задания OCR, их выполняет finish.
@@ -529,7 +548,8 @@ async function parsePdf(buf, onProgress) {
     if (jobs.length >= OCR_LIMIT) continue;
     // скан без текстового слоя: страница рисуется в картинку и распознаётся целиком
     if (pg.text.replace(/\s/g, '').length < OCR_MIN_CHARS) { jobs.push({ pg, scan: true, key: `${fileKey}:${p}`, src: () => pdfRender(page) }); continue; }
-    const ops = await page.getOperatorList();
+    const ops = await withTimeout(page.getOperatorList(), ocrMs(OCR_PAGE_MS), 'PDF: картинки страницы не прочитаны').catch(() => null);
+    if (!ops) continue;   // картинки этой страницы не прочитались — текст страницы остаётся
     for (let k = 0; k < ops.fnArray.length && jobs.length < OCR_LIMIT; k++) {
       const fn = ops.fnArray[k];
       if (fn !== OPS.paintImageXObject && fn !== OPS.paintInlineImageXObject) continue;
@@ -688,14 +708,14 @@ async function parseFile(file, onProgress) {
     const base = htmlToText(r.value), jobs = docxJobs(pics);
     const ocr = async (onP) => {
       const x = await ocrRun(jobs, onP), ts = x.texts.filter(Boolean);
-      const warn = x.failed ? `Не распознано картинок: ${x.failed} — не загрузился движок OCR` : ts.length ? `Текст с ${ts.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
+      const warn = x.failed ? `Не распознано картинок: ${x.failed} — не загрузился движок OCR или не хватило времени` : ts.length ? `Текст с ${ts.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
       return { text: base + ts.map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join(''), warn };
     };
     return withOcr({ text: base }, jobs.length ? ocr : null, onProgress);
   }
   if (ext === 'pdf') {
     const r = await parsePdf(buf, onProgress);
-    const warnOf = (x) => (x.failed ? `Не распознано сканов и скриншотов: ${x.failed} — не загрузился движок OCR`
+    const warnOf = (x) => (x.failed ? `Не распознано сканов и скриншотов: ${x.failed} — не загрузился движок OCR или не хватило времени`
       : x.scanned || x.shots ? `Распознан текст ${[x.scanned ? `страниц-сканов: ${x.scanned}` : '', x.shots ? `скриншотов: ${x.shots}` : ''].filter(Boolean).join(', ')} — проверьте, что прочитан верно`
         : bareChars(x.text) < OCR_MIN_CHARS * x.pages ? 'Мало текста — возможно, это скан без текстового слоя' : '');
     const ocr = r.finish && (async (onP) => { const x = await r.finish(onP); return { text: x.text, warn: warnOf(x) }; });

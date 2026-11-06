@@ -1603,20 +1603,23 @@ function acceptCases(run, b, res) {
 }
 
 /* ================= pipeline ================= */
-async function runAgent() {
-  if (S.running || S.ocrWait) return;
+async function runAgent(e, { noOcrWait = false } = {}) {
+  if (S.running) return;
+  if (S.ocrWait) { S.ocrWait.skip(); return; }   // второе нажатие, пока распознаются скриншоты, — запуск без них
   const docs = docsFor(null), types = selectedTypes(), out = S.settings.outputs;
   const note = (t) => { $('#run-note').textContent = t; $('#run-note').className = 'run-note err'; };
   if (!aiReady(S.settings.genAI)) return note(aiProblem(S.settings.genAI));
   if (S.caps.db && S.caps.uid && !S.prodReady) return note('Загружаю продукт — подождите несколько секунд.');
   if (runDocList().some((d) => d.status === 'parsing' || d.status === 'loading')) return note('Дождитесь окончания загрузки и разбора файлов.');
-  const ocrWait = runDocList().map((d) => ocrJobs.get(d.id)).filter(Boolean);
+  const ocrWait = noOcrWait ? [] : runDocList().map((d) => ocrJobs.get(d.id)).filter(Boolean);
   if (ocrWait.length) {   // запуск сам дождётся скриншотов: без них модель не увидит текст с экранов
-    S.ocrWait = true;
-    $('#run-note').textContent = 'Распознаю скриншоты в документах — запуск начнётся, как только закончу.'; $('#run-note').className = 'run-note';
-    await Promise.allSettled(ocrWait);
-    S.ocrWait = false; $('#run-note').textContent = '';
-    return runAgent();
+    let skip;
+    const skipped = new Promise((r) => { skip = () => r(true); });
+    S.ocrWait = { skip };
+    $('#run-note').textContent = 'Распознаю скриншоты в документах — запуск начнётся, как только закончу. Нажмите «Сгенерировать» ещё раз, чтобы начать без текста скриншотов.'; $('#run-note').className = 'run-note';
+    const now = await Promise.race([Promise.allSettled(ocrWait).then(() => false), skipped]);
+    S.ocrWait = null; $('#run-note').textContent = '';
+    return runAgent(null, { noOcrWait: now });
   }
   if (!docs.length) return note(S.productId ? 'Загрузите ТЗ для этого запуска — остальное о продукте агент возьмёт из базы знаний.' : 'Добавьте хотя бы один документ с текстом.');
   const upd = S.settings.mode === 'update';
