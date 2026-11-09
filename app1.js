@@ -393,30 +393,38 @@ const OCR_THREADS = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2)
 const OCR_IDLE_MS = 90000;     // простаивающие движки закрываются: каждый держит в памяти десятки МБ
 /* Сроки. Движок, который не загрузился, недоступен OCR_DOWN_MS: следующие картинки его не ждут (иначе каждая ждала бы
    загрузку заново — на документе с десятками скриншотов это час, и запуск генерации стоял бы всё это время).
-   Распознавание одного документа — не дольше OCR_DOC_MS: что не успели, остаётся без текста, документ — с предупреждением */
-const OCR_INIT_MS = 180000, OCR_PAGE_MS = 120000, OCR_DOC_MS = 360000, OCR_DOWN_MS = 600000;
+   Срок распознавания документа растёт с числом картинок (OCR_IMG_MS на картинку в каждом потоке), но не меньше OCR_DOC_MS
+   и не больше OCR_DOC_MAX: что не успели, остаётся без текста, документ — с предупреждением и кнопкой «Распознать оставшиеся» */
+const OCR_INIT_MS = 180000, OCR_PAGE_MS = 120000, OCR_DOC_MS = 360000, OCR_DOC_MAX = 1800000, OCR_IMG_MS = 30000, OCR_DOWN_MS = 600000;
+const ocrDocMs = (n) => Math.min(OCR_DOC_MAX, Math.max(OCR_DOC_MS, Math.ceil(n / OCR_THREADS) * OCR_IMG_MS + (ocrPool.n ? 0 : OCR_INIT_MS)));
 const ocrMs = (ms) => (window.__qaTest && window.__ocrMs) || ms;   // в автотестах сроки короткие
 const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
-const ocrPool = { idle: [], n: 0, wait: [], timer: null, down: 0, downErr: null };
+const ocrPool = { idle: [], n: 0, wait: [], timer: null, down: 0, downErr: null, loading: 0, ready: 0 };   // loading — движки в загрузке, ready — сколько загрузилось
 /* языковые данные (rus+eng) весят десятки МБ и грузятся при первом запуске: даём им время, но не бесконечно */
 async function ocrTake() {
   clearTimeout(ocrPool.timer);
   if (ocrPool.down > Date.now()) throw ocrPool.downErr;
   if (ocrPool.idle.length) return ocrPool.idle.pop();
   if (ocrPool.n >= OCR_THREADS) return new Promise((res, rej) => ocrPool.wait.push({ res, rej }));
-  ocrPool.n++;
+  ocrPool.n++; ocrPool.loading++;
   try {
     await lib('tesseract');
     if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
-    return await withTimeout(window.Tesseract.createWorker('rus+eng'), ocrMs(OCR_INIT_MS), 'OCR: не загрузились языковые данные');
-  } catch (e) {
+    const w = await withTimeout(window.Tesseract.createWorker('rus+eng'), ocrMs(OCR_INIT_MS), 'OCR: не загрузились языковые данные');
+    ocrPool.ready++;
+    return w;
+  } catch (e0) {
     ocrPool.n--;
     // движок недоступен: ждущие и следующие картинки сразу получают ошибку, а не пробуют загрузить его заново
+    const e = e0 instanceof Error ? e0 : new Error(String(e0 || 'OCR: движок не загрузился'));
+    e.ocrInit = true;   // по этой отметке предупреждение документа называет причину: не загрузился движок, а не вышло время
     ocrPool.down = Date.now() + OCR_DOWN_MS; ocrPool.downErr = e;
     for (const w of ocrPool.wait.splice(0)) w.rej(e);
     throw e;
-  }
+  } finally { ocrPool.loading--; }
 }
+// повтор распознавания по кнопке: движок пробуем загрузить снова, не дожидаясь конца OCR_DOWN_MS
+function ocrReset() { ocrPool.down = 0; ocrPool.downErr = null; }
 // освободившийся движок — следующему в очереди; без очереди он простаивает до OCR_IDLE_MS
 function ocrGive(w) {
   const next = ocrPool.wait.shift();
@@ -467,11 +475,13 @@ function ocrCachePut(k, t) {
   for (const key of m.keys()) { if (size <= OCR_CACHE_MAX) break; size -= m.get(key).length; m.delete(key); }
   lsSet(OCR_CACHE_KEY, Object.fromEntries(m));
 }
-/* распознаёт картинки в несколько потоков; уже распознанные берутся из памяти браузера. В texts — null, если картинка не распознана */
+/* распознаёт картинки в несколько потоков; уже распознанные берутся из памяти браузера. В texts — null, если картинка не распознана.
+   Нераспознанные разложены по причинам: engineN — не загрузился движок (engine — текст ошибки), broken — картинка не прочиталась,
+   late — не хватило срока документа (ms) */
 async function ocrRun(jobs, onProgress) {
   const texts = new Array(jobs.length).fill(null);
-  let done = 0, ok = 0;
-  const stop = Date.now() + ocrMs(OCR_DOC_MS), left = () => stop - Date.now();
+  let done = 0, ok = 0, fresh = 0, broken = 0, engineN = 0, engine = '';   // fresh — распознано движком в этот раз (не из памяти)
+  const ms = ocrMs(ocrDocMs(jobs.length)), stop = Date.now() + ms, left = () => stop - Date.now();
   // общий срок документа: картинки, до которых не дошла очередь, пропускаются, а зависшая — не держит документ дольше срока
   await Promise.race([
     pool(jobs, OCR_THREADS, async (j, i) => {
@@ -479,15 +489,31 @@ async function ocrRun(jobs, onProgress) {
       const hit = ocrCacheGet(j.key);
       if (hit !== null) texts[i] = hit;
       else {
-        try { const t = await withTimeout((async () => ocrRecognize(await j.src()))(), Math.max(1, left()), 'OCR: срок документа вышел'); texts[i] = t; ocrCachePut(j.key, t); }
-        catch { texts[i] = null; }
+        try { const t = await withTimeout((async () => ocrRecognize(await j.src()))(), Math.max(1, left()), 'OCR: срок документа вышел'); texts[i] = t; fresh++; ocrCachePut(j.key, t); }
+        catch (e) { texts[i] = null; if (e?.ocrInit) { engineN++; engine ||= String(e.message || e); } else if (left() > 0) broken++; }
       }
       if (texts[i] !== null) ok++;
       onProgress?.(`скриншоты: распознано ${++done} из ${jobs.length}`);
     }),
     new Promise((r) => setTimeout(r, Math.max(1, left()) + 50)),
   ]);
-  return { texts: texts.slice(), failed: jobs.length - ok };
+  const failed = jobs.length - ok;
+  let late = Math.max(0, failed - engineN - broken);
+  // срок вышел, пока движок так и не загрузился, — причина в движке, а не во времени
+  if (late && ocrPool.down > Date.now()) { engineN += late; late = 0; engine ||= String(ocrPool.downErr?.message || 'OCR: движок не загрузился'); }
+  else if (late && ocrPool.loading && !fresh) {   // движок всё ещё грузится и ни одной картинки не распознал
+    engineN += late; late = 0; engine ||= 'не успел загрузиться: языковые данные скачиваются слишком долго'; }
+  return { texts: texts.slice(), failed, total: jobs.length, ok, engineN, engine, broken, late, ms };
+}
+/* предупреждение документа о нераспознанных картинках — с причиной: по нему видно, что делать (сеть или повтор) */
+function ocrWarn(x, noun) {
+  if (!x?.failed) return '';
+  const why = [
+    x.engineN ? `движок OCR не загрузился (${x.engine.replace(/[.\s]+$/, '')}) — нужен доступ к cdn.jsdelivr.net` : '',
+    x.late ? `не хватило времени: за ${Math.max(1, Math.round(x.ms / 60000))} мин распознано ${x.ok} из ${x.total}` : '',
+    x.broken ? `не прочитались: ${x.broken}` : '',
+  ].filter(Boolean).join('; ');
+  return `Не распознано ${noun}: ${x.failed} из ${x.total} — ${why}. Распознанное сохранено: повтор распознает только оставшиеся`;
 }
 /* картинка PDF → холст: pdf.js отдаёт точки в одном из трёх форматов (ImageKind) */
 function pdfImgCanvas(img) {
@@ -573,7 +599,7 @@ async function parsePdf(buf, onProgress) {
         if (!t) return;
         if (j.scan) { j.pg.text = t; scanned++; } else { j.pg.shots.push(t); shots++; }
       });
-      return { text: compose(), pages: doc.numPages, scanned, shots, failed: r.failed };
+      return { text: compose(), pages: doc.numPages, scanned, shots, failed: r.failed, ocr: r };
     } finally { doc.destroy(); }
   };
   return base;
@@ -708,17 +734,17 @@ async function parseFile(file, onProgress) {
     const base = htmlToText(r.value), jobs = docxJobs(pics);
     const ocr = async (onP) => {
       const x = await ocrRun(jobs, onP), ts = x.texts.filter(Boolean);
-      const warn = x.failed ? `Не распознано картинок: ${x.failed} — не загрузился движок OCR или не хватило времени` : ts.length ? `Текст с ${ts.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
-      return { text: base + ts.map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join(''), warn };
+      const warn = x.failed ? ocrWarn(x, 'картинок') : ts.length ? `Текст с ${ts.length} изображений распознан автоматически — проверьте, что прочитан верно` : '';
+      return { text: base + ts.map((t, i) => `\n\n--- Текст с изображения ${i + 1} ---\n${t}`).join(''), warn, ocrLeft: x.failed };
     };
     return withOcr({ text: base }, jobs.length ? ocr : null, onProgress);
   }
   if (ext === 'pdf') {
     const r = await parsePdf(buf, onProgress);
-    const warnOf = (x) => (x.failed ? `Не распознано сканов и скриншотов: ${x.failed} — не загрузился движок OCR или не хватило времени`
+    const warnOf = (x) => (x.failed ? ocrWarn(x.ocr, 'сканов и скриншотов')
       : x.scanned || x.shots ? `Распознан текст ${[x.scanned ? `страниц-сканов: ${x.scanned}` : '', x.shots ? `скриншотов: ${x.shots}` : ''].filter(Boolean).join(', ')} — проверьте, что прочитан верно`
         : bareChars(x.text) < OCR_MIN_CHARS * x.pages ? 'Мало текста — возможно, это скан без текстового слоя' : '');
-    const ocr = r.finish && (async (onP) => { const x = await r.finish(onP); return { text: x.text, warn: warnOf(x) }; });
+    const ocr = r.finish && (async (onP) => { const x = await r.finish(onP); return { text: x.text, warn: warnOf(x), ocrLeft: x.failed }; });
     return withOcr({ text: r.text, warn: ocr ? '' : warnOf(r) }, ocr, onProgress);
   }
   if (ext === 'xlsx' || ext === 'xls') return { text: await parseSheet(buf) };
@@ -737,6 +763,7 @@ function addFiles(files) {
     S.docs.push(d);
     // в генерации и актуализации загруженный документ идёт в запуск (и, как всегда, сохраняется в продукт и базу знаний)
     if (forRun()) S.runDocs.add(d.id);
+    docFiles.set(d.id, f);
     parseFile(f, (msg) => { d.progress = msg; renderDocs(); }).then((r) => {
       docText(d, r);
       if (r.openapi) { d.openapi = true; rawSpecs.set(d.id, r.raw); }
@@ -754,8 +781,31 @@ function addFiles(files) {
   saveRunDocs(); renderDocs(); renderRunControls();
 }
 const ocrJobs = new Map();   // id документа → распознавание его скриншотов, идущее в фоне
+const docFiles = new Map();  // id документа → загруженный файл (только в этом окне): по нему «Распознать оставшиеся» разбирает файл заново
+const canOcrRetry = (d) => d.status === 'ready' && d.ocrLeft > 0 && docFiles.has(d.id) && !ocrJobs.has(d.id);
+/* «Распознать оставшиеся»: файл разбирается заново, движок OCR загружается снова (без ожидания OCR_DOWN_MS),
+   уже распознанные картинки берутся из памяти браузера — время уходит только на оставшиеся */
+async function ocrRetry(d) {
+  if (!canOcrRetry(d)) return;
+  ocrReset();
+  const onP = (msg) => { d.ocr = 'повтор: ' + msg; renderDocs(); };
+  const job = (async () => {
+    try {
+      let r = await parseFile(docFiles.get(d.id), onP);
+      if (r.ocr) r = await r.ocr(onP);
+      if (!S.docs.includes(d)) return;
+      docText(d, r); d.savedParts = 0;   // текст стал полнее — в продукт документ сохраняется заново
+    } catch (e) { d.warn = 'Повтор не удался: ' + (e.message || String(e)); }
+  })();
+  ocrJobs.set(d.id, job);
+  d.ocr = 'повтор распознавания…'; renderDocs(); renderRunControls();
+  await job;
+  ocrJobs.delete(d.id); d.ocr = '';
+  docSettle(d);
+  toast(d.ocrLeft ? `«${d.name}»: распознано не всё. ${d.warn}` : `«${d.name}»: все картинки распознаны`, d.ocrLeft ? 'err' : '');
+}
 function docText(d, r) {
-  d.progress = ''; d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || '';
+  d.progress = ''; d.text = (r.text || '').trim(); d.chars = d.text.length; d.warn = r.warn || ''; d.ocrLeft = r.ocrLeft || 0;
   d.status = d.chars ? 'ready' : 'error';
   if (!d.chars) d.error = 'В файле не найден текст';
 }

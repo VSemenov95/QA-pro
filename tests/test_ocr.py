@@ -109,7 +109,7 @@ def test_engine_that_never_loads_is_tried_once_not_per_screenshot(app, tmp_path)
     o = app.state('window.__ocr')
     assert o['inits'] <= 3   # первая волна потоков; дальше движок считается недоступным
     d = doc(app, 'ТЗ-со-скриншотами.pdf')
-    assert d['status'] == 'ready' and 'Section 1.' in d['text'] and 'не загрузился движок OCR' in d['warn']
+    assert d['status'] == 'ready' and 'Section 1.' in d['text'] and 'движок OCR не загрузился' in d['warn']
 
 
 def test_scan_only_pdf_does_not_block_run_button_when_engine_hangs(app, tmp_path):
@@ -136,3 +136,57 @@ def test_second_click_starts_run_without_waiting_for_screenshots(app, tmp_path):
     app.page.wait_for_function("() => window.__qa.S.run && window.__qa.S.run.status !== 'running' && !window.__qa.S.running", timeout=60000)
     p = app.model.prompts_of('promptAnalyze')[0]
     assert 'Section 1. Login form' in p and RED not in p
+
+
+# ---------- предупреждение называет причину; «Распознать оставшиеся» распознаёт только нераспознанное ----------
+def test_warning_names_engine_failure(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    wait_ocr(app)
+    w = doc(app, 'ТЗ-со-скриншотами.pdf')['warn']
+    assert 'из 12' in w and 'движок OCR не загрузился' in w and 'не хватило времени' not in w
+
+
+def test_warning_names_time_limit(app, tmp_path):
+    app.page.evaluate(HANG % 'hangRecognize')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    wait_ocr(app)
+    w = doc(app, 'ТЗ-со-скриншотами.pdf')['warn']
+    assert 'не хватило времени' in w and 'распознано 0 из 12' in w and 'движок' not in w
+
+
+def test_document_time_limit_grows_with_images(app):
+    one, sixty, many = app.call("[a.ocrDocMs(1), a.ocrDocMs(60), a.ocrDocMs(5000)]")
+    assert one == 360000 and sixty > 360000 and many == 1800000
+
+
+def retry(app):
+    # список документов перерисовывается во время фоновой работы (база знаний): щелчок — событием, а не мышью
+    app.page.locator('[data-doc-act="ocr"]').dispatch_event('click')
+    app.page.wait_for_function("() => window.__qa.ocrJobs.size > 0", timeout=5000)
+    app.page.wait_for_function("() => window.__qa.ocrJobs.size === 0 && window.__qa.S.docs.every((d) => !d.ocr)", timeout=20000)
+
+
+def test_retry_after_engine_failure_recognizes_all(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    wait_ocr(app)
+    assert app.page.is_visible('[data-doc-act="ocr"]')
+    app.page.evaluate("window.__ocr.hangInit = false; window.__ocrMs = 15000")   # сеть восстановилась: движок грузится, не дожидаясь 10 минут
+    retry(app)
+    d = doc(app, 'ТЗ-со-скриншотами.pdf')
+    assert d['warn'].startswith('Распознан текст') and d['ocrLeft'] == 0
+    assert 'Экран цвета 10-40-90' in d['text'] and 'Section 1.' in d['text']
+    assert not app.page.is_visible('[data-doc-act="ocr"]')
+
+
+def test_retry_recognizes_only_what_is_left(app, tmp_path):
+    app.page.evaluate(HANG % 'hangRecognize' + "; window.__ocr.hangRecognize = false; window.__ocr.hangAfter = 4; window.__ocr.delay = 5")
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    wait_ocr(app)
+    d = doc(app, 'ТЗ-со-скриншотами.pdf')
+    assert d['ocrLeft'] == 8 and 'распознано 4 из 12' in d['warn']
+    app.page.evaluate("window.__ocr.hangAfter = null; window.__ocr.calls = 0; window.__ocrMs = 15000")
+    retry(app)
+    assert app.state('window.__ocr.calls') == 8   # четыре уже распознанных — из памяти браузера
+    assert doc(app, 'ТЗ-со-скриншотами.pdf')['ocrLeft'] == 0

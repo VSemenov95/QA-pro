@@ -65,7 +65,7 @@
 | `agent-test-cases.html` | Разметка страницы |
 | `build.py` | Сборка: `tc-agent.html` (страница) и `qa-pro.html` (один файл для браузера) |
 | `prompts/` | Тексты промптов (`promptAnalyze.md`, `promptGenerate.md` и остальные). Подстановки записаны как `⟦имя⟧` |
-| `rules/` | Правила генерации: приоритеты (`priority.md`), объединение похожих проверок (`merge.md`), наборы (`suites.md`), метки названий (`title-tags.md`), вызов API (`api-call.md`), Kafka (`kafka.md`), предусловия (`preconditions.md`), шаги с сервисами (`service-steps.md`), ссылки на требования (`req-refs.md`), объём тестов (`scope.md`) |
+| `rules/` | Правила генерации: приоритеты (`priority.md`), объединение похожих проверок (`merge.md`), наборы (`suites.md`), метки названий (`title-tags.md`), вызов API (`api-call.md`), Kafka (`kafka.md`), предусловия (`preconditions.md`), данные для UI и E2E через API в предусловиях (`api-preconditions.md`), шаги с сервисами (`service-steps.md`), ссылки на требования (`req-refs.md`), объём тестов (`scope.md`) |
 | `templates/` | Шаблоны кейсов по умолчанию: `api.md`, `ui.md`, `e2e.md` |
 | `knowledge/` | Описание базы знаний QA pro |
 | `uploader/` | Расширение Chrome «QA pro — загрузчик в Сферу ФТ» |
@@ -228,6 +228,8 @@ python3 build.py                  # собрать app.js, tc-agent.html, qa-pro
 Только четыре: `P1_LOW`, `P2_MEDIUM`, `P3_HIGH`, `P4_CRITICAL`. Старые записи (`High`, `Medium`, `Low`, `high`, `medium`, `low`) приводятся к ним при сохранении. Правило лежит в `rules/priority.md`. В Test IT приоритет `Critical` для P4 и в Qase приоритет 1 для P3 и P4 — предположения, проверьте по документации систем.
 
 В предусловиях кейсов не пишется, что сервис работает: это подразумевается (`rules/preconditions.md`).
+
+В кейсах UI и E2E данные и объекты, нужные для шагов, создаются в предусловиях вызовами API в форме «Вызвать МЕТОД {baseURL}/ЭНДПОИНТ с телом:», если эндпоинт есть в документах или базе знаний; иначе предусловие описывается словами (`rules/api-preconditions.md`).
 
 **Как описывается вызов API в шаге?**
 Так: «Вызвать POST /эндпоинт с телом:», пустая строка и блок кода с телом запроса. Для запроса без тела — «Вызвать GET /эндпоинт». Правило лежит в `rules/api-call.md`.

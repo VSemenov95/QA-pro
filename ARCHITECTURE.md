@@ -99,6 +99,7 @@
   - `priority.md` — четыре значения приоритета и рубрика: какие последствия сбоя дают P4, P3, P2, P1; приоритет проверки не выше требования (`capPrio`);
   - `merge.md` — похожие проверки одного класса эквивалентности — одна проверка с перечнем данных;
   - `preconditions.md` — что не пишется в предусловиях (например, что сервис запущен);
+  - `api-preconditions.md` — UI и E2E: данные и объекты для кейса создаются в предусловиях вызовами API (только для этих видов);
   - `api-call.md` — форма вызова API: «Вызвать МЕТОД ЭНДПОИНТ с телом:» и блок кода;
   - `service-steps.md` — шаги отправки сообщения и подготовки данных;
   - `req-refs.md` — не ссылаться на требования в тексте кейса;
@@ -154,9 +155,9 @@
 | `promptAnalyzeMore` (полнота) | `scope.md` | — | документ, найденные требования |
 | `promptChecklist` (чек-лист) | `suites.md`, `scope.md`, «Правила для агента» | паспорт 8 000, разделы 12 000 (`single`) | требования, документы целиком, ответы, контекст QA, существующие пункты (200) |
 | `promptPlan` (план) | `scope.md`, «Правила для агента» | паспорт и разделы (`single`) | требования, документы целиком, ответы, контекст QA, существующие кейсы (200) |
-| `promptGenerate` (генерация) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-call`, `service-steps`, `req-refs`, `suites`, `scope`, «Правила для агента», правила шаблона | паспорт 4 000, разделы 8 000 (`batch`) | документы целиком (фрагменты 4 500 — только сверх 300 000 знаков), образец шаблона, ответы, контекст QA, существующие кейсы (25) |
-| `promptRefine` / `promptRefineItem` (доработка) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-call`, `service-steps`, `req-refs` (без `suites`, без «Правила для агента») | разделы (`batch`) | образец шаблона, ответы, контекст QA |
-| `promptReviseBatch` (исправление по ответам) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-call`, `service-steps`, `req-refs`, `suites` (без «Правила для агента») | разделы (`batch`) | образец шаблона, ответы, контекст QA |
+| `promptGenerate` (генерация) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-preconditions` (UI, E2E), `api-call`, `service-steps`, `req-refs`, `suites`, `scope`, «Правила для агента», правила шаблона | паспорт 4 000, разделы 8 000 (`batch`) | документы целиком (фрагменты 4 500 — только сверх 300 000 знаков), образец шаблона, ответы, контекст QA, существующие кейсы (25) |
+| `promptRefine` / `promptRefineItem` (доработка) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-preconditions` (UI, E2E), `api-call`, `service-steps`, `req-refs` (без `suites`, без «Правила для агента») | разделы (`batch`) | образец шаблона, ответы, контекст QA |
+| `promptReviseBatch` (исправление по ответам) | `title-tags`, `kafka`, `priority`, `preconditions`, `api-preconditions` (UI, E2E), `api-call`, `service-steps`, `req-refs`, `suites` (без «Правила для агента») | разделы (`batch`) | образец шаблона, ответы, контекст QA |
 | `promptMap` / `promptActualize` (актуализация) | «Правила для агента»; в актуализации — правила генерации | разделы (`batch`) | кейсы файла, ответы, контекст QA, образец |
 | `promptImpact` (влияние ответов) | — | — | ответы, требования, контекст QA |
 | `promptCoverageAudit` (покрытие) | `scope.md` | — | требования без кейсов |

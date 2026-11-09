@@ -1,7 +1,7 @@
 /* Заглушка tesseract.js для тестов: «распознанный» текст — цвет левой верхней точки картинки.
    Считает вызовы (__ocr.calls), одновременные распознавания (__ocr.max) и созданные движки (__ocr.workers); __ocr.delay — задержка, мс.
    __ocr.hangInit — движок не загружается никогда (как в окне, где не скачались языковые данные); __ocr.inits — попытки загрузки;
-   __ocr.hangRecognize — распознавание не заканчивается никогда */
+   __ocr.hangRecognize — распознавание не заканчивается никогда; __ocr.hangAfter — зависает каждое распознавание после первых N */
 window.__ocr = window.__ocr || { calls: 0, now: 0, max: 0, workers: 0, delay: 30 };
 window.Tesseract = {
   createWorker: async () => {
@@ -12,7 +12,7 @@ window.Tesseract = {
     return {
       recognize: async (src) => {
         o.calls++; o.now++; o.max = Math.max(o.max, o.now);
-        if (o.hangRecognize) return new Promise(() => {});
+        if (o.hangRecognize || (o.hangAfter != null && o.calls > o.hangAfter)) return new Promise(() => {});
         await new Promise((r) => setTimeout(r, o.delay));
         o.now--;
         let text = 'Картинка';
