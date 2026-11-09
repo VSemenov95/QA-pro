@@ -249,8 +249,10 @@ def test_counters_and_stats_follow_the_run(app):
 
 def test_cases_in_draft_do_not_take_numbers(app):
     app.generate()
-    assert product_doc(app)['counters'] == {'api': 0, 'ui': 0, 'e2e': 0, 'cl': 4}   # номера кейсов не заняты, пока кейсы не добавлены в проект
-    assert app.db.get(f'products/{pid_of(app)}/meta/cases') is None
+    # номера кейсов и пунктов чек-листа не заняты, пока черновик не добавлен в проект
+    assert product_doc(app).get('counters', {'api': 0, 'ui': 0, 'e2e': 0, 'cl': 0}) == {'api': 0, 'ui': 0, 'e2e': 0, 'cl': 0}
+    assert not (app.db.get(f'products/{pid_of(app)}/meta/cases') or {}).get('items')
+    assert not (app.db.get(f'products/{pid_of(app)}/meta/checklist') or {}).get('items')
 
 
 def test_run_is_saved_inside_the_product(app):

@@ -95,7 +95,7 @@ def test_review_batches_are_five_cases_at_most(app, tmp_path):
     cases = [seed.case(f'u{i}', 'api', f'API-{i:03d}', f'[BE] POST /x — проверка {i}', ['R-001']) for i in range(1, 13)]
     run = seed.run('run_d', 'Док', cases, [seed.req('R-001', 'Док')], stage='draft')
     app.import_product(seed.write(tmp_path, seed.product_export(runs=[run])))
-    app.page.wait_for_selector('#pcase-list .sec', timeout=15000)
+    app.page.wait_for_function('() => window.__qa.S.pc.loaded && !window.__qa.S.pc.busy', timeout=15000)   # черновик в кейсах продукта не виден
     app.call("a.openHistory('run_d', { tab: 'draft' })")
     app.page.wait_for_selector('.draft-head')
     app.page.click('[data-act=draft-review]')

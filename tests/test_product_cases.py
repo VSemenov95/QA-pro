@@ -53,15 +53,16 @@ def test_type_filter_and_search(shop):
     assert sections(shop) == [] and 'Ничего не найдено' in shop.text('#pcase-list')
 
 
-def test_draft_cases_are_visible(app, tmp_path):
-    """Регрессия: в индексе продукта нет кейсов из черновиков, и после загрузки вкладка оставалась пустой."""
+def test_draft_cases_are_not_product_cases(app, tmp_path):
+    """Кейсы черновика — не в продукте, пока их не добавили в проект: вкладка продукта их не показывает."""
     draft = seed.run('run_d', 'Пример', [seed.case('u1', 'ui', 'UI-001', 'Кейс из черновика', ['R-001']), seed.case('u2', 'api', 'API-001', 'Второй', ['R-001'])], [seed.req('R-001', 'Пример')], stage='draft')
     data = seed.product_export(runs=[draft])
     assert data['index']['cases'] == []   # индекс пуст, как в реальной выгрузке
     app.import_product(seed.write(tmp_path, data))
-    app.page.wait_for_selector('#pcase-list .sec', timeout=15000)
-    assert sections(app) == [['Пример', 2]]
-    assert app.count('#pcase-list .chip') == 2 and 'Черновик' in app.text('#pcase-list')
+    app.page.wait_for_function('() => window.__qa.S.pc.loaded && !window.__qa.S.pc.busy', timeout=15000)
+    app.tab('cases')
+    assert app.count('#pcase-list .case') == 0 and 'Тест-кейсов пока нет' in app.text('#tab-body')
+    assert 'Кейс из черновика' not in app.text('#tab-body')
 
 
 def test_old_index_is_not_needed(app, tmp_path):
@@ -77,8 +78,11 @@ def test_real_export_with_only_a_draft_run(app):
     import os
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'draft-export.json')
     app.import_product(path)
-    app.page.wait_for_selector('#pcase-list .sec', timeout=15000)
-    assert sum(n for _, n in sections(app)) == 4
+    app.page.wait_for_function('() => window.__qa.S.pc.loaded && !window.__qa.S.pc.busy', timeout=15000)
+    assert app.call('a.prodItems().length') == 0   # черновик — не кейсы продукта
+    app.call("a.openHistory(a.S.pc.order[0], { tab: 'draft' })")
+    app.page.wait_for_selector('.draft-head')
+    assert 'Черновик тест-кейсов · 4' in app.text('.draft-head')   # а в своём запуске — на месте
 
 
 def test_product_without_cases_shows_empty_tab(app):

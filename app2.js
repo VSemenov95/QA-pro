@@ -2752,6 +2752,12 @@ let saveTimer = null, saveChain = Promise.resolve();
 const prodPath = (pid) => `products/${pid}`;
 const runBase = (pid) => (pid ? `${prodPath(pid)}/runs` : `data/users/${S.caps.uid}`);
 const runPath = (run) => `${runBase(run.productId)}/${run.id}`;
+// сохранить запуск сейчас, без отложенной записи: для изменений, которые нельзя потерять при перезагрузке страницы
+function saveNow(run) {
+  if (!S.caps.db || !S.caps.uid || !run || run.fromHistory === 'readonly' || run.fromHistory === 'follow') return Promise.resolve();
+  clearTimeout(saveTimer);
+  return (saveChain = saveChain.then(() => saveRun(run)).catch(() => toast('Не удалось сохранить запуск в историю.', 'err')));
+}
 function queueSave(run, delay = 1500) {
   if (!S.caps.db || !S.caps.uid || !run || run.fromHistory === 'readonly' || run.fromHistory === 'follow') return;
   clearTimeout(saveTimer);
@@ -3384,9 +3390,10 @@ async function reduceDraft(target, { confirmed = false } = {}) {
 }
 /* в проект: кейсы попадают в индекс продукта (их видят «Уже есть в продукте», повторы и нумерация). Если пока кейсы
    лежали в черновике, номера заняли другие запуски — кейсы получают следующие свободные номера продукта */
+const draftSize = (run) => (run ? run.cases.length + checklistItems(run).length : 0);
 async function addDraftToProduct() {
   const run = S.run;
-  if (!run || draftLocked(run) || !isDraft(run) || !run.cases.length) return;
+  if (!run || draftLocked(run) || !isDraft(run) || !draftSize(run)) return;
   if (run.productId && S.prodIndex.pid === run.productId) {
     const others = S.prodIndex.cases.filter((x) => x.r !== run.id), taken = new Set(others.map((x) => x.i));
     const p = productById(run.productId), ctr = {};
@@ -3403,14 +3410,31 @@ async function addDraftToProduct() {
     }
     if (ren.size && run.findings) for (const f of run.findings) if (f.kind === 'case' && ren.has(f.targetId)) f.targetId = ren.get(f.targetId);
     if (ren.size) toast(`Номера заняли другие запуски — ${ren.size} ${plural(ren.size, 'кейс получил', 'кейса получили', 'кейсов получили')} следующие свободные номера`);
+    // пункты чек-листа: номера черновика не заняты в продукте, их мог занять другой запуск
+    const items = checklistItems(run), clOthers = S.prodIndex.checklist.filter((x) => x.r !== run.id), clTaken = new Set(clOthers.map((x) => x.i)), clRen = new Map();
+    let cl = Math.max(Number(p?.counters?.cl) || 0, idxMax(clOthers));
+    for (const it of items) {
+      if (!clTaken.has(it.id)) { clTaken.add(it.id); continue; }
+      let id;
+      do id = 'CL-' + pad(++cl); while (clTaken.has(id) || items.some((x) => x !== it && x.id === id));
+      clTaken.add(id); clRen.set(it.id, id); it.id = id; run.counters.cl = Math.max(run.counters.cl || 0, cl);
+    }
+    if (clRen.size) {
+      for (const c of run.cases) if (clRen.has(c.checklistId)) c.checklistId = clRen.get(c.checklistId);
+      for (const f of run.findings || []) if (f.kind === 'checklist' && clRen.has(f.targetId)) f.targetId = clRen.get(f.targetId);
+      toast(`Номера заняли другие запуски — ${clRen.size} ${plural(clRen.size, 'пункт чек-листа получил', 'пункта чек-листа получили', 'пунктов чек-листа получили')} следующие свободные номера`);
+    }
   }
   run.stage = 'added'; run.addedAt = Date.now();
   // кнопки черновика убираются сразу, а не после синхронизации с продуктом: иначе кейсы можно добавить повторно
-  queueSave(run); renderTabs(); renderTab(); renderRunControls();
+  renderTabs(); renderTab(); renderRunControls();
+  // стадия «добавлен» — в базу сразу: черновики в продукт не входят, и запуск, перезагруженный до отложенной записи, пропал бы из него
+  await saveNow(run);
   await productSync(run);
   renderTabs(); renderTab(); renderProduct(); renderRunControls();
-  const n = run.cases.length;
-  toast(run.productId ? `${n} ${plural(n, 'кейс добавлен', 'кейса добавлены', 'кейсов добавлены')} в продукт «${productById(run.productId)?.name || 'Продукт'}»` : 'Кейсы отмечены как принятые');
+  const n = run.cases.length, k = checklistItems(run).length;
+  const what = [n ? `${n} ${plural(n, 'кейс', 'кейса', 'кейсов')}` : '', k ? `${k} ${plural(k, 'пункт', 'пункта', 'пунктов')} чек-листа` : ''].filter(Boolean).join(' и ');
+  toast(run.productId ? `В продукт «${productById(run.productId)?.name || 'Продукт'}» добавлено: ${what}` : 'Результат запуска отмечен как принятый');
   learnFromEdits(run);   // правки черновика — в память агента, фоном
 }
 function dismissFinding(f, reason) {
@@ -4458,7 +4482,7 @@ function productSync(run) {
   const pid = run.productId, draft = run.stage === 'draft'; // черновик: кейсы ещё не в продукте и номера не заняты
   const mk = (i, t, n) => ({ r: run.id, i: String(i), t, n: String(n || '').replace(/\s+/g, ' ').trim().slice(0, 140) });
   const cs = draft ? [] : arrOf(run.cases).filter((c) => c.status !== 'obsolete').map((c) => mk(c.dispId, c.type, pickTitleText(c.testCase)));
-  const cl = checklistItems(run).map((it) => mk(it.id, it.type, it.check));
+  const cl = draft ? [] : checklistItems(run).map((it) => mk(it.id, it.type, it.check));   // чек-лист черновика — тоже не в продукте
   idxChain = idxChain.then(async () => {
     const cases = await writeIdx(pid, 'cases', (cur) => [...cur.filter((x) => x.r !== run.id), ...cs]);
     const checklist = await writeIdx(pid, 'checklist', (cur) => [...cur.filter((x) => x.r !== run.id), ...cl]);
@@ -4466,12 +4490,24 @@ function productSync(run) {
     await updateProduct(pid, (p) => {
       const c = {};
       for (const t of TYPES) c[t] = Math.max(Number(p.counters?.[t]) || 0, draft ? 0 : Number(run.counters?.[t]) || 0, idxMax(cases, t));
-      c.cl = Math.max(Number(p.counters?.cl) || 0, Number(run.counters?.cl) || 0, idxMax(checklist));
+      c.cl = Math.max(Number(p.counters?.cl) || 0, draft ? 0 : Number(run.counters?.cl) || 0, idxMax(checklist));
       return { counters: c, stats: { cases: cases.length, checklist: checklist.length, lastRunAt: Math.max(Number(p.stats?.lastRunAt) || 0, run.createdAt || 0) } };
     });
     if (S.productId === pid) { S.pc.at = 0; renderProduct(); }
   }).catch(() => {});
   return idxChain;
+}
+// прежние версии писали чек-лист черновика в индекс продукта: его видели проверки на повторы следующих запусков
+function pruneDraftIndex(pid, drafts) {
+  if (!drafts.size || S.prodIndex.pid !== pid || !S.caps.uid) return;
+  const open = S.run?.productId === pid && !isDraft(S.run) ? S.run.id : null;   // открытый запуск мог только что стать добавленным
+  const bad = (x) => drafts.has(x.r) && x.r !== open;
+  if (!S.prodIndex.cases.some(bad) && !S.prodIndex.checklist.some(bad)) return;
+  idxChain = idxChain.then(async () => {
+    const cases = await writeIdx(pid, 'cases', (cur) => cur.filter((x) => !bad(x)));
+    const checklist = await writeIdx(pid, 'checklist', (cur) => cur.filter((x) => !bad(x)));
+    if (S.productId === pid) S.prodIndex = { pid, cases, checklist };
+  }).catch(() => {});
 }
 function dropFromIndex(pid, runId) {
   idxChain = idxChain.then(async () => {
@@ -4868,7 +4904,8 @@ async function renameSection(doc, name) {
   if (!S.caps.db) { upsertLocalProduct(S.productId, { ...productById(S.productId), caseSections: next }); return; }
   await updateProduct(S.productId, { caseSections: next });
 }
-/* Кейсы продукта берутся из сохранённых запусков, а не из индекса: в индексе нет черновиков, а при большом объёме он обрезается с начала.
+/* Кейсы продукта берутся из сохранённых запусков, а не из индекса: при большом объёме индекс обрезается с начала.
+   Черновики в продукт не входят — их кейсы видны только в своём запуске, пока их не добавили в проект.
    Запуск читается заново только если изменилась его отметка (updatedAt, стадия, число частей). */
 const prodCaseItem = (run, c, doc) => ({ r: run.id, i: String(c.dispId), t: c.type, n: String(pickTitleText(c.testCase || {})).replace(/\s+/g, ' ').trim().slice(0, 200), doc, draft: run.stage === 'draft', obs: c.status === 'obsolete' });
 const liveRunItems = (run) => arrOf(run.cases).map((c) => prodCaseItem(run, c, docOfCase(run, c)));
@@ -4880,12 +4917,12 @@ async function readRunItems(pid, m) {
   }
   return items;
 }
-function prodItems() {   // кейсы продукта по порядку запусков; открытый запуск берётся из памяти
+function prodItems() {   // кейсы продукта по порядку запусков; открытый запуск берётся из памяти; черновики — нет
   const pc = S.pc, out = [];
   for (const id of pc.order) out.push(...(S.run?.id === id ? liveRunItems(S.run) : pc.runs[id]?.items || []));
   if (S.run && S.run.productId === S.productId && !pc.order.includes(S.run.id)) out.push(...liveRunItems(S.run));
   if (!out.length && pc.error && !pc.order.length) return S.prodIndex.cases.map((x) => ({ ...x, doc: '', draft: false, obs: false }));   // запуски не прочитались — хотя бы индекс
-  return out;
+  return out.filter((x) => !x.draft);
 }
 async function ensureProdCases(force = false) {
   const pid = S.productId, pc = S.pc;
@@ -4904,6 +4941,7 @@ async function ensureProdCases(force = false) {
     }));
     pc.order = metas.map((m) => m.id);
     for (const id of Object.keys(pc.runs)) if (!pc.order.includes(id)) delete pc.runs[id];
+    pruneDraftIndex(pid, new Set(metas.filter((m) => m.stage === 'draft').map((m) => m.id)));
   } catch { pc.error = 'Не удалось прочитать запуски продукта.'; }
   finally { pc.busy = false; if (S.productId === pid) { pc.loaded = true; pc.at = Date.now(); } }
   if (S.productId === pid) afterProdCases();

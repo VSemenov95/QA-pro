@@ -667,7 +667,7 @@ function renderTabs() {
   validTab();
   $('#tabs').hidden = S.settings.mode === 'help' || S.settings.mode === 'trace';
   const r = S.run;
-  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? r.cases.length : 0 };
+  const cnt = { reqs: r?.requirements.length, questions: r?.questions.length, cases: r ? r.cases.length : S.pc.loaded ? prodItems().length : S.prodIndex.cases.length, checklist: r ? checklistItems(r).length : 0, review: r?.findings ? r.findings.filter((f) => f.status === 'open').length : 0, draft: isDraft(r) ? draftSize(r) : 0 };
   $('#tabs').innerHTML = TABS.map(([id, name]) => `<button class="tab" type="button" role="tab" id="tab-${id}" aria-selected="${S.tab === id}" data-tab="${id}">${name}${cnt[id] ? `<span class="cnt">${cnt[id]}</span>` : ''}</button>`).join('');
 }
 // панель этапа: сколько раз звали модель и сколько токенов, что попало в запрос, последний промпт (только в текущем окне)
@@ -971,7 +971,7 @@ function sectionsHTML(items) {   // items: [{ doc, html }] — разделы п
 function prodCasesTab() {
   const all = prodItems(), n = (t) => all.filter((x) => t === 'all' || x.t === t).length;
   const chips = ['all', ...TYPES].filter((t) => t === 'all' || n(t)).map((t) => `<button class="fchip" type="button" data-act="pc-type" data-t="${t}" aria-pressed="${S.pc.type === t}">${t === 'all' ? 'Все' : TL[t]}<span class="n">${n(t)}</span></button>`).join('');
-  return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}» из всех его запусков, включая черновики, — по документам, из которых они написаны. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
+  return `<p class="hint" style="margin-bottom:10px">Тест-кейсы продукта «${esc(curProduct()?.name || '')}», добавленные в проект из всех его запусков, — по документам, из которых они написаны. Черновики сюда не входят: их кейсы — во вкладке «Черновик» своего запуска. Название раздела можно изменить: нажмите на карандаш. Чтобы открыть кейс целиком, нажмите на него.</p>
     <div class="toolbar">${chips}<button class="btn sm danger" type="button" data-act="pc-del-all" ${S.running || !all.length ? 'disabled' : ''}>Удалить все кейсы (${all.length})</button><input type="text" id="pc-q" placeholder="Поиск по кейсам" value="${esc(S.pc.q)}" aria-label="Поиск по кейсам продукта"></div>
     <div class="sections" id="pcase-list"></div>`;
 }
@@ -2209,7 +2209,7 @@ function reviewTab() {
 /* ---------- черновик: проверка сгенерированных кейсов перед добавлением в проект ---------- */
 function draftTab() {
   const r = S.run;
-  if (!r || !r.cases.length) {
+  if (!r || !draftSize(r)) {
     if (r && !isDraft(r) && r.addedAt) return emptyHTML('Кейсы добавлены в проект', `Добавлены ${fmtDate(r.addedAt)}.`);
     return emptyHTML(S.running ? 'Кейсы появятся здесь по мере генерации' : 'Черновик пуст', S.running ? '' : 'После генерации кейсы попадают сюда: проверьте их ревьюером, исправьте замечания и добавьте в проект.');
   }
@@ -2223,10 +2223,11 @@ function draftTab() {
   const revState = !r.findings ? 'ревью ещё не запускалось'
     : open.length ? `открытых замечаний ${open.length}: ${[sev('critical') ? `критичных ${sev('critical')}` : '', sev('major') ? `существенных ${sev('major')}` : '', sev('minor') ? `мелких ${sev('minor')}` : ''].filter(Boolean).join(', ')}`
       : F.length ? 'все замечания исправлены или отклонены' : 'замечаний нет';
-  const status = draft ? (r.productId ? 'Кейсы ещё не в продукте: их не видят проверки на повторы, номера не заняты.' : 'Кейсы этого запуска — без продукта.')
+  const clN = checklistItems(r).length;
+  const status = draft ? (r.productId ? `${r.cases.length ? 'Кейсы' : 'Чек-лист'}${r.cases.length && clN ? ' и чек-лист' : ''} ещё не в продукте: их не видят проверки на повторы, номера не заняты.` : 'Результат этого запуска — без продукта.')
     : `Добавлены в проект ${fmtDate(r.addedAt || r.finishedAt || Date.now())}.`;
   const head = `<div class="exp-card draft-head">
-      <div class="exp-row"><b>${draft ? 'Черновик тест-кейсов' : 'Тест-кейсы запуска'} · ${r.cases.length}</b><span class="muted small">${esc(byType)}</span></div>
+      <div class="exp-row"><b>${draft ? 'Черновик тест-кейсов' : 'Тест-кейсы запуска'} · ${r.cases.length}</b><span class="muted small">${esc(byType)}${clN ? `${byType ? ' · ' : ''}чек-лист: ${clN} ${plural(clN, 'пункт', 'пункта', 'пунктов')}` : ''}</span></div>
       <p class="hint">${esc(status)} Ревью: ${esc(revState)}.</p>
       ${busy ? `<div class="exp-row"><span class="small">${step === 'fix' ? 'Агент исправляет замечания…' : 'Ревьюер проверяет кейсы…'}</span></div>${logHTML(r.steps[step].log)}` : ''}
       <div class="draft-acts">
@@ -2237,7 +2238,7 @@ function draftTab() {
         ${r.etalon ? `<button class="link" type="button" data-act="etalon-result">Правила из эталона${etalonPending(r) ? ` · ждут решения ${etalonPending(r)}` : ''}</button>` : ''}
         <span class="sp"></span>
         ${draft ? `<button class="btn danger" type="button" data-act="draft-clear" ${lock ? 'disabled' : ''}>Очистить</button>
-        <button class="btn accent" type="button" data-act="draft-add" ${lock ? 'disabled' : ''} title="${r.productId ? 'Кейсы попадут в продукт: их увидят следующие запуски и команда' : 'Принять кейсы этого запуска'}">Добавить в проект (${r.cases.length})</button>` : '<span class="chip ok">в проекте</span>'}
+        <button class="btn accent" type="button" data-act="draft-add" ${lock ? 'disabled' : ''} title="${r.productId ? 'Кейсы попадут в продукт: их увидят следующие запуски и команда' : 'Принять кейсы этого запуска'}">Добавить в проект (${draftSize(r)})</button>` : '<span class="chip ok">в проекте</span>'}
       </div></div>`;
   const rows = r.cases.map((c) => {
     const fs = caseFindings(r, c, false), op = fs.filter((f) => f.status === 'open'), done = fs.length - op.length;
@@ -2997,6 +2998,6 @@ renderQaCtx();
 renderCfg();
 bind();
 renderAll();
-if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, kbAreaOf, kbEndpoint, kbMapMd, kbMapFor, kbGenBlock, ctxReadmeSync, ocrJobs, ocrDone, bytesKey, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, capPrio, budgetPlan, budgetChecklist, budgetRule, CHECK_BUDGET, mainPathGaps, noteEdit, notePrio, learnFromEdits, stageDefault, etalonMetrics, etalonTotals, etalonParts, etalonMerge, etalonCaseText, etalonNormRules, repairJSON, apiTypePrio, isTypeCheck, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
+if (window.__qaTest) window.__qa = { kbSynthJob, pageNums, parsePdf, parseSheet, kbAreaOf, kbEndpoint, kbMapMd, kbMapFor, kbGenBlock, ctxReadmeSync, prodItems, ensureProdCases, checklistItems, ocrJobs, ocrDone, bytesKey, checklistRows, checklistMarkdown, checklistJSON, checklistPdfDoc, checklistPdfBlob, checklistDocx, capChecklist, splitQuota, clCheckText, planFromChecklistOn, ask, downloadBridge, stageTier, stageModel, matchBatch, normPrio, withCritical, suitesByPrio, capPrio, budgetPlan, budgetChecklist, budgetRule, CHECK_BUDGET, mainPathGaps, noteEdit, notePrio, learnFromEdits, stageDefault, etalonMetrics, etalonTotals, etalonParts, etalonMerge, etalonCaseText, etalonNormRules, repairJSON, apiTypePrio, isTypeCheck, ruleViolations, applyRuleFixes, capChecks, prioClass, prioRu, PRIOS, templateBlock, pickTitleText, orderLikeTemplate, tagTitle, titleTagFor, titleTagOk, tplInfo, S, newRun, renderAll, renderTabs, renderTab, caseUI, deHtml, cleanCase, cleanPre, tmsCase, sferaCase, sferaExportJSON, unfence, docsFor, kbFit, kbBySubs, kbPack, kbMaterial, kbPages, kbPartsHash, kbProgress, kbIdxRead, kbIdxWrite, kbOutline, outOfScope, noReqRefs, addDraftToProduct, kbRead, loadKb, savePassport, productBlock, readProduct, kbGenBlock, kbRank, kbSections, kbStale, kbSynthBody, kbLoadAll, makeTools, openHistory, readSession, cleanCase, cleanPre, deHtml, tmsCase, reduceSelect, reduceDraft, questionsExport, questionsLetter, questionsMarkdown, runEtalon, etalonDecide, promptEtalon, etalonFit, openEtalon, ctxSwitch, ctxRefresh, ctxConnect, ctxKbParse, ctxKbSerialize, kbSave, kbBlock, ctxParseTpl, ctxMakeTpl, ctxParseLessons, ctxMakeLessons, ctxParseQaCtx, ctxMakeQaCtx, ctxPut, ctxFlush, ctxExportPlan, ctxSend, ctxAutoRun, ctxAutoToggle, ctxPickFolder, hydrateProd, curProduct, saveCfg, addLesson, knowBlocks, makeTools, failedInfo, defectText, normDefect, loadDefects, baseUrlText }; // только для автотестов
 initCaps();
 })();

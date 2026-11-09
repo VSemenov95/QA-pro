@@ -363,7 +363,7 @@ def test_form_hint_matches_validation_with_obsolete_cases(app, tmp_path):
     cases.append(seed.case('u4', 'ui', 'UI-004', '[FE] Устаревший', ['R-004'], status='obsolete'))
     run = seed.run('run_u', 'Док', cases, [seed.req(f'R-00{i}', 'Док') for i in (1, 2, 3, 4)], stage='draft')
     app.import_product(seed.write(tmp_path, seed.product_export(runs=[run])))
-    app.page.wait_for_selector('#pcase-list .sec', timeout=15000)
+    app.page.wait_for_function('() => window.__qa.S.pc.loaded && !window.__qa.S.pc.busy', timeout=15000)   # черновик в кейсах продукта не виден
     app.call("a.openHistory('run_u', { tab: 'draft' })")
     app.page.wait_for_selector('.draft-head')
     open_reduce(app)
