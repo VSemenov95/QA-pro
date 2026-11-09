@@ -19,3 +19,5 @@ node_modules/
 *.log
 tests/.cache/
 .pytest_cache/
+# файлы движка OCR для публикации (python ocr_assets.py)
+ocr/

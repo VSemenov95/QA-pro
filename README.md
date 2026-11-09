@@ -64,6 +64,7 @@
 | `appctx.js` | Источник контекста: папка, git-репозиторий или GitHub вместо базы QA pro ([docs/context-source.md](docs/context-source.md)) |
 | `agent-test-cases.html` | Разметка страницы |
 | `build.py` | Сборка: `tc-agent.html` (страница) и `qa-pro.html` (один файл для браузера) |
+| `ocr_assets.py` | Файлы движка распознавания (tesseract.js, ядро, языковые данные rus и eng) в папку `ocr/`: публикуются вместе с `tc-agent.html`, чтобы распознавание не зависело от cdn.jsdelivr.net. В git папки нет: `python3 ocr_assets.py` скачивает её через npm |
 | `prompts/` | Тексты промптов (`promptAnalyze.md`, `promptGenerate.md` и остальные). Подстановки записаны как `⟦имя⟧` |
 | `rules/` | Правила генерации: приоритеты (`priority.md`), объединение похожих проверок (`merge.md`), наборы (`suites.md`), метки названий (`title-tags.md`), вызов API (`api-call.md`), Kafka (`kafka.md`), предусловия (`preconditions.md`), данные для UI и E2E через API в предусловиях (`api-preconditions.md`), шаги с сервисами (`service-steps.md`), ссылки на требования (`req-refs.md`), объём тестов (`scope.md`) |
 | `templates/` | Шаблоны кейсов по умолчанию: `api.md`, `ui.md`, `e2e.md` |
@@ -96,6 +97,8 @@ python3 build.py
 ```
 
 После сборки появятся `qa-pro.html` (готовое приложение в одном файле) и `tc-agent.html` (то же приложение для тестов). Файлы `app.js`, `tc-agent.html` и `qa-pro.html` в git не попадают, их всегда собирают заново.
+
+При публикации артефакта рядом со страницей публикуется папка `ocr/` (`python3 ocr_assets.py`, около 15 МБ): из неё приложение берёт движок распознавания скриншотов. Без неё (например, в `qa-pro.html`) движок и языковые данные грузятся с cdn.jsdelivr.net.
 
 ### 2. Открыть в Chrome
 

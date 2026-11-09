@@ -235,3 +235,51 @@ def test_saved_document_with_unrecognized_images_tells_to_upload_again(app, tmp_
       a.docFiles.delete(d.id); d.ocrLeft = 0; d.warn = 'Не распознано сканов и скриншотов: 37 — не загрузился движок OCR или не хватило времени'; a.renderAll(); }}""")
     assert not app.page.is_visible('[data-doc-act="ocr"]')
     assert 'загрузите файл ещё раз' in app.text('#doc-list')
+
+
+# ---------- движок и языковые данные — из папки ocr/ рядом со страницей; нет своих файлов — с CDN ----------
+def serve_local_engine(app):
+
+    from tests.support import app as app_mod, libs
+    stub = libs.STUBS['tesseract.js@5.1.1/dist/tesseract.min.js']
+    gz = __import__('base64').b64encode(__import__('gzip').compress(b'traineddata')).decode()   # языковые данные — base64 от .gz
+
+    def serve(r):
+        if r.request.url.endswith('.b64.txt'):
+            return r.fulfill(body=gz, content_type='text/plain')
+        return r.fulfill(path=stub, content_type='application/javascript')
+    app.ctx.route(app_mod.URL + 'ocr/**', serve)
+    app.reload()
+
+
+def test_engine_files_come_from_the_app_itself(app, tmp_path):
+    serve_local_engine(app)
+    app.upload(files.pdf_with_screens(tmp_path))
+    wait_ocr(app)
+    paths = [p for p in app.state('window.__ocr.paths') if p]
+    assert paths and paths[0]['workerPath'].endswith('/ocr/worker.min.js')
+    assert paths[0]['corePath'].endswith('/ocr/core')
+    assert [x.split(':')[0] for x in paths[0]['langs']] == ['rus', 'eng'] and all(int(x.split(':')[1]) > 10 for x in paths[0]['langs'])
+    assert RED in doc(app, 'ТЗ-со-скриншотами.pdf')['text']
+
+
+def test_without_own_files_engine_comes_from_cdn(app, tmp_path):
+    app.upload(files.pdf_with_screens(tmp_path))   # в тестах по адресу ocr/ сервер отдаёт страницу, а не файлы движка
+    wait_ocr(app)
+    assert all(p is None for p in app.state('window.__ocr.paths'))
+    assert RED in doc(app, 'ТЗ-со-скриншотами.pdf')['text']
+
+
+def test_broken_own_files_fall_back_to_cdn(app, tmp_path):
+    serve_local_engine(app)
+    app.page.evaluate("window.__ocr = { calls: 0, now: 0, max: 0, workers: 0, delay: 30, failLocal: true }")
+    app.upload(files.pdf_with_screens(tmp_path))
+    wait_ocr(app)
+    d = doc(app, 'ТЗ-со-скриншотами.pdf')
+    assert RED in d['text'] and not d['warn'].startswith('Не распознано')
+    assert None in app.state('window.__ocr.paths')   # после отказа своих файлов — движок с CDN
+
+
+def test_engine_failure_with_own_files_does_not_blame_cdn(app):
+    w = app.call("a.ocrWarn({ failed: 3, total: 3, ok: 0, engineN: 3, engine: 'ошибка', broken: 0, late: 0, ms: 60000, cdn: false }, 'картинок')")
+    assert 'движок OCR не загрузился (ошибка)' in w and 'cdn.jsdelivr.net' not in w

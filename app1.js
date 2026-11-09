@@ -399,18 +399,62 @@ const OCR_INIT_MS = 180000, OCR_PAGE_MS = 120000, OCR_DOC_MS = 360000, OCR_DOC_M
 const ocrDocMs = (n) => Math.min(OCR_DOC_MAX, Math.max(OCR_DOC_MS, Math.ceil(n / OCR_THREADS) * OCR_IMG_MS + (ocrPool.n ? 0 : OCR_INIT_MS)));
 const ocrMs = (ms) => (window.__qaTest && window.__ocrMs) || ms;   // в автотестах сроки короткие
 const RASTER_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
-const ocrPool = { idle: [], n: 0, wait: [], timer: null, down: 0, downErr: null, loading: 0, ready: 0 };   // loading — движки в загрузке, ready — сколько загрузилось
-/* языковые данные (rus+eng) весят десятки МБ и грузятся при первом запуске: даём им время, но не бесконечно */
+const ocrPool = { idle: [], n: 0, wait: [], timer: null, down: 0, downErr: null, loading: 0, ready: 0, src: '', gen: 0 };   // loading — движки в загрузке, ready — сколько загрузилось, src — откуда движок: 'local' или 'cdn', gen — номер попытки (растёт при повторе)
+/* Движок и языковые данные публикуются вместе с приложением — папка ocr/ рядом со страницей (python ocr_assets.py):
+   распознавание работает и там, где cdn.jsdelivr.net закрыт. Своих файлов нет (автономная версия, другой хостинг) —
+   движок, ядро и языковые данные с CDN, как раньше */
+const OCR_DIR = 'ocr/';
+let ocrLocal = null;
+function ocrLocalPaths() {
+  return (ocrLocal ||= (async () => {
+    try {
+      const b = new URL(OCR_DIR, location.href).href;
+      const r = await withTimeout(fetch(b + 'worker.min.js', { cache: 'no-store' }), 15000, 'OCR: свои файлы не ответили');
+      // вместо файла движка сервер может отдать страницу (адрес не найден, но ответ 200) — такие файлы не годятся
+      if (!r.ok || /html/i.test(r.headers.get('content-type') || '')) return null;
+      return { lib: b + 'tesseract.min.js', lang: b + 'lang/', opts: { workerPath: b + 'worker.min.js', corePath: b + 'core' } };
+    } catch { return null; }
+  })());
+}
+/* языковые данные из своих файлов: base64 (артефакт не отдаёт .gz) → байты; движок примет их вместо загрузки с CDN */
+let ocrLangs = null;
+function ocrLocalLangs(base) {
+  const one = async (code) => {
+    const r = await fetch(`${base}${code}.traineddata.gz.b64.txt`);
+    if (!r.ok) throw new Error(`OCR: нет языковых данных ${code} (${r.status})`);
+    const bin = atob((await r.text()).trim()), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    if (u8[0] !== 31 || u8[1] !== 139) throw new Error(`OCR: языковые данные ${code} повреждены`);
+    return { code, data: u8 };
+  };
+  ocrLangs ||= Promise.all(['rus', 'eng'].map(one));
+  ocrLangs.catch(() => { ocrLangs = null; });
+  return ocrLangs;
+}
+async function ocrCreate() {
+  const loc = await ocrLocalPaths();
+  if (loc && !window.Tesseract) await loadScriptFrom(loc.lib).catch(() => {});
+  if (!window.Tesseract) await lib('tesseract');
+  if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
+  const make = (opts, langs) => withTimeout(opts ? window.Tesseract.createWorker(langs, 1, opts) : window.Tesseract.createWorker('rus+eng'), ocrMs(OCR_INIT_MS), 'OCR: не загрузились языковые данные');
+  if (loc && ocrPool.src !== 'cdn') {
+    try { const w = await make(loc.opts, await ocrLocalLangs(loc.lang)); ocrPool.src = 'local'; return w; }
+    catch (e) { if (ocrPool.src === 'local') throw e; ocrPool.src = 'cdn'; }   // свои файлы не подошли ни разу — движок с CDN
+  }
+  const w = await make(null);
+  ocrPool.src = 'cdn';
+  return w;
+}
+/* языковые данные (rus+eng) весят несколько МБ и грузятся при первом запуске: даём им время, но не бесконечно */
 async function ocrTake() {
   clearTimeout(ocrPool.timer);
   if (ocrPool.down > Date.now()) throw ocrPool.downErr;
   if (ocrPool.idle.length) return ocrPool.idle.pop();
   if (ocrPool.n >= OCR_THREADS) return new Promise((res, rej) => ocrPool.wait.push({ res, rej }));
   ocrPool.n++; ocrPool.loading++;
+  const gen = ocrPool.gen;
   try {
-    await lib('tesseract');
-    if (!window.Tesseract) throw new Error('Библиотека OCR не загрузилась.');
-    const w = await withTimeout(window.Tesseract.createWorker('rus+eng'), ocrMs(OCR_INIT_MS), 'OCR: не загрузились языковые данные');
+    const w = await ocrCreate();
     ocrPool.ready++;
     return w;
   } catch (e0) {
@@ -418,13 +462,15 @@ async function ocrTake() {
     // движок недоступен: ждущие и следующие картинки сразу получают ошибку, а не пробуют загрузить его заново
     const e = e0 instanceof Error ? e0 : new Error(String(e0 || 'OCR: движок не загрузился'));
     e.ocrInit = true;   // по этой отметке предупреждение документа называет причину: не загрузился движок, а не вышло время
+    // загрузка, начатая до «Распознать оставшиеся», не помечает движок недоступным: ждущим — новая попытка
+    if (gen !== ocrPool.gen) { ocrNext(); throw e; }
     ocrPool.down = Date.now() + OCR_DOWN_MS; ocrPool.downErr = e;
     for (const w of ocrPool.wait.splice(0)) w.rej(e);
     throw e;
   } finally { ocrPool.loading--; }
 }
 // повтор распознавания по кнопке: движок пробуем загрузить снова, не дожидаясь конца OCR_DOWN_MS
-function ocrReset() { ocrPool.down = 0; ocrPool.downErr = null; }
+function ocrReset() { ocrPool.gen++; ocrPool.down = 0; ocrPool.downErr = null; ocrLocal = null; if (!ocrPool.n) ocrPool.src = ''; }   // и свои файлы движка проверяются заново
 // освободившийся движок — следующему в очереди; без очереди он простаивает до OCR_IDLE_MS
 function ocrGive(w) {
   const next = ocrPool.wait.shift();
@@ -503,13 +549,13 @@ async function ocrRun(jobs, onProgress) {
   if (late && ocrPool.down > Date.now()) { engineN += late; late = 0; engine ||= String(ocrPool.downErr?.message || 'OCR: движок не загрузился'); }
   else if (late && ocrPool.loading && !fresh) {   // движок всё ещё грузится и ни одной картинки не распознал
     engineN += late; late = 0; engine ||= 'не успел загрузиться: языковые данные скачиваются слишком долго'; }
-  return { texts: texts.slice(), failed, total: jobs.length, ok, engineN, engine, broken, late, ms };
+  return { texts: texts.slice(), failed, total: jobs.length, ok, engineN, engine, broken, late, ms, cdn: ocrPool.src !== 'local' };
 }
 /* предупреждение документа о нераспознанных картинках — с причиной: по нему видно, что делать (сеть или повтор) */
 function ocrWarn(x, noun) {
   if (!x?.failed) return '';
   const why = [
-    x.engineN ? `движок OCR не загрузился (${x.engine.replace(/[.\s]+$/, '')}) — нужен доступ к cdn.jsdelivr.net` : '',
+    x.engineN ? `движок OCR не загрузился (${x.engine.replace(/[.\s]+$/, '')})${x.cdn ? ' — нужен доступ к cdn.jsdelivr.net' : ''}` : '',
     x.late ? `не хватило времени: за ${Math.max(1, Math.round(x.ms / 60000))} мин распознано ${x.ok} из ${x.total}` : '',
     x.broken ? `не прочитались: ${x.broken}` : '',
   ].filter(Boolean).join('; ');
