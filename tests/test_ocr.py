@@ -190,3 +190,48 @@ def test_retry_recognizes_only_what_is_left(app, tmp_path):
     retry(app)
     assert app.state('window.__ocr.calls') == 8   # четыре уже распознанных — из памяти браузера
     assert doc(app, 'ТЗ-со-скриншотами.pdf')['ocrLeft'] == 0
+
+
+# ---------- повторная загрузка документа с нераспознанными картинками заменяет прежнюю копию ----------
+NAME = 'ТЗ-со-скриншотами.pdf'
+
+
+def same_name(app):
+    return app.state(f"S.docs.filter((d) => d.name === {NAME!r}).map((d) => ({{ id: d.id, warn: d.warn, text: d.text, ocrLeft: d.ocrLeft }}))")
+
+
+def test_reupload_replaces_copy_with_unrecognized_images(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    f = files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)])
+    app.upload(f)
+    wait_ocr(app)
+    first = same_name(app)
+    assert len(first) == 1 and first[0]['ocrLeft'] == 12
+    app.page.evaluate("window.__ocr.hangInit = false; window.__ocrMs = 15000; window.__qa.ocrReset()")
+    app.upload(f)
+    app.page.wait_for_function(f"() => window.__qa.ocrJobs.size === 0 && window.__qa.S.docs.filter((d) => d.name === {NAME!r}).length === 1 && window.__qa.S.docs.every((d) => d.status !== 'parsing')", timeout=20000)
+    now = same_name(app)
+    assert len(now) == 1 and now[0]['id'] == first[0]['id']   # тот же документ — в продукте и базе знаний обновляется он, а не появляется второй
+    assert now[0]['ocrLeft'] == 0 and 'Экран цвета 10-40-90' in now[0]['text']
+
+
+def test_reupload_that_fails_again_still_keeps_one_copy(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    f = files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)])
+    app.upload(f)
+    wait_ocr(app)
+    app.page.evaluate("window.__qa.ocrReset()")
+    app.upload(f)
+    app.page.wait_for_function(f"() => window.__qa.ocrJobs.size === 0 && window.__qa.S.docs.filter((d) => d.name === {NAME!r}).length === 1 && window.__qa.S.docs.every((d) => d.status !== 'parsing')", timeout=20000)
+    assert app.page.is_visible('[data-doc-act="ocr"]')   # у новой копии файл в памяти — её можно распознать повтором
+
+
+def test_saved_document_with_unrecognized_images_tells_to_upload_again(app, tmp_path):
+    app.page.evaluate(HANG % 'hangInit')
+    app.upload(files.pdf_with_screens(tmp_path, pages=[(LONG, MANY)]))
+    wait_ocr(app)
+    # как документ, прочитанный из продукта: файла в памяти нет, предупреждение — из прежней версии
+    app.page.evaluate(f"""() => {{ const a = window.__qa, d = a.S.docs.find((x) => x.name === {NAME!r});
+      a.docFiles.delete(d.id); d.ocrLeft = 0; d.warn = 'Не распознано сканов и скриншотов: 37 — не загрузился движок OCR или не хватило времени'; a.renderAll(); }}""")
+    assert not app.page.is_visible('[data-doc-act="ocr"]')
+    assert 'загрузите файл ещё раз' in app.text('#doc-list')

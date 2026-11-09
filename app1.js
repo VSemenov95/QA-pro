@@ -809,8 +809,24 @@ function docText(d, r) {
   d.status = d.chars ? 'ready' : 'error';
   if (!d.chars) d.error = 'В файле не найден текст';
 }
+/* у документа остались нераспознанные картинки: сейчас (ocrLeft) или по предупреждению, сохранённому в продукте */
+const ocrIncomplete = (d) => d.ocrLeft > 0 || /^Не распознано (сканов|картинок)/.test(d.warn || '');
+/* повторная загрузка документа с нераспознанными картинками: новая копия встаёт на место прежней и берёт её id —
+   в продукте и базе знаний обновляется тот же документ, а второй копии с тем же именем не появляется */
+function docReplace(old, d) {
+  const inRun = S.runDocs.delete(old.id) | S.runDocs.delete(d.id);
+  if (docFiles.has(d.id)) { docFiles.set(old.id, docFiles.get(d.id)); docFiles.delete(d.id); }
+  d.id = old.id; d.addedAt = old.addedAt || d.addedAt; d.savedParts = 0;
+  const rest = S.docs.filter((x) => x !== d);
+  rest.splice(rest.indexOf(old), 1, d);
+  S.docs = rest;
+  if (inRun) S.runDocs.add(d.id);
+  toast(`«${d.name}» заменил прежнюю копию${d.pid ? ' в продукте' : ''}${d.ocrLeft ? ` — не распознано ещё ${d.ocrLeft}` : ': все картинки распознаны'}`, d.ocrLeft ? 'err' : '');
+}
 function docSettle(d) {
-  if (d.status === 'ready' && S.docs.includes(d)) {
+  const old = d.status === 'ready' && S.docs.includes(d) && S.docs.find((x) => x !== d && x.pid === d.pid && x.name === d.name && x.status === 'ready' && ocrIncomplete(x));
+  if (old) { docReplace(old, d); persistDocText(d); }
+  else if (d.status === 'ready' && S.docs.includes(d)) {
     // тот же файл уже есть в продукте — второй копии не делаем, в запуск берём имеющийся
     const twin = S.docs.find((x) => x !== d && x.pid === d.pid && x.status === 'ready' && x.chars === d.chars && x.text === d.text);
     if (twin) {
