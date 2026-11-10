@@ -1,0 +1,24 @@
+# GET /api/checkpoints/{mcId} — получение заголовков контрольных точек карточки мониторинга
+
+> Получение заголовков контрольных точек карточки мониторинга проверяется на ответ 200 OK и сообщения аудита START и SUCCESS.
+
+## Сфера.Аудит — история прохождений и тест-план.md
+
+### Бизнес-правила и ограничения
+- Предусловия: `SFERA_AUDIT_ENABLED = true`, `SFERA_AUDIT_TRANSPORT_MODE=KAFKA`, `SFERA_AUDIT_KAFKA_TOPIC=audit-topic`.
+- Существует карточка мониторинга, известен идентификатор `mcId`, например `192317`.
+### API и интеграции
+- Шаг 1: отправить `GET {{baseURL}}/api/checkpoints/{mcId}`, где `mcId=Идентификатор карточки мониторинга`. Ожидается `Статус Код 200 OK`.
+- Шаги 2 и 3: проверить сообщения события `CHECKPOINT_GET_CHECKPOINT_HEADERS` со статусами `START` и `SUCCESS`; оба присутствуют в топике `audit-topic`.
+### Сообщения и ошибки
+- Общие поля примеров: `version="1.0"`, `correlationId="93c14233-6ea8-4f4d-afe7-052ecc6bafca"`, `code="PPBP_CHECKPOINT_GET_CHECKPOINT_HEADERS"`, `infoSystemCode="PPBP"`, `infoSystemId="2099"`, `additionalAttributes.mcId=192317`.
+- `userIdentity.login="sa-ppbp"`, `userIdentity.sourceIPAddress="10.228.64.26"`; в `userIdentity.requestMetadata`: `ipNearbyNode="10.228.64.26"`, `ipRecipient="10.233.70.191"`, `sessionId=""`, `url="/api/checkpoints/192317"`, `method="GET"`.
+- `podName="trmonbs-admin-service-8976b8659-xn92z"`, `namespace="ppbp"`, `eventCodeAlias=null`, `eventType="Просмотр"`, `businessOperation="Получение заголовков контрольных точек карточки мониторинга"`, `businessObject="Контрольная точка"`, `businessObjectExpression=null`, `title="'Получение заголовков контрольных точек карточки мониторинга'"`, `crossSystemEvent=false`, `userType="ANY"`, `eventLevel="MEDIUM"`, `vendor="Sfera"`, `techSectionCode="hi"`, `starterVersion="4.2.3-java-17"`.
+- Начало: `status="START"`, `messageTemplate="Начало операции"`, `time="2026-09-20T19:23:39.685Z"`, `id="7b3963e2-ca3f-4782-9f5f-0c6463c2ed4f"`.
+- Завершение: `status="SUCCESS"`, `messageTemplate="Успешно завершено"`, `time="2026-09-20T19:23:40.051Z"`, `id="f56a65a2-e632-4aec-83c7-d32945d20b46"`.
+### Сценарии
+- Тест PPBP-3600: тип `СТ`, приоритет `Средний`, состояние `Готов к автоматизации`, результат теста и шагов `Успешен`; исполнитель `Nudiplodov Stepan Петрович`, дата `20.09.2026 23:31:30`. Постусловие 1 не заполнено.
+
+<!-- qa-pro:kb
+{"kind":"kbblock","id":"kbmwb4rzugx4x4m","area":"api","parts":[{"docId":"import_audit_execution_history","docName":"Сфера.Аудит — история прохождений и тест-план.md","chunk":3,"sections":["PPBP-3600 · [BE] Проверка события CHECKPOINT_GET_CHECKPOINT_HEADERS"],"md":"### Бизнес-правила и ограничения\n- Предусловия: `SFERA_AUDIT_ENABLED = true`, `SFERA_AUDIT_TRANSPORT_MODE=KAFKA`, `SFERA_AUDIT_KAFKA_TOPIC=audit-topic`.\n- Существует карточка мониторинга, известен идентификатор `mcId`, например `192317`.\n### API и интеграции\n- Шаг 1: отправить `GET {{baseURL}}/api/checkpoints/{mcId}`, где `mcId=Идентификатор карточки мониторинга`. Ожидается `Статус Код 200 OK`.\n- Шаги 2 и 3: проверить сообщения события `CHECKPOINT_GET_CHECKPOINT_HEADERS` со статусами `START` и `SUCCESS`; оба присутствуют в топике `audit-topic`.\n### Сообщения и ошибки\n- Общие поля примеров: `version=\"1.0\"`, `correlationId=\"93c14233-6ea8-4f4d-afe7-052ecc6bafca\"`, `code=\"PPBP_CHECKPOINT_GET_CHECKPOINT_HEADERS\"`, `infoSystemCode=\"PPBP\"`, `infoSystemId=\"2099\"`, `additionalAttributes.mcId=192317`.\n- `userIdentity.login=\"sa-ppbp\"`, `userIdentity.sourceIPAddress=\"10.228.64.26\"`; в `userIdentity.requestMetadata`: `ipNearbyNode=\"10.228.64.26\"`, `ipRecipient=\"10.233.70.191\"`, `sessionId=\"\"`, `url=\"/api/checkpoints/192317\"`, `method=\"GET\"`.\n- `podName=\"trmonbs-admin-service-8976b8659-xn92z\"`, `namespace=\"ppbp\"`, `eventCodeAlias=null`, `eventType=\"Просмотр\"`, `businessOperation=\"Получение заголовков контрольных точек карточки мониторинга\"`, `businessObject=\"Контрольная точка\"`, `businessObjectExpression=null`, `title=\"'Получение заголовков контрольных точек карточки мониторинга'\"`, `crossSystemEvent=false`, `userType=\"ANY\"`, `eventLevel=\"MEDIUM\"`, `vendor=\"Sfera\"`, `techSectionCode=\"hi\"`, `starterVersion=\"4.2.3-java-17\"`.\n- Начало: `status=\"START\"`, `messageTemplate=\"Начало операции\"`, `time=\"2026-09-20T19:23:39.685Z\"`, `id=\"7b3963e2-ca3f-4782-9f5f-0c6463c2ed4f\"`.\n- Завершение: `status=\"SUCCESS\"`, `messageTemplate=\"Успешно завершено\"`, `time=\"2026-09-20T19:23:40.051Z\"`, `id=\"f56a65a2-e632-4aec-83c7-d32945d20b46\"`.\n### Сценарии\n- Тест PPBP-3600: тип `СТ`, приоритет `Средний`, состояние `Готов к автоматизации`, результат теста и шагов `Успешен`; исполнитель `Nudiplodov Stepan Петрович`, дата `20.09.2026 23:31:30`. Постусловие 1 не заполнено.","h":"3jcb0xs50o","at":1794341797432}],"by":"local","updatedAt":1794341797436,"ph":"1b5ru8towrq","bodyIsSynth":false}
+-->
